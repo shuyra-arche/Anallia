@@ -15,7 +15,9 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
   let drag: { id: number; at: Vec; camera: Camera; moved: boolean } | null =
       null,
     lastWheel = -Infinity,
-    suppressClick = false;
+    suppressClick = false,
+    composing = false;
+  let compositionCommitted: string | null = null;
   const pointers = new Map<number, Vec>();
   let pinchDistance: number | null = null;
   const element = (target: EventTarget | null) =>
@@ -25,13 +27,62 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
     y: e.clientY,
   });
   host.addEventListener(
+    "compositionstart",
+    (e) => {
+      if (element(e.target)?.matches("input.hub-search-input")) {
+        composing = true;
+        compositionCommitted = null;
+      }
+    },
+    { signal },
+  );
+  host.addEventListener(
+    "compositionend",
+    (e) => {
+      const target = element(e.target);
+      if (
+        target instanceof HTMLInputElement &&
+        target.matches("input.hub-search-input")
+      ) {
+        composing = false;
+        compositionCommitted = target.value;
+        port.dispatch({ type: "search", query: target.value });
+      }
+    },
+    { signal },
+  );
+  host.addEventListener(
+    "input",
+    (e) => {
+      const target = element(e.target);
+      if (
+        target instanceof HTMLInputElement &&
+        target.matches("input.hub-search-input") &&
+        !composing &&
+        !(e as InputEvent).isComposing
+      ) {
+        if (compositionCommitted === target.value) {
+          compositionCommitted = null;
+          return;
+        }
+        compositionCommitted = null;
+        port.dispatch({ type: "search", query: target.value });
+      }
+    },
+    { signal },
+  );
+  host.addEventListener(
     "pointerdown",
     (e) => {
       if (element(e.target)?.closest("#loadingOverlay.active")) {
         port.exitLoading();
         return;
       }
-      if (e.button !== 0 || element(e.target)?.closest("button")) return;
+      if (
+        e.button !== 0 ||
+        element(e.target)?.closest("button, input, article.note")
+      )
+        return;
       pointers.set(e.pointerId, point(e));
       if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];
@@ -90,8 +141,13 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
         suppressClick = false;
         return;
       }
-      const target = element(e.target),
-        link = target?.closest<HTMLElement>("[data-target]");
+      const target = element(e.target);
+      if (target?.closest("input")) return;
+      const selection =
+        host.ownerDocument.getSelection?.()?.toString().trim() ?? "";
+      if (selection.length > 0 && !target?.closest("button, [data-command]"))
+        return;
+      const link = target?.closest<HTMLElement>("[data-target]");
       if (link?.dataset.target) {
         port.dispatch({ type: "navigate", target: link.dataset.target });
         return;
@@ -108,12 +164,29 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
   host.addEventListener(
     "wheel",
     (e) => {
-      e.preventDefault();
       if (port.loading()) return;
       if (e.altKey || e.ctrlKey || e.metaKey || port.overview()) {
+        e.preventDefault();
         port.zoom(Math.exp(-e.deltaY * 0.0015), point(e));
         return;
       }
+      const article = element(e.target)?.closest<HTMLElement>("article.note");
+      if (article) {
+        if (article.classList.contains("is-long")) {
+          const rect = article.getBoundingClientRect(),
+            height =
+              host.ownerDocument.defaultView?.innerHeight ?? window.innerHeight;
+          const lower = Math.min(0, height - 24 - rect.bottom),
+            upper = Math.max(0, 24 - rect.top);
+          const delta = Math.max(lower, Math.min(upper, -e.deltaY));
+          if (delta !== 0) {
+            e.preventDefault();
+            port.pan({ x: 0, y: delta }, { ...port.camera() });
+          }
+        }
+        return;
+      }
+      e.preventDefault();
       if (Math.abs(e.deltaY) < 3 || performance.now() - lastWheel < 260) return;
       lastWheel = performance.now();
       port.dispatch({ type: "step", delta: Math.sign(e.deltaY) });
@@ -124,8 +197,10 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
     "keydown",
     (e) => {
       const target = element(e.target);
-      if (target?.closest("input,textarea,select,[contenteditable=true]"))
+      if (target?.closest("input,textarea,select,[contenteditable=true]")) {
+        if (e.key === "Escape" && target instanceof HTMLElement) target.blur();
         return;
+      }
       if (port.loading()) {
         if (e.key === "Escape" || e.key === " ") {
           e.preventDefault();

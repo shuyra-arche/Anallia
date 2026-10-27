@@ -32,6 +32,9 @@ export interface Chapter {
   hub: string;
 }
 export interface HubDefinition {
+  kind?: "search";
+  layout?: "anchored";
+  recommendations?: readonly string[];
   id: string;
   glyph: string;
   theme: Theme;
@@ -55,6 +58,7 @@ export interface Settings {
   reducedMotion: boolean;
 }
 export interface Snapshot {
+  searchQuery: string;
   focus: string;
   overview: boolean;
   theme: Theme;
@@ -87,10 +91,13 @@ export interface FieldState {
   loading: boolean;
   description: string;
   elapsed: number;
+  searchQuery: string;
+  searchResults: string[];
 }
 export type Command =
   | { type: "navigate"; target: string }
   | { type: "focus"; hub: string }
   | { type: "morph" }
   | { type: "step"; delta: number }
+  | { type: "search"; query: string }
   | { type: "up" | "back" | "overview" | "loading" | "close-loading" };

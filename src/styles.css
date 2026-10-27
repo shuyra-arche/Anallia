@@ -235,6 +235,9 @@ article.note {
   margin: 0;
   pointer-events: auto;
   overflow: visible;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
   /* 锚定在左边缘中点 (0, 50%)，使整个文本块的中轴线严格沿圆心径向延长线辐射 */
   transform-origin: 0 50%;
   contain: layout style;
@@ -268,7 +271,12 @@ article.note p {
   text-align: justify;
   letter-spacing: 0.008em;
   color: var(--body-ink);
-  margin: 0 0 12px;
+  margin: 0 0 11px;
+}
+article.note.is-long p {
+  font-size: 13.4px;
+  line-height: 1.78;
+  margin: 0 0 10px;
 }
 article.note .tail {
   font:
@@ -290,14 +298,154 @@ article.note .inline-ref {
   text-decoration-style: dotted;
   text-underline-offset: 4px;
   font-weight: 640;
+  transition:
+    opacity 0.2s ease,
+    color 0.2s ease,
+    text-shadow 0.2s ease;
 }
 article.note .inline-ref:hover {
-  opacity: 0.8;
+  opacity: 0.85;
 }
 article.note .inline-ref:focus-visible {
   outline: 1px solid var(--amber);
   outline-offset: 2px;
   border-radius: 2px;
+}
+/* 单个符号的明暗开关：点亮 (aria-pressed="true") 与暗淡 (aria-pressed="false") */
+.inline-ref[aria-pressed="true"] {
+  color: var(--amber);
+  opacity: 1;
+  font-weight: 720;
+  text-decoration: underline;
+  text-decoration-style: solid;
+  text-underline-offset: 4px;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--amber) 36%, transparent);
+}
+.inline-ref[aria-pressed="false"] {
+  color: var(--quiet);
+  opacity: 0.38;
+  font-weight: 500;
+  text-decoration: none;
+}
+.inline-ref[aria-pressed="false"]:hover {
+  opacity: 0.72;
+}
+
+/* 竖排列表 (.shuyra-list.is-vertical) 与 横排列表 (.shuyra-list.is-horizontal) */
+.shuyra-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+.shuyra-list.is-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border-left: 1.5px solid color-mix(in srgb, var(--line) 42%, transparent);
+  padding-left: 11px;
+}
+.shuyra-list.is-vertical > .shuyra-list-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 3px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--low) 28%, transparent);
+  font-size: 13.2px;
+  line-height: 1.65;
+  color: var(--body-ink);
+}
+.shuyra-list.is-vertical > .shuyra-list-item:last-child {
+  border-bottom: 0;
+}
+.shuyra-list .list-key {
+  font-weight: 640;
+  color: var(--ink);
+  font-size: 12.8px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.shuyra-list .list-val {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px 8px;
+  text-align: right;
+  font-size: 12.8px;
+  color: var(--body-ink);
+}
+.shuyra-list.is-horizontal {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 6px 0;
+  border-top: 1px solid color-mix(in srgb, var(--low) 32%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--low) 32%, transparent);
+}
+.list-val > .shuyra-list.is-horizontal {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  justify-content: flex-end;
+  gap: 4px 12px;
+}
+.shuyra-list.is-horizontal > .shuyra-list-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--body-ink);
+}
+.shuyra-list.is-horizontal > .shuyra-list-item:not(:last-child)::after {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--low);
+  margin-left: 12px;
+  opacity: 0.65;
+}
+
+/* 检索枢内嵌输入框：直接嵌入 q0 文本块，零弹窗，输入不中断 */
+.hub-search-box {
+  margin: 4px 0 12px;
+}
+.hub-search-input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1.5px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14.5px;
+  padding: 6px 2px;
+  outline: none;
+  caret-color: var(--amber);
+  transition: border-color 0.2s ease;
+}
+.hub-search-input::placeholder {
+  color: var(--quiet);
+  opacity: 0.72;
+}
+.hub-search-input:focus {
+  border-bottom-color: var(--amber);
+}
+.search-status {
+  margin-top: 5px;
+  font:
+    10px/1.45 ui-monospace,
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.06em;
+  color: var(--quiet);
 }
 
 /* Shuyra Loading V24 独立舞台层 */
@@ -408,11 +556,4 @@ article.note .inline-ref:focus-visible {
 .flow-marker {
   fill: var(--amber);
   pointer-events: none;
-}
-
-.inline-ref[aria-pressed="true"] {
-  color: var(--ink);
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 4px;
 }

@@ -1,5 +1,6 @@
+import { fillArticle } from "./article.ts";
 import { frameRateFromAction } from "../core/frame-rate.ts";
-import type { Chapter, Command, FieldState, Hub, Vec } from "../core/types.ts";
+import type { Command, FieldState, Hub, Settings, Vec } from "../core/types.ts";
 import { rot, unit, ease, mix, clamp } from "../core/math.ts";
 import { Catalog } from "../content/catalog.ts";
 import {
@@ -7,6 +8,7 @@ import {
   material,
   outwardNormal,
   nodeS,
+  arcOffsetS,
   worldToScreen,
 } from "../geometry/field.ts";
 import { svg, requireElement } from "./dom.ts";
@@ -16,6 +18,39 @@ interface Label {
   ring: SVGCircleElement;
   text: SVGTextElement;
   hit: SVGRectElement;
+}
+function isActionPressed(
+  action: string,
+  settings: Settings,
+): boolean | undefined {
+  const rate = frameRateFromAction(action);
+  if (rate !== undefined) return rate === settings.frameRate;
+  switch (action) {
+    case "range06":
+      return Math.abs(settings.range - 0.62) < 0.05;
+    case "range12":
+      return Math.abs(settings.range - 1.25) < 0.05;
+    case "range32":
+      return Math.abs(settings.range - 3.2) < 0.05;
+    case "blur10":
+      return Math.abs(settings.blur - 1) < 0.05;
+    case "blur16":
+      return Math.abs(settings.blur - 1.65) < 0.05;
+    case "speed075":
+      return Math.abs(settings.speed - 0.75) < 0.05;
+    case "speed100":
+      return Math.abs(settings.speed - 1) < 0.05;
+    case "speed125":
+      return Math.abs(settings.speed - 1.25) < 0.05;
+    case "toggle_blur":
+      return settings.blur > 0;
+    case "toggle_range":
+      return settings.range > 0.9;
+    case "toggle_motion":
+      return settings.reducedMotion;
+    default:
+      return undefined;
+  }
 }
 export class Scene {
   private root: SVGSVGElement;
@@ -30,7 +65,7 @@ export class Scene {
   readonly actions = new Map<string, Command>();
   private lastRenderKey = "";
   private heights = new Map<string, number>();
-  private measuredFrameRate: FieldState["settings"]["frameRate"] | undefined;
+  private measuredSettings = "";
   invalidateLayout() {
     this.heights.clear();
     this.lastRenderKey = "";
@@ -75,6 +110,7 @@ export class Scene {
     degree: number,
     command: Command,
     aria = name,
+    alpha = 1,
   ) {
     const pool = this.hubs.get(hub.id)!.labels;
     let entry = pool.get(key);
@@ -97,6 +133,7 @@ export class Scene {
       id = `${hub.id}:${key}`;
     this.actions.set(id, command);
     e.group.style.display = "";
+    e.group.style.opacity = alpha < 0.999 ? String(alpha) : "";
     e.group.dataset.command = id;
     e.group.classList.toggle("is-current", kind === "current");
     e.group.setAttribute("aria-label", aria);
@@ -126,6 +163,8 @@ export class Scene {
       s.theme,
       s.settings,
       s.description,
+      s.searchQuery,
+      s.searchResults,
       s.history.length,
       s.passage?.phase,
       Object.values(s.hubs).map((h) => [
@@ -138,9 +177,10 @@ export class Scene {
     ]);
     if (key === this.lastRenderKey) return;
     this.lastRenderKey = key;
-    if (this.measuredFrameRate !== s.settings.frameRate) {
+    const settingsKey = JSON.stringify(s.settings);
+    if (this.measuredSettings !== settingsKey) {
       this.heights.clear();
-      this.measuredFrameRate = s.settings.frameRate;
+      this.measuredSettings = settingsKey;
     }
     this.root.setAttribute(
       "viewBox",
@@ -171,7 +211,7 @@ export class Scene {
       );
       if (s.loading) continue;
       const current = this.selected(h),
-        nodes = this.catalog.siblings(current.id),
+        nodes = this.catalog.siblings(current.id, s.searchResults),
         focus = nodeS(h, h.scroll, nodes.length, s.camera, s.viewport);
       const label = (
         key: string,
@@ -181,6 +221,7 @@ export class Scene {
         kind: string,
         command: Command,
         aria?: string,
+        alpha = 1,
       ) => {
         const a = project(material(h, position)),
           q = project(material(h, position, offset)),
@@ -200,6 +241,7 @@ export class Scene {
           (Math.atan2(n.y, n.x) * 180) / Math.PI,
           command,
           aria,
+          alpha,
         );
       };
       if (!active) {
@@ -209,7 +251,12 @@ export class Scene {
         });
         continue;
       }
-      nodes.forEach((n, i) =>
+      const windowed = nodes.length > 6;
+      nodes.forEach((n, i) => {
+        const dist = Math.abs(i - h.scroll);
+        if (windowed && dist > 3.6 && !(h.layout === "anchored" && i === 0))
+          return;
+        const alpha = windowed ? clamp((3.8 - dist) / 1.1, 0.25, 1) : 1;
         label(
           n.id,
           n.name,
@@ -220,8 +267,9 @@ export class Scene {
             ? { type: "morph" }
             : { type: "navigate", target: n.id },
           `${n.name} · ${n.title}${n.id === current.id ? " · 切换圆线形态" : ""}`,
-        ),
-      );
+          alpha,
+        );
+      });
       const nav: { glyph: string; aria: string; command: Command }[] = [];
       if (current.parent)
         nav.push({ glyph: "↑", aria: "返回上一级", command: { type: "up" } });
@@ -232,6 +280,15 @@ export class Scene {
           command: { type: "back" },
         });
       nav.push({ glyph: "⊙", aria: "全域观察", command: { type: "overview" } });
+      const search = this.catalog.definitions.find(
+        (def) => def.kind === "search",
+      );
+      if (search && h.id !== search.id)
+        nav.push({
+          glyph: "⌕",
+          aria: "检索枢",
+          command: { type: "navigate", target: search.root },
+        });
       const settings = this.catalog.definitions.find(
         (def) => def.glyph === "⚙",
       );
@@ -253,12 +310,12 @@ export class Scene {
           command: { type: "navigate", target: ref.target },
         }),
       );
+      const navArcStep = s.viewport.width < 700 ? 44 : 50;
       nav.forEach((item, i) =>
         label(
           `nav:${i}`,
           item.glyph,
-          focus +
-            (i - (nav.length - 1) / 2) * (s.viewport.width < 700 ? 48 : 56),
+          arcOffsetS(h, focus, (i - (nav.length - 1) / 2) * navArcStep),
           -38,
           "nav",
           item.command,
@@ -305,43 +362,9 @@ export class Scene {
     requireElement<HTMLElement>(this.host, "#descBar").textContent =
       s.description;
   }
-  private fillArticle(
-    article: HTMLElement,
-    node: Chapter,
-    hub: Hub,
-    presentation: "circle" | "line",
-  ) {
-    article.replaceChildren();
-    const eyebrow = document.createElement("div");
-    eyebrow.className = "eyebrow";
-    eyebrow.textContent = `${hub.glyph} / ${node.name} · DEPTH ${String(hub.path.length - 1).padStart(2, "0")}`;
-    const heading = document.createElement("h2");
-    heading.textContent = node.title;
-    const paragraph = document.createElement("p"),
-      source = node.expressions[presentation];
-    let cursor = 0;
-    for (const match of source.matchAll(/\{([^{}|]+)\|([^{}]+)\}/g)) {
-      paragraph.append(
-        document.createTextNode(source.slice(cursor, match.index)),
-      );
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "inline-ref";
-      button.dataset.target = match[2];
-      button.textContent = `${match[1]} ↗`;
-      paragraph.append(button);
-      cursor = match.index! + match[0].length;
-    }
-    paragraph.append(document.createTextNode(source.slice(cursor)));
-    const tail = document.createElement("div");
-    tail.className = "tail";
-    tail.textContent = `${node.name} · ${presentation === "circle" ? "RADIAL TO CENTER" : "LINEAR SPINE"}`;
-    article.append(eyebrow, heading, paragraph, tail);
-    article.dataset.presentation = presentation;
-  }
   private renderTexts(s: FieldState) {
     const hub = s.hubs[s.focus],
-      nodes = this.catalog.siblings(this.selected(hub).id),
+      nodes = this.catalog.siblings(this.selected(hub).id, s.searchResults),
       small = s.viewport.width < 700,
       morph = ease(clamp(hub.morph, 0, 1));
     const p = s.passage?.phase,
@@ -362,19 +385,52 @@ export class Scene {
           depth = 1 - surface,
           presentation = morph > 0.5 ? "line" : "circle";
         if (article.dataset.presentation !== presentation)
-          this.fillArticle(article, node, hub, presentation);
+          fillArticle(
+            article,
+            node,
+            hub,
+            presentation,
+            this.catalog.searchRoot,
+          );
+        if (node.id === this.catalog.searchRoot) {
+          const input = article.querySelector<HTMLInputElement>(
+            "input.hub-search-input",
+          );
+          if (
+            input &&
+            this.host.ownerDocument.activeElement !== input &&
+            input.value !== s.searchQuery
+          ) {
+            input.value = s.searchQuery;
+          }
+          const status = article.querySelector<HTMLElement>(".search-status");
+          if (status) {
+            const count = Math.max(0, nodes.length - 1);
+            const nextText = s.searchQuery.trim()
+              ? `已实时生成 ${count} 个周界标签 · 在空白处滚动或点击圆周标签检视`
+              : `已挂载 ${count} 个推荐周界标签 · 输入时焦点恒定不中断`;
+            if (status.textContent !== nextText) status.textContent = nextText;
+          }
+        }
         for (const button of article.querySelectorAll<HTMLButtonElement>(
-          'button[data-target^="act:fps"]',
+          'button[data-target^="act:"]',
         )) {
-          const rate = frameRateFromAction(button.dataset.target!.slice(4));
-          const selected = String(rate === s.settings.frameRate);
+          const pressed = isActionPressed(
+            button.dataset.target!.slice(4),
+            s.settings,
+          );
+          if (pressed === undefined) continue;
+          const selected = String(pressed);
           if (button.getAttribute("aria-pressed") !== selected)
             button.setAttribute("aria-pressed", selected);
         }
         visible.add(node.id);
-        article.hidden = false;
-        article.inert = !!s.passage || surface < 0.55;
-        article.setAttribute("aria-hidden", String(article.inert));
+        if (article.hidden) article.hidden = false;
+        const inert = !!s.passage || surface < 0.55;
+        if (Boolean(article.inert) !== inert) article.inert = inert;
+        const ariaHidden = String(inert);
+        if (article.getAttribute("aria-hidden") !== ariaHidden)
+          article.setAttribute("aria-hidden", ariaHidden);
         const position = nodeS(hub, i, nodes.length, s.camera, s.viewport),
           distance =
             mix(small ? 96 : 86, small ? 118 : 104, morph) - 26 * depth;
@@ -389,31 +445,52 @@ export class Scene {
               (s.camera.rotation * Math.PI) / 180,
             ),
           );
-        article.style.width = `${small ? Math.min(295, Math.max(200, s.viewport.width * 0.72)) : Math.min(355, Math.max(265, s.viewport.width * 0.29))}px`;
+        const isLong = article.classList.contains("is-long");
+        const widthPx = small
+          ? Math.min(305, Math.max(200, s.viewport.width * 0.74))
+          : isLong
+            ? Math.min(435, Math.max(305, s.viewport.width * 0.34))
+            : Math.min(355, Math.max(265, s.viewport.width * 0.29));
+        const widthStr = `${widthPx}px`;
+        if (article.style.width !== widthStr) article.style.width = widthStr;
         const heightKey = JSON.stringify([
           node.id,
           presentation,
-          article.style.width,
+          widthStr,
+          node.id === this.catalog.searchRoot && !!s.searchQuery.trim(),
         ]);
         let height = this.heights.get(heightKey);
         if (height === undefined) {
           height = article.offsetHeight || 160;
           this.heights.set(heightKey, height);
         }
-        const y = point.y - height / 2 + 44 * depth,
+        const anchorY = isLong ? Math.min(height / 2, 130) : height / 2;
+        const originStr = isLong ? `0 ${anchorY}px` : "0 50%";
+        if (article.style.transformOrigin !== originStr)
+          article.style.transformOrigin = originStr;
+        const y = point.y - anchorY + 44 * depth,
           angle = (Math.atan2(n.y, n.x) * 180) / Math.PI;
-        article.style.transform = `translate3d(${point.x}px,${y}px,0) rotate(${angle}deg) scale(${0.72 + 0.28 * surface})`;
+        const transformStr = `translate3d(${point.x}px,${y}px,0) rotate(${angle}deg) scale(${0.72 + 0.28 * surface})`;
+        if (article.style.transform !== transformStr)
+          article.style.transform = transformStr;
         const blur = 8.5 * depth ** 1.12 * s.settings.blur;
-        article.style.filter =
+        const filterStr =
           s.settings.reducedMotion || blur < 0.08 ? "none" : `blur(${blur}px)`;
-        article.style.opacity = String(surface ** 1.2);
-        article.style.pointerEvents = article.inert ? "none" : "auto";
+        if (article.style.filter !== filterStr)
+          article.style.filter = filterStr;
+        const opacityStr = String(surface ** 1.2);
+        if (article.style.opacity !== opacityStr)
+          article.style.opacity = opacityStr;
+        const pointerStr = inert ? "none" : "auto";
+        if (article.style.pointerEvents !== pointerStr)
+          article.style.pointerEvents = pointerStr;
       });
     for (const [id, article] of this.articles)
       if (!visible.has(id)) {
-        article.hidden = true;
-        article.inert = true;
-        article.setAttribute("aria-hidden", "true");
+        if (!article.hidden) article.hidden = true;
+        if (!article.inert) article.inert = true;
+        if (article.getAttribute("aria-hidden") !== "true")
+          article.setAttribute("aria-hidden", "true");
       }
   }
   destroy() {

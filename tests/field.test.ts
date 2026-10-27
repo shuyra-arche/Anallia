@@ -9,6 +9,9 @@ import {
   evaluateHubGeometry,
   material,
   transformLocal,
+  nodeS,
+  arcOffsetS,
+  frameFor,
   R,
 } from "../src/geometry/field.ts";
 const viewport = { width: 1896, height: 1016 };
@@ -200,4 +203,61 @@ test("reading animation settles completely instead of following forever", () => 
   const camera = { ...f.state.camera };
   f.update(6020, 20);
   assert.deepEqual(f.state.camera, camera);
+});
+test("search hub updates perimeter labels in real time without moving q0 or camera", () => {
+  const f = create();
+  f.dispatch({ type: "navigate", target: "q0" });
+  settle(f);
+  assert.equal(f.state.focus, "Q");
+  assert.equal(f.selected().id, "q0");
+  const cameraBefore = { ...f.state.camera };
+  const sBefore = nodeS(f.hub, 0, f.siblings().length, f.state.camera, viewport);
+  near(sBefore, 0);
+  for (const query of ["流", "流场", "圆轴", "长文", ""]) {
+    f.dispatch({ type: "search", query });
+    assert.equal(f.state.searchQuery, query);
+    assert.equal(f.selected().id, "q0");
+    assert.equal(f.isAnimating, false);
+    assert.deepEqual(f.state.camera, cameraBefore);
+    near(nodeS(f.hub, 0, f.siblings().length, f.state.camera, viewport), 0);
+    assert.deepEqual(
+      frameFor(f.hub, 0, f.siblings().length, f.state.camera, viewport),
+      frameFor(f.hub, 0, 1, f.state.camera, viewport),
+    );
+  }
+});
+test("single-symbol brightness switches and hub-native confirmation layer work cleanly", () => {
+  const f = create();
+  f.dispatch({ type: "navigate", target: "act:toggle_blur" });
+  assert.equal(f.state.settings.blur, 0);
+  f.dispatch({ type: "navigate", target: "act:toggle_blur" });
+  assert.equal(f.state.settings.blur, 1);
+  f.dispatch({ type: "navigate", target: "s5_ok" });
+  settle(f);
+  assert.equal(f.selected().id, "s5_ok");
+  assert.deepEqual(
+    f.siblings().map((n) => n.name),
+    ["✓", "✕"],
+  );
+  f.dispatch({ type: "navigate", target: "act:reset_defaults" });
+  settle(f, 1600);
+  assert.equal(f.selected().id, "s5");
+  assert.equal(f.state.settings.range, 0.62);
+});
+test("arcOffsetS preserves exact uniform spacing for special nav labels at any scroll position", () => {
+  const f = create();
+  const h = f.hub;
+  const baselinePairDist = (() => {
+    const p0 = material(h, arcOffsetS(h, 0, -50), -38);
+    const p1 = material(h, arcOffsetS(h, 0, 0), -38);
+    return Math.hypot(p1.x - p0.x, p1.y - p0.y);
+  })();
+  for (const scrollIndex of [0, 2, 4, 6, 8]) {
+    const focus = nodeS(h, scrollIndex, 9, f.state.camera, viewport);
+    for (let i = -2; i < 2; i++) {
+      const a = material(h, arcOffsetS(h, focus, i * 50), -38);
+      const b = material(h, arcOffsetS(h, focus, (i + 1) * 50), -38);
+      near(Math.hypot(b.x - a.x, b.y - a.y), baselinePairDist);
+    }
+  }
 });

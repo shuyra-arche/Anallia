@@ -48,7 +48,7 @@ window.addEventListener("resize", () => field.resize(viewport()), {
 });
 motion.addEventListener(
   "change",
-  () => (field.state.settings.reducedMotion = motion.matches),
+  () => field.setSystemReducedMotion(motion.matches),
   { signal: lifecycle.signal },
 );
 let wasLoading = false;

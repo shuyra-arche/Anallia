@@ -59,6 +59,25 @@ export function material(
 }
 export const outwardNormal = (hub: Hub, s: number, u = shapeU(hub)): Vec =>
   unit(sub(material(hub, s, 1.5, u), material(hub, s, 0, u)));
+/**
+ * Advance along the Hub curve from `baseS` by exact Euclidean arc length `deltaArc`
+ * so labels and navigation items maintain constant spacing regardless of scroll angle.
+ */
+export function arcOffsetS(
+  hub: Hub,
+  baseS: number,
+  deltaArc: number,
+  u = shapeU(hub),
+): number {
+  const d = 1 - u;
+  if (Math.abs(d) < 1e-4) return baseS + deltaArc;
+  const k = d / (2 * R);
+  const alpha = Math.atan(k * baseS) + k * deltaArc;
+  const cos = Math.cos(alpha);
+  if (Math.abs(cos) < 1e-4)
+    return ((Math.sign(Math.sin(alpha)) || 1) * 1e6) / Math.sign(k || 1);
+  return Math.sin(alpha) / (k * cos);
+}
 export function pitch(hub: Hub, _camera: Camera, viewport: Viewport): number {
   const line =
     viewport.width < 700
@@ -68,7 +87,7 @@ export function pitch(hub: Hub, _camera: Camera, viewport: Viewport): number {
             clamp(viewport.width / 740, 0.42, 0.6),
         )
       : 340;
-  return mix(195, line, ease(clamp(hub.morph, 0, 1)));
+  return mix(165, line, ease(clamp(hub.morph, 0, 1)));
 }
 export const nodeS = (
   hub: Hub,
@@ -76,7 +95,20 @@ export const nodeS = (
   count: number,
   camera: Camera,
   viewport: Viewport,
-): number => (index - (count - 1) / 2) * pitch(hub, camera, viewport);
+): number => {
+  const m = ease(clamp(hub.morph, 0, 1));
+  const linePitch = pitch(hub, camera, viewport);
+  if (hub.layout === "anchored") {
+    const arcStep = mix(68, linePitch, m);
+    return arcOffsetS(hub, 0, index * arcStep, m);
+  }
+  if (count > 6) {
+    const arcStep = mix(118, linePitch, m);
+    return arcOffsetS(hub, 0, (index - (count - 1) / 2) * arcStep, m);
+  }
+  const arcStep = mix(165, linePitch, m);
+  return arcOffsetS(hub, 0, (index - (count - 1) / 2) * arcStep, m);
+};
 export function evaluateHubGeometry(
   hub: Hub,
   camera: Camera,
@@ -147,7 +179,10 @@ export function frameFor(
   const base = small
     ? clamp(w / 740, 0.42, 0.6)
     : clamp(Math.min(w / 1220, h / 820), 0.72, 1.02);
-  const z = small ? base : base * (count >= 3 ? 0.78 : count === 2 ? 0.88 : 1);
+  const effectiveCount = hub.layout === "anchored" ? 3 : count;
+  const z = small
+    ? base
+    : base * (effectiveCount >= 3 ? 0.78 : effectiveCount === 2 ? 0.88 : 1);
   const s = nodeS(hub, scroll, count, camera, viewport),
     u = ease(clamp(hub.targetMorph, 0, 1));
   const p = material(hub, s, 0, u),

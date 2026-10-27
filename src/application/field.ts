@@ -35,10 +35,12 @@ export class Field {
   } | null = null;
   private follow = false;
   private now = 0;
+  private systemReducedMotion: boolean;
   private loadingTheme: FieldState["theme"] = "light";
   readonly catalog: Catalog;
   constructor(catalog: Catalog, viewport: Viewport, reducedMotion = false) {
     this.catalog = catalog;
+    this.systemReducedMotion = reducedMotion;
     const focus = catalog.definitions[0].id;
     this.state = {
       hubs: Object.fromEntries(
@@ -71,8 +73,10 @@ export class Field {
       passage: null,
       loading: false,
       description:
-        "Shuyra · 滚动阅读 · Alt/Ctrl + 滚轮缩放 · 点击当前标签切换圆／线 · ⊙ 全域观察",
+        "Shuyra · 滚动阅读 · Alt/Ctrl + 滚轮缩放 · 点击当前标签切换圆／线 · ⊙ 全域观察 · ⌕ 检索枢",
       elapsed: 0,
+      searchQuery: "",
+      searchResults: catalog.search("").map((node) => node.id),
     };
     this.state.camera = this.frame();
   }
@@ -83,7 +87,10 @@ export class Field {
     return this.catalog.get(hub.path.at(-1)!);
   }
   siblings(hub = this.hub) {
-    return this.catalog.siblings(this.selected(hub).id);
+    return this.catalog.siblings(
+      this.selected(hub).id,
+      this.state.searchResults,
+    );
   }
   private frame(): Camera {
     return frameFor(
@@ -114,6 +121,7 @@ export class Field {
   private remember() {
     const s = this.state;
     s.history.push({
+      searchQuery: s.searchQuery,
       focus: s.focus,
       overview: s.overview,
       theme: s.theme,
@@ -135,6 +143,10 @@ export class Field {
   private restore(previous: Snapshot) {
     const s = this.state;
     s.focus = previous.focus;
+    s.searchQuery = previous.searchQuery;
+    s.searchResults = this.catalog
+      .search(previous.searchQuery)
+      .map((node) => node.id);
     s.overview = previous.overview;
     for (const [id, h] of Object.entries(previous.hubs))
       Object.assign(s.hubs[id], {
@@ -182,6 +194,32 @@ export class Field {
       this.fly(this.frame());
       return;
     }
+    if (command.type === "search") {
+      const searchHub = this.catalog.searchHub;
+      if (
+        !searchHub ||
+        s.focus !== searchHub.id ||
+        s.overview ||
+        s.passage ||
+        s.loading
+      )
+        return;
+      s.searchQuery = command.query;
+      const matches = this.catalog.search(command.query);
+      s.searchResults = matches.map((node) => node.id);
+      const qHub = s.hubs[searchHub.id];
+      if (qHub) {
+        qHub.path = [searchHub.root];
+        qHub.scroll = 0;
+        qHub.scrollTarget = 0;
+      }
+      this.follow = false;
+      this.tween = null;
+      s.description = command.query.trim()
+        ? `⌕ 检索「${command.query.trim()}」· 已实时更新 ${matches.length} 个周界标签`
+        : `⌕ 检索枢 · 已挂载 ${matches.length} 个常用周界标签`;
+      return;
+    }
     if (s.passage || s.loading) return;
     switch (command.type) {
       case "navigate": {
@@ -211,12 +249,12 @@ export class Field {
         }
         this.remember();
         const index = this.catalog
-          .siblings(node.id)
+          .siblings(node.id, s.searchResults)
           .findIndex((n) => n.id === node.id);
         const camera = frameFor(
           dest,
           index,
-          this.catalog.siblings(node.id).length,
+          this.catalog.siblings(node.id, s.searchResults).length,
           s.camera,
           s.viewport,
         );
@@ -310,6 +348,20 @@ export class Field {
       this.state.description = `帧率已设置为：${frameRateLabel(frameRate)}`;
       return;
     }
+    if (action === "reset_defaults") {
+      settings.range = 0.62;
+      settings.blur = 1;
+      settings.speed = 1;
+      settings.reducedMotion = this.systemReducedMotion;
+      settings.frameRate = "adaptive";
+      if (this.selected().parent) this.dispatch({ type: "up" });
+      this.state.description = "✓ 已通过枢原生确认子层恢复全部默认设置";
+      return;
+    }
+    if (action === "cancel_confirm") {
+      if (this.selected().parent) this.dispatch({ type: "up" });
+      return;
+    }
     const values: Record<string, () => void> = {
       range06: () => (settings.range = 0.62),
       range12: () => (settings.range = 1.25),
@@ -319,6 +371,9 @@ export class Field {
       speed075: () => (settings.speed = 0.75),
       speed100: () => (settings.speed = 1),
       speed125: () => (settings.speed = 1.25),
+      toggle_blur: () => (settings.blur = settings.blur > 0 ? 0 : 1),
+      toggle_range: () => (settings.range = settings.range > 0.9 ? 0.62 : 1.25),
+      toggle_motion: () => (settings.reducedMotion = !settings.reducedMotion),
       loading: () => this.dispatch({ type: "loading" }),
       pulse: () => {
         Object.values(this.state.hubs).forEach((h) =>
@@ -329,6 +384,10 @@ export class Field {
     };
     values[action]?.();
     this.state.description = `设置已生效 · 显现范围 ${settings.range} · 景深 ${settings.blur}× · 速率 ${settings.speed}×`;
+  }
+  setSystemReducedMotion(value: boolean) {
+    this.systemReducedMotion = value;
+    this.state.settings.reducedMotion = value;
   }
   resize(viewport: Viewport) {
     this.state.viewport = viewport;
