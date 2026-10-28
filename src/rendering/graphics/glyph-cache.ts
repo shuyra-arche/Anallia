@@ -26,6 +26,12 @@ export class GpuGlyphCache<T = unknown> {
   private environment = "";
   private invalidations = 0;
 
+  private readonly dispose?: (value: T) => void;
+
+  constructor(dispose?: (value: T) => void) { this.dispose = dispose; }
+
+  items(): IterableIterator<T> { return this.values.values(); }
+
   get size(): number {
     return this.values.size;
   }
@@ -57,7 +63,8 @@ export class GpuGlyphCache<T = unknown> {
   }
 
   clear(reason: "environment" | "theme" | "dpr" | "font" | "manual" = "manual"): void {
-    if (this.values.size) this.values.clear();
+    for (const value of this.values.values()) this.dispose?.(value);
+    this.values.clear();
     this.invalidations++;
     void reason;
   }

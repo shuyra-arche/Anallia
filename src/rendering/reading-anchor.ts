@@ -111,8 +111,8 @@ export function setBlockSourceRange(
 function closestBlock(node: Node | null, root: HTMLElement): HTMLElement | null {
   let current: Node | null = node;
   while (current && current !== root) {
-    if (current instanceof Element)
-      return current.closest<HTMLElement>("[data-block-id]");
+    if (current.nodeType === 1)
+      return (current as Element).closest<HTMLElement>("[data-block-id]");
     current = current.parentNode;
   }
   return root.querySelector<HTMLElement>("[data-block-id]");

@@ -1004,6 +1004,13 @@ export class ArticleRenderer {
     return button;
   }
 
+  releaseArticle(article: HTMLElement) {
+    const state = this.states.get(article);
+    if (state) this.layouts.evict(`${state.nodeId}:`);
+    this.states.delete(article);
+    clearIndexedRanges(article);
+  }
+
   invalidateFonts(version?: string) {
     this.layouts.invalidateFont(version);
   }
@@ -1017,25 +1024,17 @@ export class ArticleRenderer {
     const catalog = this.catalog as Catalog & ExtendedCatalog;
     let state = this.states.get(article);
     let document: NormalizedDocument;
-    let version: string;
     if (
       state?.nodeId === node.id &&
       state.presentation === presentation &&
       state.document.blocks.length
     ) {
       document = state.document;
-      version = state.version;
     } else {
       const raw = catalog.document?.(node.id, presentation);
       document = raw
         ? normalizeDocument(raw)
         : { blocks: [], sourceLength: 0, complete: false };
-      version = String(
-        catalog.expressionVersion?.(node.id, presentation) ??
-          (raw
-            ? `document:${hashString(raw.source)}`
-            : "document:empty"),
-      );
       state = undefined;
     }
     const isLong =
@@ -1063,12 +1062,12 @@ export class ArticleRenderer {
           !block.stable && measuredHeight > 0 ? measuredHeight : undefined;
         height +=
           this.layouts.layout(
-            `${node.id}:${block.id}`,
+            `${node.id}:${presentation}:${block.id}`,
             text,
             width,
             style,
             {
-              contentVersion: `${version}:${inlinesSignature(block.inlines)}`,
+              contentVersion: `${block.start}:${inlinesSignature(block.inlines)}`,
               stable: block.stable,
               domHeight,
             },

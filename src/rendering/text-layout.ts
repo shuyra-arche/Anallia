@@ -203,6 +203,10 @@ export class TextLayoutCache {
     clearPretextCache();
   }
 
+  evict(prefix: string) {
+    for (const key of this.prepared.keys()) if (key.startsWith(prefix)) this.prepared.delete(key);
+  }
+
   clear() {
     this.prepared.clear();
   }
