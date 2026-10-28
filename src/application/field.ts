@@ -113,7 +113,7 @@ export class Field {
       contentTurn: null,
       loading: false,
       description:
-        "Shuyra · 滚动或抓握切换章节 · 长文沿标签水平线浮动 · 点击当前标签切换圆／线 · ⊙ 全域 · ⌕ 检索",
+        "Anallia · 空白处滚动切换章节 · 正文内滚动读长文 · 点击高亮标签切换圆／线",
       elapsed: 0,
       searchQuery: "",
       searchResults: catalog.search("").map((node) => node.id),

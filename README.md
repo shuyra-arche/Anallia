@@ -1,6 +1,10 @@
-# Shuyra · Field v6
+# Anallia · 几何阅读演示
 
-几何阅读网站，包含九个枢、递归章节、跨枢引用、实时检索、设置和 V24 加载动效。v6 以 Hub → SemanticAnchor → Attachment → Presentation 统一普通标签、局部导航和全局操作的附着关系。
+用圆与直线组织章节的阅读空间。演示包含圆周阅读、斜向线枢、长文、主题转场、星空与流场，以及实时搜索和阅读设置。
+
+[在线体验](https://shuyra-arche.github.io/Anallia/)
+
+建议路线：从首页进入圆周阅读 → 切换圆线形态 → 进入斜向线枢 → 阅读长文 → 选择背景。九标签和十二标签序列保留在进阶入口。
 
 ## 运行
 
@@ -53,6 +57,18 @@ npm run preview
 - 模块边界：[architecture.md](docs/architecture.md)；本次来源、修正与验证：[gemini-merge.md](docs/gemini-merge.md)。
 
 正文由文本节点和按钮构建。目录检查重复 ID、无效引用、父子环和不连通章节；查询结果保存在各自阅读会话中。
+
+## GitHub Pages
+
+`.github/workflows/pages.yml` 在推送到 `main` 时运行测试、构建并发布，也支持手动运行。仓库 Pages 的构建来源为 GitHub Actions。
+
+```sh
+npm run build:pages
+```
+
+该构建使用 `/Anallia/` 作为资源根路径，发布 `dist/`。本地开发与普通构建继续使用站点根路径。
+
+演示主线与进阶内容见 [演示路线](docs/demo-route.md)。
 
 ## 独立演示
 

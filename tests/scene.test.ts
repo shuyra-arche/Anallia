@@ -27,7 +27,7 @@ test("scene switches circle/line expressions and renders links as real buttons",
   scene.render(field.state);
   let article = host.querySelector("#text-a0")!;
   assert.equal(article.getAttribute("hidden"), null);
-  assert.equal(article.querySelector("h2")?.textContent, "几何作为阅读的骨架");
+  assert.equal(article.querySelector("h2")?.textContent, "从这里开始");
   assert.equal(
     article.querySelector("button")?.getAttribute("data-target"),
     "a1",
