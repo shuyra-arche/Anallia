@@ -4,17 +4,22 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
     "check": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "build": "npm run check && vite build",
-    "preview": "vite preview --host 127.0.0.1",
+    "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort",
     "build:pages": "npm run build -- --base=/Anallia/"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "happy-dom": "^21.0.4",
     "prettier": "^3.9.10",
     "typescript": "~5.9.3",
     "vite": "^7.2.2"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "^1.0.0",
+    "pixi.js": "^8.22.0"
   }
 }
