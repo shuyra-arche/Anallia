@@ -4,6 +4,8 @@ import {
   saveFrameRate,
   readBackground,
   saveBackground,
+  readSound,
+  saveSound,
 } from "./platform/preferences";
 import "./styles.css";
 import { rawContent, hubDefinitions } from "./content/field";
@@ -12,6 +14,7 @@ import { Field } from "./application/field";
 import { Scene } from "./rendering/scene";
 import { screenToWorld, frameFor } from "./geometry/field";
 import { Background } from "./effects/background";
+import { GeometricSoundscape } from "./effects/sound";
 import { createLoading } from "./effects/loading.js";
 import { requireElement } from "./rendering/dom";
 import { bindInput } from "./platform/input";
@@ -29,12 +32,15 @@ const field = new Field(
 );
 field.state.settings.frameRate = readFrameRate();
 field.state.settings.background = readBackground();
+field.state.settings.sound = readSound();
 let savedFrameRate = field.state.settings.frameRate;
 let savedBackground = field.state.settings.background;
+let savedSound = field.state.settings.sound;
 const scene = new Scene(host, field.catalog);
 const background = new Background(
   requireElement<SVGGElement>(host, "#gDecorations"),
 );
+const soundscape = new GeometricSoundscape();
 const overlay = requireElement<HTMLElement>(host, "#loadingOverlay");
 const loader = createLoading(
   overlay,
@@ -107,6 +113,7 @@ try {
 (window as unknown as Record<string, unknown>).__shuyra = {
   field,
   scene,
+  soundscape,
 };
 
 const disposeInput = bindInput(host, {
@@ -123,6 +130,18 @@ const disposeInput = bindInput(host, {
   resolve: (key) => scene.actions.get(key),
 });
 const lifecycle = new AbortController();
+const unlockAudio = () => soundscape.unlock();
+window.addEventListener("pointerdown", unlockAudio, {
+  signal: lifecycle.signal,
+  passive: true,
+});
+window.addEventListener("wheel", unlockAudio, {
+  signal: lifecycle.signal,
+  passive: true,
+});
+window.addEventListener("keydown", unlockAudio, {
+  signal: lifecycle.signal,
+});
 window.addEventListener(
   "resize",
   () => {
@@ -142,6 +161,7 @@ let wasLoading = false;
 const stopClock = startClock(
   (now, dt) => {
     field.update(now, dt);
+    soundscape.update(field.state, dt);
     if (savedBackground !== field.state.settings.background) {
       savedBackground = field.state.settings.background;
       saveBackground(savedBackground);
@@ -149,6 +169,10 @@ const stopClock = startClock(
     if (savedFrameRate !== field.state.settings.frameRate) {
       savedFrameRate = field.state.settings.frameRate;
       saveFrameRate(savedFrameRate);
+    }
+    if (savedSound !== (field.state.settings.sound !== false)) {
+      savedSound = field.state.settings.sound !== false;
+      saveSound(savedSound);
     }
     if (field.state.loading && !wasLoading) {
       loader.start();

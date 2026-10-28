@@ -394,3 +394,114 @@ export function remotePortalGeometry(
     viewport,
   );
 }
+
+/**
+ * Compute how far (in unscaled reading-box pixels) the reading column [left, left + width * z]
+ * can extend vertically toward the hub before intersecting the hub + label clearance region.
+ * Returns `Infinity` when the vertical column completely misses the hub (e.g. when the column
+ * sits to the left or right of a circle, or parallel to a vertical line).
+ */
+export function computeHubVerticalClearance(
+  hub: Hub,
+  placement: { left: number; top: number },
+  widthPx: number,
+  panelHeight: number,
+  normal: Vec,
+  camera: Camera,
+  viewport: Viewport,
+): number {
+  const scale = Math.max(0.18, camera.z);
+  const absNy = Math.abs(normal.y);
+  const lineClearancePx = absNy > 1e-8 ? 16 / absNy : Infinity;
+  const u = shapeU(hub);
+  const d = 1 - u;
+  if (Math.abs(d) <= 0.02 || d <= 0) {
+    return lineClearancePx;
+  }
+  const radLocal = R / d;
+  const x0 = anchorX(u);
+  const centerLocal = V(x0 - R / d, 0);
+  const centerScreen = worldToScreen(asWorld(hub, centerLocal), camera, viewport);
+  const boundRadiusScreen = (radLocal + 56) * scale;
+  const boxLeft = placement.left;
+  const boxRight = placement.left + widthPx * scale;
+  const closestX = clamp(centerScreen.x, boxLeft, boxRight);
+  const dx = Math.abs(centerScreen.x - closestX);
+  if (dx >= boundRadiusScreen) {
+    return Infinity;
+  }
+  const halfChordY = Math.sqrt(
+    Math.max(0, boundRadiusScreen * boundRadiusScreen - dx * dx),
+  );
+  if (normal.y >= 0) {
+    const diskBottomY = centerScreen.y + halfChordY;
+    const diskClearancePx = Math.max(0, (placement.top - diskBottomY) / scale);
+    return Math.max(lineClearancePx, diskClearancePx);
+  }
+  const diskTopY = centerScreen.y - halfChordY;
+  const boxBottomY = placement.top + panelHeight * scale;
+  const diskClearancePx = Math.max(0, (diskTopY - boxBottomY) / scale);
+  return Math.max(lineClearancePx, diskClearancePx);
+}
+
+/**
+ * Evaluate a hub's companion structural ring / parallel rail at normal offset `offset`
+ * under the exact same Möbius transformation as the primary hub curve.
+ */
+export function evaluateHubAuraGeometry(
+  hub: Hub,
+  camera: Camera,
+  viewport: Viewport,
+  offset: number,
+  u = shapeU(hub),
+): string {
+  const cam = camera;
+  const d = 1 - u;
+  const rad = Math.abs(d) < 1e-5 ? 1e7 : R / Math.abs(d);
+  const screenRad = rad * cam.z;
+  const x0 = anchorX(u);
+  const { width: w, height: h } = viewport;
+  const project = (p: Vec): Vec =>
+    worldToScreen(asWorld(hub, p), cam, viewport);
+  if (screenRad < Math.max(1600, w * 1.75)) {
+    const p0 = project(V(x0, 0));
+    const p1 = project(V(x0 - (2 * R) / d, 0));
+    const cx = (p0.x + p1.x) * 0.5;
+    const cy = (p0.y + p1.y) * 0.5;
+    const rAura = Math.max(
+      14,
+      screenRad + offset * (d >= 0 ? 1 : -1) * cam.z,
+    );
+    return `M${(cx + rAura).toFixed(2)} ${cy.toFixed(2)}A${rAura.toFixed(2)} ${rAura.toFixed(2)} 0 1 0 ${(cx - rAura).toFixed(2)} ${cy.toFixed(2)}A${rAura.toFixed(2)} ${rAura.toFixed(2)} 0 1 0 ${(cx + rAura).toFixed(2)} ${cy.toFixed(2)}Z`;
+  }
+  const corners = [
+    V(-260, -260),
+    V(w + 260, -260),
+    V(w + 260, h + 260),
+    V(-260, h + 260),
+  ].map((p) =>
+    rot(
+      sub(screenToWorld(p, cam, viewport), hub.center),
+      (-hub.angle * Math.PI) / 180,
+    ),
+  );
+  const lo = Math.max(-rad, Math.min(...corners.map((p) => p.y)) - 400);
+  const hi = Math.min(rad, Math.max(...corners.map((p) => p.y)) + 400);
+  if (!(lo < hi)) return "";
+  const steps = Math.max(24, Math.min(120, Math.ceil(((hi - lo) * cam.z) / 12)));
+  let path = "";
+  for (let i = 0; i <= steps; i++) {
+    const y = mix(lo, hi, i / steps);
+    const x =
+      Math.abs(d) < 1e-5
+        ? x0 + offset
+        : x0 +
+          offset -
+          (d * y * y) /
+            (R * (1 + Math.sqrt(Math.max(0, 1 - (y / rad) ** 2))));
+    const p = project(V(x, y));
+    if (Number.isFinite(p.x + p.y))
+      path += `${i ? "L" : "M"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`;
+  }
+  return path;
+}

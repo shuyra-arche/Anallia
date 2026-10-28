@@ -8,12 +8,15 @@ import {
 } from "../core/layout.ts";
 import { frameRateFromAction } from "../core/frame-rate.ts";
 import { backgroundFromAction } from "../core/background.ts";
+import { evaluatePerception } from "../core/perception.ts";
+import type { HubPerception } from "../core/perception.ts";
 import type {
   Chapter,
   Command,
   FieldState,
   Hub,
   Settings,
+  Theme,
   Vec,
 } from "../core/types.ts";
 import { ease, clamp, rot } from "../core/math.ts";
@@ -23,7 +26,7 @@ import {
   pageTurnPose,
 } from "../core/transitions.ts";
 import type { PagePose } from "../core/transitions.ts";
-import { PAPER, BOUNDARY, blendHex, needsColorSweep } from "../core/palette.ts";
+import { PAPER, BOUNDARY, blendHex, needsColorSweep, isDarkTheme, themeFromAction } from "../core/palette.ts";
 import {
   ICON_TOKENS,
   classifyLabelContent,
@@ -42,6 +45,8 @@ import { projectAttachment } from "../geometry/attachments.ts";
 import type { FieldAttachment } from "../core/attachments.ts";
 import {
   evaluateHubGeometry,
+  evaluateHubAuraGeometry,
+  computeHubVerticalClearance,
   passageGeometry,
   remotePortalGeometry,
   material,
@@ -183,7 +188,10 @@ export function renderSymbolGeometryToGroup(
 function isActionPressed(
   action: string,
   settings: Settings,
+  theme: Theme,
 ): boolean | undefined {
+  const selectedTheme = themeFromAction(action);
+  if (selectedTheme !== undefined) return selectedTheme === theme;
   const background = backgroundFromAction(action);
   if (background !== undefined) return background === settings.background;
   const rate = frameRateFromAction(action);
@@ -211,6 +219,8 @@ function isActionPressed(
       return settings.range > 0.9;
     case "toggle_motion":
       return settings.reducedMotion;
+    case "toggle_sound":
+      return settings.sound !== false;
     default:
       return undefined;
   }
@@ -219,12 +229,15 @@ function isActionPressed(
 export class Scene {
   private root: SVGSVGElement;
   private geometry: SVGGElement;
+  private relationFilaments: SVGPathElement;
   private labels: SVGGElement;
   private reading: HTMLElement;
   private hudControls: HTMLElement;
   private hubs = new Map<
     string,
     {
+      auraPath: SVGPathElement;
+      beacon: SVGTextElement;
       path: SVGPathElement;
       hit: SVGPathElement;
       tracePath: SVGPathElement;
@@ -247,6 +260,7 @@ export class Scene {
   private readonly articleRenderer: ArticleRenderer;
   private readonly localLabelTurns = new LocalLabelTurns();
   private symbolFeedback = new Map<string, SymbolInteractionState>();
+  private hoveredTarget: string | null = null;
 
   invalidateLayout() {
     this.heights.clear();
@@ -271,13 +285,33 @@ export class Scene {
     this.labels = requireElement(host, "#gLabels");
     this.reading = requireElement(host, "#reading");
     this.hudControls = this.ensureHudControls(host);
+    this.relationFilaments = svg("path", this.geometry, {
+      id: "relationFilaments",
+      class: "relation-filaments",
+      d: "",
+    });
     for (const hub of catalog.definitions)
       this.hubs.set(hub.id, {
-        path: svg("path", this.geometry, { class: "curve" }),
-        tracePath: svg("path", this.geometry, { class: "inner-trace" }),
+        auraPath: svg("path", this.geometry, {
+          class: "hub-aura",
+          "data-hub-id": hub.id,
+        }),
+        path: svg("path", this.geometry, {
+          class: "curve",
+          "data-hub-id": hub.id,
+        }),
+        tracePath: svg("path", this.geometry, {
+          class: "inner-trace",
+          "data-hub-id": hub.id,
+        }),
         traceDot: svg("circle", this.geometry, {
           class: "inner-dot",
+          "data-hub-id": hub.id,
           r: 2.2,
+        }),
+        beacon: svg("text", this.geometry, {
+          class: "hub-beacon",
+          "data-hub-id": hub.id,
         }),
         hit: svg("path", this.geometry, {
           class: "hit",
@@ -310,6 +344,7 @@ export class Scene {
         { key: "hud:refocus", label: "⌖ 聚焦", title: "回到聚焦枢" },
         { key: "hud:search", label: "⌕ 检索", title: "打开检索枢" },
         { key: "hud:settings", label: "⚙ 设置", title: "打开设置枢" },
+        { key: "hud:sound", label: "♪ 声场", title: "切换几何声场" },
         { key: "hud:loading", label: "◌ 加载", title: "演练加载动效" },
       ];
       for (const item of items) {
@@ -364,6 +399,46 @@ export class Scene {
       const key = resolveTagKey(e.target);
       if (key) this.setSymbolInteraction(key, { focus: false, press: false });
     });
+    const resolveRelationalTarget = (target: EventTarget | null): string | null => {
+      if (!(target instanceof Element)) return null;
+      const inlineBtn = target.closest<HTMLElement>(".inline-ref[data-target]");
+      if (inlineBtn?.dataset.target && !inlineBtn.dataset.target.startsWith("act:")) {
+        return inlineBtn.dataset.target;
+      }
+      const cmdEl = target.closest<SVGElement>("[data-command]");
+      if (cmdEl?.dataset.command) {
+        const cmd = this.actions.get(cmdEl.dataset.command);
+        if (cmd?.type === "navigate" && !cmd.target.startsWith("act:")) return cmd.target;
+        if (cmd?.type === "focus") return `hub:${cmd.hub}`;
+      }
+      return null;
+    };
+    const onOver = (e: Event) => {
+      const next = resolveRelationalTarget(e.target);
+      if (next !== this.hoveredTarget) this.setHoveredTarget(next);
+    };
+    const onOut = (e: Event) => {
+      if (this.hoveredTarget && resolveRelationalTarget(e.target) === this.hoveredTarget) {
+        this.setHoveredTarget(null);
+      }
+    };
+    this.reading.addEventListener("pointerover", onOver);
+    this.reading.addEventListener("pointerout", onOut);
+    this.reading.addEventListener("focusin", onOver);
+    this.reading.addEventListener("focusout", onOut);
+    this.labels.addEventListener("pointerover", onOver);
+    this.labels.addEventListener("pointerout", onOut);
+    this.geometry.addEventListener("pointerover", onOver);
+    this.geometry.addEventListener("pointerout", onOut);
+  }
+
+  setHoveredTarget(target: string | null) {
+    if (this.hoveredTarget === target) return;
+    this.hoveredTarget = target;
+    if (this.lastState) {
+      this.lastRenderKey = "";
+      this.render(this.lastState);
+    }
   }
 
   /**
@@ -592,45 +667,115 @@ export class Scene {
     e.hit.setAttribute("transform", labelTransform);
   }
 
-  private renderUnfocusedTraces(h: Hub, nodes: Chapter[], s: FieldState) {
+  private renderUnfocusedTraces(
+    h: Hub,
+    nodes: Chapter[],
+    s: FieldState,
+    perception?: HubPerception,
+    darkPalette = false,
+  ) {
     const entry = this.hubs.get(h.id)!;
     if (s.loading || (h.id === s.focus && !s.overview)) {
       entry.tracePath.setAttribute("d", "");
       entry.tracePath.style.display = "none";
       entry.traceDot.style.display = "none";
+      entry.beacon.style.display = "none";
       return;
     }
+    const sig = perception?.signature;
+    const tickScale = sig ? sig.tickScale : 1;
+    const strokeColor = sig
+      ? darkPalette
+        ? sig.darkStroke
+        : sig.lightStroke
+      : "";
     const segs: string[] = [];
     const activeIdx =
       ((Math.round(h.scroll) % nodes.length) + nodes.length) % nodes.length;
     let dotPt: Vec | null = null;
+    let beaconPt: Vec | null = null;
     for (let j = 0; j < nodes.length; j++) {
       const param = nodeS(h, j, nodes.length, s.camera, s.viewport);
       const p0 = hubToScreen(h, material(h, param, 0), s.camera, s.viewport);
       const isSelected = j === activeIdx;
-      const tickLen = isSelected ? -24 : -14;
+      const baseLen = (isSelected ? -26 : j % 2 === 0 ? -16 : -11) * tickScale;
       const p1 = hubToScreen(
         h,
-        material(h, param, tickLen),
+        material(h, param, baseLen),
         s.camera,
         s.viewport,
       );
       segs.push(
         `M${p0.x.toFixed(2)} ${p0.y.toFixed(2)}L${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`,
       );
+      if (sig && (sig.archetype === "origin" || sig.archetype === "portal" || sig.archetype === "instrument")) {
+        const pOut = hubToScreen(
+          h,
+          material(h, param, isSelected ? 9 : 4.5),
+          s.camera,
+          s.viewport,
+        );
+        segs.push(
+          `M${p0.x.toFixed(2)} ${p0.y.toFixed(2)}L${pOut.x.toFixed(2)} ${pOut.y.toFixed(2)}`,
+        );
+      }
       if (isSelected) {
-        dotPt = hubToScreen(h, material(h, param, -29), s.camera, s.viewport);
+        dotPt = hubToScreen(
+          h,
+          material(h, param, baseLen - 5.5),
+          s.camera,
+          s.viewport,
+        );
+        beaconPt = hubToScreen(
+          h,
+          material(h, param, baseLen - 22),
+          s.camera,
+          s.viewport,
+        );
       }
     }
     entry.tracePath.style.display = "";
     entry.tracePath.setAttribute("d", segs.join(""));
+    if (strokeColor) entry.tracePath.style.stroke = strokeColor;
+    if (perception) {
+      entry.tracePath.style.opacity = String(perception.traceOpacity);
+    }
     if (dotPt) {
+      const dotScale = perception ? perception.dotScale : 1;
       entry.traceDot.style.display = "";
       entry.traceDot.setAttribute("cx", dotPt.x.toFixed(2));
       entry.traceDot.setAttribute("cy", dotPt.y.toFixed(2));
-      entry.traceDot.setAttribute("r", String(2.2 * s.camera.z));
+      entry.traceDot.setAttribute("r", String(2.4 * dotScale * s.camera.z));
+      if (sig) entry.traceDot.style.fill = sig.accentColor;
+      entry.traceDot.classList.toggle(
+        "is-resonating",
+        perception?.tier === "resonating",
+      );
     } else {
       entry.traceDot.style.display = "none";
+    }
+    if (beaconPt && perception && perception.beaconOpacity > 0.05) {
+      entry.beacon.style.display = "";
+      entry.beacon.setAttribute("x", beaconPt.x.toFixed(2));
+      entry.beacon.setAttribute("y", beaconPt.y.toFixed(2));
+      if (entry.beacon.textContent !== h.glyph) {
+        entry.beacon.textContent = h.glyph;
+      }
+      const fontScale =
+        perception.tier === "resonating"
+          ? 16.5
+          : perception.tier === "related"
+            ? 14.5
+            : 12;
+      entry.beacon.style.fontSize = `${(fontScale * Math.max(0.55, s.camera.z)).toFixed(1)}px`;
+      entry.beacon.style.opacity = String(perception.beaconOpacity);
+      entry.beacon.style.fill =
+        perception.tier === "resonating" && sig
+          ? sig.accentColor
+          : strokeColor;
+      entry.beacon.dataset.tier = perception.tier;
+    } else {
+      entry.beacon.style.display = "none";
     }
   }
 
@@ -640,6 +785,7 @@ export class Scene {
     this.actions.set("hud:refocus", { type: "focus", hub: s.focus });
     this.actions.set("hud:search", { type: "navigate", target: "q0" });
     this.actions.set("hud:settings", { type: "navigate", target: "s0" });
+    this.actions.set("hud:sound", { type: "navigate", target: "act:toggle_sound" });
     this.actions.set("hud:loading", { type: "loading" });
 
     this.hudControls.hidden = !showTraditionalHud || s.loading;
@@ -654,6 +800,11 @@ export class Scene {
     );
     if (overviewBtn)
       overviewBtn.setAttribute("aria-pressed", String(s.overview));
+    const soundBtn = this.hudControls.querySelector<HTMLButtonElement>(
+      '[data-command="hud:sound"]',
+    );
+    if (soundBtn)
+      soundBtn.setAttribute("aria-pressed", String(s.settings.sound !== false));
   }
 
   render(s: FieldState) {
@@ -701,6 +852,7 @@ export class Scene {
       s.morphTurn?.phase,
       s.contentTurn?.phase,
       feedbackSig,
+      this.hoveredTarget,
       locals.map((leaf) => [
         leaf.attachment.anchor.id,
         leaf.visibility,
@@ -745,20 +897,85 @@ export class Scene {
       : null;
     const chapterEnvelope = s.passage ? readingEnvelope(s.passage.phase) : 1;
 
+    const perception = evaluatePerception(s, this.catalog, this.hoveredTarget);
+    if (this.host.dataset.discoveryStage !== perception.stage) {
+      this.host.dataset.discoveryStage = perception.stage;
+    }
+    if (perception.resonatingHubId) {
+      this.host.dataset.resonatingHub = perception.resonatingHubId;
+    } else {
+      delete this.host.dataset.resonatingHub;
+    }
+
+    const visualThemeForField =
+      s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
+    const darkPalette = isDarkTheme(visualThemeForField);
+    const filamentSegs: string[] = [];
+    const focusHubObj = s.hubs[perception.focusedHubId] ?? s.hubs[s.focus];
+    const focusSibs = this.catalog.siblings(
+      this.selected(focusHubObj).id,
+      s.searchResults,
+    );
+    const focusAnchorScreen = hubToScreen(
+      focusHubObj,
+      material(
+        focusHubObj,
+        nodeS(focusHubObj, focusHubObj.scroll, focusSibs.length, s.camera, s.viewport),
+        0,
+      ),
+      s.camera,
+      s.viewport,
+    );
+
     for (const h of Object.values(s.hubs)) {
       const entry = this.hubs.get(h.id)!,
-        active = h.id === s.focus && !s.overview && !s.loading;
+        active = h.id === s.focus && !s.overview && !s.loading,
+        hubPerception = perception.hubs[h.id],
+        sig = hubPerception.signature;
+      const strokeColor = darkPalette ? sig.darkStroke : sig.lightStroke;
       const path = evaluateHubGeometry(h, s.camera, s.viewport).strokeD;
       entry.path.setAttribute("d", path);
       entry.hit.setAttribute("d", path);
-      entry.path.setAttribute("class", `curve${active ? " selected" : ""}`);
-      entry.path.style.opacity = s.loading
-        ? "0.1"
-        : s.overview
-          ? "0.72"
-          : active
-            ? "1"
-            : "0.42";
+
+      const auraD =
+        hubPerception.auraOpacity > 0.01
+          ? evaluateHubAuraGeometry(h, s.camera, s.viewport, sig.auraOffset)
+          : "";
+      entry.auraPath.setAttribute("d", auraD);
+      entry.auraPath.style.display = auraD ? "" : "none";
+      entry.auraPath.style.opacity = String(hubPerception.auraOpacity);
+      entry.auraPath.style.stroke =
+        hubPerception.tier === "resonating" ? sig.accentColor : strokeColor;
+      if (sig.auraDash) {
+        entry.auraPath.setAttribute("stroke-dasharray", sig.auraDash);
+      } else {
+        entry.auraPath.removeAttribute("stroke-dasharray");
+      }
+
+      const tierClass =
+        hubPerception.tier === "resonating"
+          ? " related is-resonating"
+          : hubPerception.tier === "related"
+            ? " related"
+            : hubPerception.tier === "ambient"
+              ? " is-ambient"
+              : "";
+      entry.path.setAttribute(
+        "class",
+        `curve${active ? " selected" : ""}${tierClass}`,
+      );
+      entry.path.dataset.tier = hubPerception.tier;
+      entry.path.dataset.relation = hubPerception.relation;
+      entry.path.dataset.archetype = sig.archetype;
+      entry.path.style.opacity = String(hubPerception.curveOpacity);
+      entry.path.style.stroke =
+        hubPerception.tier === "resonating" ? sig.accentColor : strokeColor;
+      entry.path.style.strokeWidth = `calc(${(1.25 * hubPerception.strokeWidthScale).toFixed(2)}px * var(--camera-scale, 1))`;
+      if (!active && sig.curveDash && hubPerception.tier !== "resonating") {
+        entry.path.setAttribute("stroke-dasharray", sig.curveDash);
+      } else {
+        entry.path.removeAttribute("stroke-dasharray");
+      }
 
       this.actions.set(
         `hub:${h.id}`,
@@ -766,7 +983,36 @@ export class Scene {
       );
       const current = this.selected(h);
       const nodes = this.catalog.siblings(current.id, s.searchResults);
-      this.renderUnfocusedTraces(h, nodes, s);
+      this.renderUnfocusedTraces(h, nodes, s, hubPerception, darkPalette);
+
+      if (
+        !s.loading &&
+        h.id !== focusHubObj.id &&
+        (hubPerception.tier === "resonating" || hubPerception.tier === "related")
+      ) {
+        const targetParam = nodeS(h, h.scroll, nodes.length, s.camera, s.viewport);
+        const targetScreen = hubToScreen(
+          h,
+          material(h, targetParam, 0),
+          s.camera,
+          s.viewport,
+        );
+        const mx = (focusAnchorScreen.x + targetScreen.x) * 0.5;
+        const my = (focusAnchorScreen.y + targetScreen.y) * 0.5;
+        const dx = targetScreen.x - focusAnchorScreen.x;
+        const dy = targetScreen.y - focusAnchorScreen.y;
+        const cx = mx - dy * 0.12;
+        const cy = my + dx * 0.12;
+        if (
+          Number.isFinite(
+            focusAnchorScreen.x + focusAnchorScreen.y + cx + cy + targetScreen.x + targetScreen.y,
+          )
+        ) {
+          filamentSegs.push(
+            `M${focusAnchorScreen.x.toFixed(1)} ${focusAnchorScreen.y.toFixed(1)}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${targetScreen.x.toFixed(1)} ${targetScreen.y.toFixed(1)}`,
+          );
+        }
+      }
 
       if (s.loading || !active) continue;
 
@@ -798,6 +1044,15 @@ export class Scene {
       }
     }
 
+    this.relationFilaments.setAttribute("d", filamentSegs.join(""));
+    this.relationFilaments.style.opacity = s.loading
+      ? "0"
+      : perception.resonatingHubId
+        ? "0.46"
+        : s.overview
+          ? "0.34"
+          : "0.22";
+
     for (const leaf of locals) {
       const attachment = leaf.attachment;
       const hub = s.hubs[attachment.anchor.hostHub];
@@ -817,10 +1072,17 @@ export class Scene {
         attachment,
         s,
       );
-      this.hubs
+      const labelGroup = this.hubs
         .get(hub.id)!
-        .labels.get(attachment.anchor.id)!.group.dataset.localPhase =
-        leaf.phase;
+        .labels.get(attachment.anchor.id)!.group;
+      labelGroup.dataset.localPhase = leaf.phase;
+      const isResonatingRef =
+        attachment.command.type === "navigate" &&
+        (attachment.command.target === perception.resonatingTargetId ||
+          (perception.resonatingHubId !== null &&
+            this.catalog.chapters.get(attachment.command.target)?.hub ===
+              perception.resonatingHubId));
+      labelGroup.classList.toggle("is-resonating-ref", isResonatingRef);
     }
 
     const useTraditionalHud =
@@ -1006,6 +1268,7 @@ export class Scene {
           const pressed = isActionPressed(
             button.dataset.target!.slice(4),
             s.settings,
+            s.theme,
           );
           if (pressed === undefined) continue;
           const selected = String(pressed);
@@ -1062,11 +1325,28 @@ export class Scene {
         const floatTransform = `translateY(${-activeFloat.toFixed(2)}px)`;
         if (content.style.transform !== floatTransform)
           content.style.transform = floatTransform;
+        const placement = placeReading(
+          anchorPt,
+          normal,
+          widthPx,
+          panelHeight,
+          s.camera.z,
+        );
+        const clearancePx = computeHubVerticalClearance(
+          hub,
+          placement,
+          widthPx,
+          panelHeight,
+          normal,
+          s.camera,
+          s.viewport,
+        );
         const clip = resolveReadingClip(
           normal,
           height,
           panelHeight,
           activeFloat,
+          clearancePx,
         );
         const windowEl = article.querySelector<HTMLElement>(".note-window")!;
         if (article.dataset.clipEdge !== clip.edge)
@@ -1088,13 +1368,6 @@ export class Scene {
           windowEl.style.maskImage = clip.maskImage;
           windowEl.style.webkitMaskImage = clip.maskImage;
         }
-        const placement = placeReading(
-          anchorPt,
-          normal,
-          widthPx,
-          panelHeight,
-          s.camera.z,
-        );
         if (article.dataset.side !== placement.side)
           article.dataset.side = placement.side;
         const anchorVarStr = `${placement.originY.toFixed(1)}px`;

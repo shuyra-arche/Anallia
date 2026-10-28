@@ -44,3 +44,18 @@ export function saveFrameRate(
     /* Preferences are optional when browser storage is unavailable. */
   }
 }
+export function readSound(storage?: PreferenceStorage): boolean {
+  try {
+    const value = (storage ?? window.localStorage).getItem("shuyra.sound");
+    return value === null ? true : value !== "false";
+  } catch {
+    return true;
+  }
+}
+export function saveSound(value: boolean, storage?: PreferenceStorage): void {
+  try {
+    (storage ?? window.localStorage).setItem("shuyra.sound", String(value));
+  } catch {
+    /* Sound preference remains available in this session without storage. */
+  }
+}

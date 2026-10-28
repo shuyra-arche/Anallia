@@ -9,8 +9,13 @@ const hash = (n: number) => {
 };
 const palettes: Record<Theme, readonly string[]> = {
   light: ["#6b9ba7", "#8585af", "#a87f58"],
+  parchment: ["#a6856b", "#b08d74", "#b05a2b"],
+  celadon: ["#7399a8", "#7ea1b0", "#9c6430"],
+  rosewood: ["#9c7a8e", "#a68497", "#9e642e"],
+  ivory: ["#7c8cb0", "#8796b8", "#9a6228"],
   dark: ["#546db6", "#7dbdcf", "#e4b78f"],
   obsidian: ["#626bc7", "#9dcfdf", "#eac0a3"],
+  abyss: ["#4e6896", "#82b4f5", "#e8ba78"],
 };
 interface Trail {
   path: SVGPathElement;
@@ -184,7 +189,7 @@ export class Stars {
             circle.setAttribute("fill", palettes[theme][i % 3]);
             circle.style.opacity = opacity(
               world,
-              (theme === "light" ? 0.48 : 0.8) *
+              (!(theme === "dark" || theme === "obsidian" || theme === "abyss") ? 0.48 : 0.8) *
                 (0.8 + 0.2 * Math.sin(time / 1800 + seed)),
             );
           }
@@ -230,7 +235,7 @@ export class Stars {
         );
         trail.path.style.opacity = opacity(
           sample(angle - arc / 2),
-          theme === "light" ? 0.3 : 0.52,
+          !(theme === "dark" || theme === "obsidian" || theme === "abyss") ? 0.3 : 0.52,
         );
         this.gradient(trail.gradient, a, b);
       }
@@ -272,7 +277,7 @@ export class Stars {
       meteor.head.setAttribute("fill", palettes[theme][2]);
       const alpha = opacity(
         end,
-        Math.sin(Math.PI * t) * (theme === "light" ? 0.52 : 0.9),
+        Math.sin(Math.PI * t) * (!(theme === "dark" || theme === "obsidian" || theme === "abyss") ? 0.52 : 0.9),
       );
       meteor.path.style.opacity = meteor.head.style.opacity = alpha;
       this.gradient(meteor.gradient, a, b);

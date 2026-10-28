@@ -40,6 +40,81 @@ html[data-theme="dark"] {
   --stem: #5a7974;
   --stem-nav: #b69a79;
 }
+html[data-theme="parchment"] {
+  --paper: #f6efe4;
+  --paper-swept: #ede2d0;
+  --ink: #38251a;
+  --body-ink: #573d2e;
+  --quiet: #7d6250;
+  --line: #a64b2a;
+  --low: #cbb7a3;
+  --decor: #d5c3b0;
+  --decor-strong: #a6856b;
+  --amber: #b05a2b;
+  --accent: #9e472a;
+  --stem: #b08d74;
+  --stem-nav: #b87c4c;
+}
+html[data-theme="celadon"] {
+  --paper: #eaf2f3;
+  --paper-swept: #dae8ea;
+  --ink: #1c3340;
+  --body-ink: #365263;
+  --quiet: #5c7888;
+  --line: #245c78;
+  --low: #a4bec7;
+  --decor: #b2cad2;
+  --decor-strong: #7399a8;
+  --amber: #9c6430;
+  --accent: #245c78;
+  --stem: #7ea1b0;
+  --stem-nav: #b08c68;
+}
+html[data-theme="rosewood"] {
+  --paper: #f3edf1;
+  --paper-swept: #e6dce3;
+  --ink: #361f2d;
+  --body-ink: #543849;
+  --quiet: #785c6d;
+  --line: #783a59;
+  --low: #c4b0bc;
+  --decor: #ceb9c5;
+  --decor-strong: #9c7a8e;
+  --amber: #9e642e;
+  --accent: #783a59;
+  --stem: #a68497;
+  --stem-nav: #b48a6c;
+}
+html[data-theme="ivory"] {
+  --paper: #eef0f6;
+  --paper-swept: #dfe4ef;
+  --ink: #1f2b46;
+  --body-ink: #3a496b;
+  --quiet: #617091;
+  --line: #344e86;
+  --low: #aeb8cf;
+  --decor: #bbc4d8;
+  --decor-strong: #7c8cb0;
+  --amber: #9a6228;
+  --accent: #344e86;
+  --stem: #8796b8;
+  --stem-nav: #b08b67;
+}
+html[data-theme="abyss"] {
+  --paper: #0d1424;
+  --paper-swept: #16223b;
+  --ink: #e8eef9;
+  --body-ink: #b8c7e0;
+  --quiet: #899ec2;
+  --line: #82b4f5;
+  --low: #2d3e61;
+  --decor: #253554;
+  --decor-strong: #4e6896;
+  --amber: #e8ba78;
+  --accent: #82b4f5;
+  --stem: #55709e;
+  --stem-nav: #b8986b;
+}
 html[data-theme="obsidian"] {
   --paper: #0c0e10;
   --paper-swept: #181d1e;
@@ -900,4 +975,64 @@ article.note[data-side="left"].is-long::before {
 }
 .note-content {
   display: flow-root;
+}
+
+/* 关系型焦点层次（聚焦枢 -> 关联枢 / 共鸣枢 -> 环境背景枢）与渐进认知显现 */
+.curve.related {
+  stroke: var(--decor-strong);
+  stroke-width: calc(1.45px * var(--camera-scale, 1));
+}
+.curve.is-resonating {
+  stroke: var(--amber);
+  stroke-width: calc(1.85px * var(--camera-scale, 1));
+}
+.inner-dot.is-resonating {
+  opacity: 0.96;
+}
+.tag-group.is-resonating-ref .label-ring {
+  opacity: 0.92;
+}
+.tag-group.is-resonating-ref .label {
+  fill: var(--amber);
+}
+.tag-group.is-resonating-ref .label-icon {
+  color: var(--amber);
+}
+#scene[data-discovery-stage="threshold"] .tag-group[data-role="operation"]:not(:hover):not(:focus-visible) {
+  opacity: 0.42;
+  transition: opacity 0.32s ease;
+}
+
+/* 枢级结构光环、关系丝线与信标符号（强化枢与枢之间的形态与色彩层次差异） */
+.hub-aura {
+  fill: none;
+  stroke: var(--decor-strong);
+  stroke-width: calc(0.95px * var(--camera-scale, 1));
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+  transition: opacity 0.28s ease, stroke 0.28s ease;
+}
+.relation-filaments {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: calc(0.9px * var(--camera-scale, 1));
+  stroke-dasharray: 4 6;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+  opacity: 0.24;
+  transition: opacity 0.28s ease;
+}
+.hub-beacon {
+  dominant-baseline: central;
+  text-anchor: middle;
+  font-family: var(--font-symbol);
+  font-weight: 620;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+  transition: opacity 0.25s ease, fill 0.25s ease;
 }

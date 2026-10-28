@@ -1,8 +1,12 @@
 import { FRAME_RATE_OPTIONS } from "../core/frame-rate.ts";
 import { BACKGROUND_OPTIONS } from "../core/background.ts";
+import { THEME_OPTIONS } from "../core/palette.ts";
 import type { ContentRow, HubDefinition } from "../core/types.ts";
 
 const frameRateHorizontalList = FRAME_RATE_OPTIONS.map(
+  (option) => `{${option.label}|act:${option.action}}`,
+).join(" | ");
+const themeHorizontalList = THEME_OPTIONS.map(
   (option) => `{${option.label}|act:${option.action}}`,
 ).join(" | ");
 const backgroundHorizontalList = BACKGROUND_OPTIONS.map(
@@ -16,8 +20,8 @@ export const rawContent: Record<string, ContentRow[]> = {
       "α₀",
       null,
       "从这里开始",
-      "欢迎来到 Anallia。这是一个用圆与直线组织内容的阅读空间：标签是入口，曲线连接章节，你可以在阅读中改变它们的形态。\n\n[hlist]\n{开始体验 · 圆周阅读|a1} | {换个方向 · 线枢|b0} | {安静读一篇长文|m3}\n\n[vlist]\n切换章节 :: 在空白处滚动，或按方向键。只有一个标签时，先点击正文链接进入。\n改变形态 :: 点击当前高亮标签，让圆展开成线，再点击一次收回。\n继续探索 :: {主题与转场|d0} | {星空与流场|s6} | {设置|s0}\n\n{进阶 · 九标签与十二标签演示|a3}",
-      "欢迎来到 Anallia。这是一个用圆与直线组织内容的阅读空间：标签是入口，曲线连接章节，你可以在阅读中改变它们的形态。\n\n[hlist]\n{开始体验 · 圆周阅读|a1} | {换个方向 · 线枢|b0} | {安静读一篇长文|m3}\n\n[vlist]\n切换章节 :: 在空白处滚动，或按方向键。只有一个标签时，先点击正文链接进入。\n改变形态 :: 点击当前高亮标签，让圆展开成线，再点击一次收回。\n继续探索 :: {主题与转场|d0} | {星空与流场|s6} | {设置|s0}\n\n{进阶 · 九标签与十二标签演示|a3}",
+      "视线停驻之处，是一枚被称为「枢」的圆。正文沿它的外法向展开，周围隐约浮现的轨迹，则是与当前内容相连的其余篇章。\n\n不必急于理解全貌——顺着下方的引力迈出第一步，空间与声场会在运动中自然显现：\n\n[hlist]\n{开始体验 · 圆周阅读|a1} | {换个方向 · 线枢|b0} | {安静读一篇长文|m3}\n\n[vlist]\n轻拨滚轮 :: 沿着曲线走向下一章，或悬停链接观察远方关联枢的共鸣。\n触碰焦点 :: 点击圆弧旁的「α₀」标签，听见并看见圆如何连续舒展为直线。\n继续探索 :: {主题与转场|d0} | {星空与流场|s6} | {设置|s0}\n\n{进阶 · 九标签与十二标签演示|a3}",
+      "你刚刚将圆舒展为一条直线。莫比乌斯变换打开了曲线的曲率与泛音，而阅读焦点依然稳定地留在眼前。\n\n再点击一次高亮的「α₀」标签即可收拢成圆，或顺着导轨继续探索：\n\n[hlist]\n{开始体验 · 圆周阅读|a1} | {换个方向 · 线枢|b0} | {安静读一篇长文|m3}\n\n[vlist]\n圆与线 :: 同一内容在两种几何姿态间连续转换，音色与视野随之开合。\n继续探索 :: {主题与转场|d0} | {星空与流场|s6} | {设置|s0}\n\n{进阶 · 九标签与十二标签演示|a3}",
       [
         ["β", "b0"],
         ["μ", "m3"],
@@ -569,8 +573,8 @@ export const rawContent: Record<string, ContentRow[]> = {
       "μ₂",
       "m0",
       "在阅读中调整",
-      "点击下面的开关，效果会直接作用于当前空间。点亮的状态表示已经开启。\n\n[hlist]\n{◎ 景深|act:toggle_blur} | {◈ 邻近伴读|act:toggle_range} | {∿ 减缓动效|act:toggle_motion}\n\n[hlist]\n{舒缓|act:speed075} | {标准|act:speed100} | {敏捷|act:speed125}\n\n{继续 · 长文|m3}",
-      "点击下面的开关，效果会直接作用于当前空间。点亮的状态表示已经开启。\n\n[hlist]\n{◎ 景深|act:toggle_blur} | {◈ 邻近伴读|act:toggle_range} | {∿ 减缓动效|act:toggle_motion}\n\n[hlist]\n{舒缓|act:speed075} | {标准|act:speed100} | {敏捷|act:speed125}\n\n{继续 · 长文|m3}",
+      "点击下面的开关，效果会直接作用于当前空间。点亮的状态表示已经开启。\n\n[hlist]\n{◎ 景深|act:toggle_blur} | {◈ 邻近伴读|act:toggle_range} | {∿ 减缓动效|act:toggle_motion} | {♪ 几何声场|act:toggle_sound}\n\n[hlist]\n{舒缓|act:speed075} | {标准|act:speed100} | {敏捷|act:speed125}\n\n{继续 · 长文|m3}",
+      "点击下面的开关，效果会直接作用于当前空间。点亮的状态表示已经开启。\n\n[hlist]\n{◎ 景深|act:toggle_blur} | {◈ 邻近伴读|act:toggle_range} | {∿ 减缓动效|act:toggle_motion} | {♪ 几何声场|act:toggle_sound}\n\n[hlist]\n{舒缓|act:speed075} | {标准|act:speed100} | {敏捷|act:speed125}\n\n{继续 · 长文|m3}",
       [["⚙", "s5"]],
     ],
     [
@@ -658,8 +662,8 @@ export const rawContent: Record<string, ContentRow[]> = {
       "⚙₅",
       "s0",
       "单符号明暗开关与枢原生确认",
-      "开关通过单个符号自身的明暗表达状态，确认弹窗也直接作为枢的原生子层（✓ / ✕）构建：\n\n[vlist]\n光学景深开关 :: 控制未聚焦文本块的高斯模糊景深  {◎ 光学景深|act:toggle_blur}\n邻近伴读开关 :: 同时浮现相邻章节正文以供对照  {◈ 邻近伴读|act:toggle_range}\n减缓动效开关 :: 缩短摄像机飞行与复反演过渡时间  {∿ 减缓动效|act:toggle_motion}\n\n[hlist]\n{↺ 恢复默认设置（进入 ✓/✕ 确认子层）|s5_ok} | {⚙₀ 返回设置总览|s0}",
-      "单符号明暗开关与枢原生确认入口：\n\n[vlist]\n光学景深开关 :: {◎ 光学景深|act:toggle_blur}\n邻近伴读开关 :: {◈ 邻近伴读|act:toggle_range}\n减缓动效开关 :: {∿ 减缓动效|act:toggle_motion}\n\n[hlist]\n{↺ 恢复默认设置（进入 ✓/✕ 确认子层）|s5_ok} | {⚙₀ 返回设置总览|s0}",
+      "开关通过单个符号自身的明暗表达状态，确认弹窗也直接作为枢的原生子层（✓ / ✕）构建：\n\n[vlist]\n光学景深开关 :: 控制未聚焦文本块的高斯模糊景深  {◎ 光学景深|act:toggle_blur}\n邻近伴读开关 :: 同时浮现相邻章节正文以供对照  {◈ 邻近伴读|act:toggle_range}\n减缓动效开关 :: 缩短摄像机飞行与复反演过渡时间  {∿ 减缓动效|act:toggle_motion}\n几何声场开关 :: 让圆线变换、翻页与空间跨越映射为连续泛音  {♪ 几何声场|act:toggle_sound}\n\n[hlist]\n{↺ 恢复默认设置（进入 ✓/✕ 确认子层）|s5_ok} | {⚙₀ 返回设置总览|s0}",
+      "单符号明暗开关与枢原生确认入口：\n\n[vlist]\n光学景深开关 :: {◎ 光学景深|act:toggle_blur}\n邻近伴读开关 :: {◈ 邻近伴读|act:toggle_range}\n减缓动效开关 :: {∿ 减缓动效|act:toggle_motion}\n几何声场开关 :: {♪ 几何声场|act:toggle_sound}\n\n[hlist]\n{↺ 恢复默认设置（进入 ✓/✕ 确认子层）|s5_ok} | {⚙₀ 返回设置总览|s0}",
       [["μ", "m2"]],
     ],
     [
@@ -667,8 +671,8 @@ export const rawContent: Record<string, ContentRow[]> = {
       "⚙₆",
       "s0",
       "背景 · 流场、星空与关闭",
-      `选择阅读空间的背景，选择会保存在当前浏览器：\n\n[hlist]\n${backgroundHorizontalList}\n\n[vlist]\n流场 :: 原有流线与波动，默认背景\n星空 :: 色阶渐变星轨、细密星点与偶发流星；正文附近降低亮度\n关闭 :: 保留枢与正文，隐藏背景装饰\n减缓动效 :: 星空保留静态星点与星轨，停止流星和星轨运动\n\n星空随当前枢的明暗主题调整颜色，不改变枢的底色切换规则。`,
-      `选择背景（点亮项为当前生效）：\n\n[hlist]\n${backgroundHorizontalList}\n\n星空包含渐变星轨和划过的流星，随镜头一起缩放。开启减缓动效后保留静态星空。`,
+      `选择阅读空间的背景与八种主题配色：\n\n[hlist]\n${backgroundHorizontalList}\n\n[hlist]\n${themeHorizontalList}\n\n[vlist]\n流场 :: 原有流线与波动，默认背景\n星空 :: 色阶渐变星轨、细密星点与偶发流星；正文附近降低亮度\n关闭 :: 保留枢与正文，隐藏背景装饰\n减缓动效 :: 星空保留静态星点与星轨，停止流星和星轨运动\n\n星空随当前枢的明暗主题调整颜色，不改变枢的底色切换规则。`,
+      `选择背景与主题配色（点亮项为当前生效）：\n\n[hlist]\n${backgroundHorizontalList}\n\n[hlist]\n${themeHorizontalList}\n\n星空包含渐变星轨和划过的流星，随镜头一起缩放。开启减缓动效后保留静态星空。`,
       [],
     ],
     [
@@ -731,7 +735,7 @@ export const hubDefinitions: HubDefinition[] = [
   {
     id: "C",
     glyph: "θ",
-    theme: "light",
+    theme: "parchment",
     center: { x: 1120, y: 820 },
     angle: -38,
     morph: 1,
@@ -751,7 +755,7 @@ export const hubDefinitions: HubDefinition[] = [
   {
     id: "E",
     glyph: "ε",
-    theme: "light",
+    theme: "celadon",
     center: { x: 380, y: 820 },
     angle: -64,
     morph: 0,
@@ -769,7 +773,7 @@ export const hubDefinitions: HubDefinition[] = [
   {
     id: "M",
     glyph: "μ",
-    theme: "light",
+    theme: "rosewood",
     center: { x: -1520, y: 520 },
     angle: -82,
     morph: 1,
@@ -791,7 +795,7 @@ export const hubDefinitions: HubDefinition[] = [
     layout: "anchored",
     recommendations: ["a0", "a4", "b1", "c0", "d0", "e0", "l0", "m0", "s0"],
     glyph: "⌕",
-    theme: "light",
+    theme: "ivory",
     center: { x: 180, y: -560 },
     angle: 0,
     morph: 0,

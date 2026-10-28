@@ -59,80 +59,102 @@ export function readingHeight(
   return Math.max(80, Math.min(viewportCap, localCap));
 }
 
-export type ReadingClipEdge = "top" | "bottom";
+export type ReadingClipEdge = "top" | "bottom" | "none";
 
-export interface ReadingClipState {
-  /** The single truncation boundary that prevents long text from overlapping the hub. */
+export interface ReadingClipSpec {
   edge: ReadingClipEdge;
-  /** Fade transition band depth in local article pixels (0 when no text crosses the boundary). */
   fadePx: number;
-  /** CSS mask-image value for the single truncation boundary ("none" when inactive). */
   maskImage: string;
-  /** Local window top margin adjustment (negative when extending open top upward). */
   windowMarginTop: number;
-  /** Local window top padding adjustment (positive when extending open top upward). */
   windowPaddingTop: number;
-  /** Local window height so only `edge` truncates while the opposite side stays open. */
   windowHeight: number;
 }
 
-export const READING_CLIP_FADE_PX = 48;
+const READING_CLIP_FADE_PX = 48;
 
 /**
- * Dynamically determine the single truncation boundary (`top` vs `bottom`) from the
- * outward tangent normal so long text never overlaps the hub while the opposite side
- * remains open, with a smooth alpha gradient transition at the active boundary.
+ * Dynamically resolve whether the reading column actually overlaps the hub along its
+ * scroll axis. Long text is NOT truncated when its vertical path misses the hub
+ * (`clearancePx = Infinity`) or when the current scroll offset (`activeFloat`) keeps
+ * the text outside `clearancePx`. When overlap would occur, only the single hub-facing
+ * boundary (`top` when `normal.y >= 0`, `bottom` when `normal.y < 0`) is clipped with a
+ * smooth linear-gradient fade transition.
  */
 export function resolveReadingClip(
   normal: Vec,
   contentHeight: number,
   panelHeight: number,
   activeFloat: number,
-): ReadingClipState {
-  const edge: ReadingClipEdge = normal.y < 0 ? "bottom" : "top";
-  if (edge === "top") {
-    const overflowPx = Math.max(0, activeFloat);
+  clearancePx?: number,
+): ReadingClipSpec {
+  const absNy = Math.abs(normal.y);
+  const effectiveClearance =
+    clearancePx !== undefined
+      ? Math.max(0, clearancePx)
+      : absNy > 1e-8
+        ? 16 / absNy
+        : Infinity;
+  const contentTop = -Math.max(0, activeFloat);
+  const contentBottom = contentHeight - Math.max(0, activeFloat);
+
+  if (!Number.isFinite(effectiveClearance)) {
+    const windowTop = Math.min(0, contentTop);
+    const windowBottom = Math.max(panelHeight, contentBottom);
+    return {
+      edge: "none",
+      fadePx: 0,
+      maskImage: "none",
+      windowMarginTop: windowTop,
+      windowPaddingTop: -windowTop,
+      windowHeight: Math.max(panelHeight, windowBottom - windowTop),
+    };
+  }
+
+  if (normal.y >= 0) {
+    const clipTopY = -effectiveClearance;
+    const overlapPx = Math.max(0, clipTopY - contentTop);
+    const windowTop = overlapPx > 1 ? clipTopY : Math.min(0, contentTop);
+    const windowBottom = Math.max(panelHeight, contentBottom);
+    const windowHeight = Math.max(panelHeight, windowBottom - windowTop);
     const fadePx =
-      overflowPx > 1
-        ? Math.min(READING_CLIP_FADE_PX, overflowPx * 1.25, panelHeight * 0.45)
+      overlapPx > 1
+        ? Math.min(READING_CLIP_FADE_PX, overlapPx * 1.25, windowHeight * 0.45)
         : 0;
     const maskImage =
       fadePx > 0
         ? `linear-gradient(to bottom, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0.38) ${(fadePx * 0.45).toFixed(1)}px, rgba(0, 0, 0, 1) ${fadePx.toFixed(1)}px)`
         : "none";
     return {
-      edge,
+      edge: fadePx > 0 ? "top" : "none",
       fadePx,
       maskImage,
-      windowMarginTop: 0,
-      windowPaddingTop: 0,
-      windowHeight: Math.max(panelHeight, contentHeight - activeFloat),
+      windowMarginTop: windowTop,
+      windowPaddingTop: -windowTop,
+      windowHeight,
     };
   }
-  const topExtend = Math.max(0, activeFloat);
-  const bottomOverflowPx = Math.max(
-    0,
-    contentHeight - panelHeight - activeFloat,
-  );
+
+  const clipBottomY = panelHeight + effectiveClearance;
+  const overlapPx = Math.max(0, contentBottom - clipBottomY);
+  const windowTop = Math.min(0, contentTop);
+  const windowBottom =
+    overlapPx > 1 ? clipBottomY : Math.max(panelHeight, contentBottom);
+  const windowHeight = Math.max(panelHeight, windowBottom - windowTop);
   const fadePx =
-    bottomOverflowPx > 1
-      ? Math.min(
-          READING_CLIP_FADE_PX,
-          bottomOverflowPx * 1.25,
-          panelHeight * 0.45,
-        )
+    overlapPx > 1
+      ? Math.min(READING_CLIP_FADE_PX, overlapPx * 1.25, windowHeight * 0.45)
       : 0;
   const maskImage =
     fadePx > 0
       ? `linear-gradient(to top, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0.38) ${(fadePx * 0.45).toFixed(1)}px, rgba(0, 0, 0, 1) ${fadePx.toFixed(1)}px)`
       : "none";
   return {
-    edge,
+    edge: fadePx > 0 ? "bottom" : "none",
     fadePx,
     maskImage,
-    windowMarginTop: -topExtend,
-    windowPaddingTop: topExtend,
-    windowHeight: panelHeight + topExtend,
+    windowMarginTop: windowTop,
+    windowPaddingTop: -windowTop,
+    windowHeight,
   };
 }
 

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import { readFileSync } from "node:fs";
+import { THEME_OPTIONS } from "../src/core/palette.ts";
 import { BACKGROUND_OPTIONS } from "../src/core/background.ts";
 import { readBackground, saveBackground } from "../src/platform/preferences.ts";
 import { Field } from "../src/application/field.ts";
@@ -118,7 +119,7 @@ test("starfield gradients and meteors stay finite across themes, zoom and motion
   const d = dom(),
     stars = new Stars(d.root as unknown as SVGGElement);
   try {
-    for (const theme of ["light", "dark", "obsidian"] as const)
+    for (const { value: theme } of THEME_OPTIONS)
       for (const z of [0.18, 1.12, 2.4])
         for (const time of [0, 2800, 7200, 13000]) {
           stars.render({ ...camera, z }, viewport, time, theme, false, false);
@@ -182,6 +183,38 @@ test("background settings display the selected option without changing page or t
     );
     assert.equal(f.selected().id, "s6");
     assert.equal(f.state.theme, "dark");
+  } finally {
+    scene.destroy();
+    d.close();
+  }
+});
+test("theme choices show exactly the active palette", () => {
+  const d = dom();
+  d.window.document.write(
+    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+      /<script[^>]*>[\s\S]*?<\/script>/g,
+      "",
+    ),
+  );
+  const f = new Field(new Catalog(hubDefinitions, rawContent), viewport, true);
+  f.dispatch({ type: "navigate", target: "s6" });
+  for (let i = 1; i <= 100; i++) f.update(i * 20, 20);
+  const host = d.window.document.querySelector("#scene")!;
+  const scene = new Scene(host as unknown as HTMLElement, f.catalog);
+  try {
+    for (const selected of THEME_OPTIONS) {
+      f.dispatch({ type: "navigate", target: `act:${selected.action}` });
+      scene.render(f.state);
+      assert.equal(f.selected().id, "s6");
+      assert.equal(f.state.theme, selected.value);
+      for (const option of THEME_OPTIONS) {
+        assert.equal(
+          host.querySelector(`[data-target="act:${option.action}"]`)!
+            .getAttribute("aria-pressed"),
+          String(option.value === selected.value),
+        );
+      }
+    }
   } finally {
     scene.destroy();
     d.close();

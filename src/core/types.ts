@@ -4,7 +4,15 @@ export interface Vec {
   x: number;
   y: number;
 }
-export type Theme = "light" | "dark" | "obsidian";
+export type Theme =
+  | "light"
+  | "parchment"
+  | "celadon"
+  | "rosewood"
+  | "ivory"
+  | "dark"
+  | "obsidian"
+  | "abyss";
 export interface Camera extends Vec {
   z: number;
   rotation: number;
@@ -25,7 +33,7 @@ export type ContentRow = [
 export interface Chapter {
   id: string;
   name: string;
-  parent: string | null;
+  parent: string | null,
   title: string;
   expressions: { circle: string; line: string };
   refs: { glyph: string; target: string }[];
@@ -69,6 +77,7 @@ export interface Settings {
   range: number;
   blur: number;
   reducedMotion: boolean;
+  sound?: boolean;
 }
 export interface Snapshot {
   searchQuery: string;

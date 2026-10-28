@@ -287,8 +287,9 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
       if (port.loading()) return;
       if (e.altKey) {
         e.preventDefault();
-        const rawDelta =
-          Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const dy = Number(e.deltaY) || 0;
+        const dx = Number(e.deltaX) || 0;
+        const rawDelta = Math.abs(dy) >= Math.abs(dx) ? dy : dx;
         port.rotate?.(rawDelta * 0.12);
         return;
       }

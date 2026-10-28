@@ -46,7 +46,7 @@ import {
   MOTION,
 } from "../core/transitions.ts";
 import { Catalog } from "../content/catalog.ts";
-import { needsColorSweep } from "../core/palette.ts";
+import { needsColorSweep, THEME_OPTIONS, themeFromAction } from "../core/palette.ts";
 import { localBandForHub } from "./attachments.ts";
 
 export class Field {
@@ -106,6 +106,7 @@ export class Field {
         blur: 1,
         reducedMotion,
         frameRate: "adaptive",
+        sound: true,
       },
       history: [],
       passage: null,
@@ -711,6 +712,13 @@ export class Field {
   }
   private setting(action: string) {
     const settings = this.state.settings;
+    const theme = themeFromAction(action);
+    if (theme !== undefined) {
+      this.state.theme = theme;
+      const label = THEME_OPTIONS.find((option) => option.value === theme)!.label;
+      this.state.description = `配色已切换为：${label}`;
+      return;
+    }
     const background = backgroundFromAction(action);
     if (background !== undefined) {
       settings.background = background;
@@ -730,6 +738,7 @@ export class Field {
       settings.speed = 1;
       settings.reducedMotion = this.systemReducedMotion;
       settings.frameRate = "adaptive";
+      settings.sound = true;
       if (this.selected().parent) this.dispatch({ type: "up" });
       this.state.description = "✓ 已通过枢原生确认子层恢复全部默认设置";
       return;
@@ -750,6 +759,7 @@ export class Field {
       toggle_blur: () => (settings.blur = settings.blur > 0 ? 0 : 1),
       toggle_range: () => (settings.range = settings.range > 0.9 ? 0.62 : 1.25),
       toggle_motion: () => (settings.reducedMotion = !settings.reducedMotion),
+      toggle_sound: () => (settings.sound = settings.sound === false ? true : false),
       loading: () => this.dispatch({ type: "loading" }),
       pulse: () => {
         Object.values(this.state.hubs).forEach((h) =>

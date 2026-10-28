@@ -11,6 +11,11 @@ import {
   readingWidth,
   resolveReadingClip,
 } from "../src/core/layout.ts";
+import {
+  evaluatePerception,
+  resolveDiscoveryStage,
+} from "../src/core/perception.ts";
+import { computeSoundFrame } from "../src/effects/sound.ts";
 import { Scene } from "../src/rendering/scene.ts";
 import { bindInput } from "../src/platform/input.ts";
 import {
@@ -19,6 +24,7 @@ import {
   outwardNormal,
   worldToScreen,
   hubToScreen,
+  computeHubVerticalClearance,
 } from "../src/geometry/field.ts";
 import { rot, unwrapAngle } from "../src/core/math.ts";
 
@@ -210,12 +216,17 @@ test("measured long-text windows fit on small and large screens in all direction
               (x - anchor.x) * n.x + (y - anchor.y) * n.y >=
                 75 * f.state.camera.z,
             );
-        const expectedEdge = n.y < 0 ? "bottom" : "top";
-        assert.equal(article.dataset.clipEdge, expectedEdge);
-        if (expectedEdge === "bottom") {
+        const hasVerticalOverlap = Math.abs(n.y) > 0.5;
+        if (!hasVerticalOverlap) {
+          assert.equal(article.dataset.clipEdge, "none");
+          assert.equal(windowEl.dataset.clipFade, "none");
+          assert.equal(windowEl.style.maskImage, "none");
+        } else if (n.y < 0) {
+          assert.equal(article.dataset.clipEdge, "bottom");
           assert.equal(windowEl.dataset.clipFade, "bottom");
           assert.match(windowEl.style.maskImage, /^linear-gradient\(to top/);
         } else {
+          assert.equal(article.dataset.clipEdge, "none");
           assert.equal(windowEl.dataset.clipFade, "none");
           assert.equal(windowEl.style.maskImage, "none");
         }
@@ -231,10 +242,19 @@ test("measured long-text windows fit on small and large screens in all direction
           Math.abs(floatY + max) <= 0.51,
           "the end of the long article is reachable",
         );
-        if (expectedEdge === "top") {
+        if (!hasVerticalOverlap) {
+          assert.equal(article.dataset.clipEdge, "none");
+          assert.equal(windowEl.dataset.clipFade, "none");
+          assert.equal(windowEl.style.maskImage, "none");
+        } else if (n.y > 0) {
+          assert.equal(article.dataset.clipEdge, "top");
           assert.equal(windowEl.dataset.clipFade, "top");
-          assert.match(windowEl.style.maskImage, /^linear-gradient\((?:to bottom,\s*)?rgba\(0,\s*0,\s*0,\s*0\)/);
+          assert.match(
+            windowEl.style.maskImage,
+            /^linear-gradient\((?:to bottom,\s*)?rgba\(0,\s*0,\s*0,\s*0\)/,
+          );
         } else {
+          assert.equal(article.dataset.clipEdge, "none");
           assert.equal(windowEl.dataset.clipFade, "none");
           assert.equal(windowEl.style.maskImage, "none");
         }
@@ -255,17 +275,37 @@ test("single truncation boundary and reading size strategy keep long lines and s
     assert.ok(readingHeight(v, 0.25, 0) <= 430);
     assert.ok(readingHeight(v, 1, 1) < readingHeight(v, 1, 0));
   }
-  const topClip = resolveReadingClip({ x: 0, y: 1 }, 1600, 400, 120);
+  // When the reading column does not overlap the hub (horizontal normal or infinite clearance),
+  // neither rest nor scrolling state truncates the text.
+  const sideRest = resolveReadingClip({ x: 1, y: 0 }, 1600, 400, 0);
+  assert.equal(sideRest.edge, "none");
+  assert.equal(sideRest.fadePx, 0);
+  const sideScrolled = resolveReadingClip({ x: 1, y: 0 }, 1600, 400, 240);
+  assert.equal(sideScrolled.edge, "none");
+  assert.equal(sideScrolled.fadePx, 0);
+  assert.equal(sideScrolled.windowMarginTop, -240);
+  assert.equal(sideScrolled.windowPaddingTop, 240);
+
+  // When the hub is above (normal.y = 1), rest state has no top truncation, while scrolling into the hub clips only top
+  const topRest = resolveReadingClip({ x: 0, y: 1 }, 1600, 400, 0, 16);
+  assert.equal(topRest.edge, "none");
+  assert.equal(topRest.fadePx, 0);
+  const topClip = resolveReadingClip({ x: 0, y: 1 }, 1600, 400, 120, 16);
   assert.equal(topClip.edge, "top");
   assert.ok(topClip.fadePx > 0);
-  assert.equal(topClip.windowMarginTop, 0);
-  assert.equal(topClip.windowHeight, 1480);
-  const bottomClip = resolveReadingClip({ x: 0, y: -1 }, 1600, 400, 120);
+  assert.equal(topClip.windowMarginTop, -16);
+  assert.equal(topClip.windowPaddingTop, 16);
+
+  // When the hub is below (normal.y = -1), overflowing bottom clips only bottom, while scrolled-past state clears clip
+  const bottomClip = resolveReadingClip({ x: 0, y: -1 }, 1600, 400, 120, 16);
   assert.equal(bottomClip.edge, "bottom");
   assert.ok(bottomClip.fadePx > 0);
   assert.equal(bottomClip.windowMarginTop, -120);
   assert.equal(bottomClip.windowPaddingTop, 120);
-  assert.equal(bottomClip.windowHeight, 520);
+  assert.equal(bottomClip.windowHeight, 536);
+  const bottomCleared = resolveReadingClip({ x: 0, y: -1 }, 1600, 400, 1200, 16);
+  assert.equal(bottomCleared.edge, "none");
+  assert.equal(bottomCleared.fadePx, 0);
 });
 
 test("manual camera rotation via Alt+wheel and two-finger touch pins the reading anchor and preserves readingBearing", () => {
@@ -336,14 +376,17 @@ test("manual camera rotation via Alt+wheel and two-finger touch pins the reading
     const anchorBefore = readingAnchorScreen();
     const rotBefore = f.state.camera.rotation;
     const zBefore = f.state.camera.z;
-    host.dispatchEvent(
-      new window.WheelEvent("wheel", {
-        bubbles: true,
-        cancelable: true,
-        altKey: true,
-        deltaY: 250,
-      }),
-    );
+    const wheelEvent = new window.WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      altKey: true,
+      deltaY: 250,
+    });
+    Object.defineProperty(wheelEvent, "altKey", {
+      value: true,
+      configurable: true,
+    });
+    host.dispatchEvent(wheelEvent);
     const anchorAfter = readingAnchorScreen();
     near(anchorAfter.x, anchorBefore.x);
     near(anchorAfter.y, anchorBefore.y);
@@ -407,6 +450,45 @@ test("manual camera rotation via Alt+wheel and two-finger touch pins the reading
   }
 });
 
+test("relational perception hierarchy, progressive onboarding stages, and geometric soundscape remain consistent", () => {
+  const f = make(),
+    settle = advance(f);
+  // 1. At initial arrival on a0, stage is "threshold" and linked hubs (B, D, M, S) have higher weight than unrelated hubs (C, E, L, Q)
+  assert.equal(resolveDiscoveryStage(f.state), "threshold");
+  const p0 = evaluatePerception(f.state, f.catalog);
+  assert.equal(p0.hubs.A.tier, "focused");
+  assert.equal(p0.hubs.B.tier, "related");
+  assert.equal(p0.hubs.D.tier, "related");
+  assert.equal(p0.hubs.L.tier, "ambient");
+  assert.ok(p0.hubs.B.curveOpacity > p0.hubs.L.curveOpacity);
+
+  // 2. Hovering a reference target elevates its destination hub to "resonating"
+  const pHover = evaluatePerception(f.state, f.catalog, "b0");
+  assert.equal(pHover.resonatingHubId, "B");
+  assert.equal(pHover.hubs.B.tier, "resonating");
+  assert.ok(pHover.hubs.B.curveOpacity > p0.hubs.B.curveOpacity);
+
+  // 3. Morphing a0 advances discovery stage from "threshold" to "orienting" and continuously shifts sound timbre
+  const soundCircle = computeSoundFrame(f.state);
+  f.dispatch({ type: "morph" });
+  settle();
+  assert.equal(resolveDiscoveryStage(f.state), "orienting");
+  const soundLine = computeSoundFrame(f.state);
+  near(soundCircle.morphRatio, 1.0);
+  near(soundLine.morphRatio, 1.5);
+  assert.ok(soundLine.filterCutoffHz > soundCircle.filterCutoffHz * 3);
+  assert.ok(soundCircle.continuousGain <= 0.015);
+  assert.ok(soundLine.harmonicMix > soundCircle.harmonicMix);
+
+  // 4. Navigating across hubs advances discovery stage to "immersed" and toggle_sound mutes cleanly
+  f.dispatch({ type: "navigate", target: "b0" });
+  settle();
+  assert.equal(resolveDiscoveryStage(f.state), "immersed");
+  f.dispatch({ type: "navigate", target: "act:toggle_sound" });
+  assert.equal(f.state.settings.sound, false);
+  assert.equal(computeSoundFrame(f.state, 1, 1).continuousGain, 0);
+});
+
 test("direction changes remain on the shortest angular path after multiple revolutions", () => {
   for (const from of [-1800, -721, -360, 0, 540, 1080, 2150]) {
     for (const to of [-1700, -185, -90, 90, 180, 720, 1700]) {
@@ -416,4 +498,45 @@ test("direction changes remain on the shortest angular path after multiple revol
       near(Math.sin((result * Math.PI) / 180), Math.sin((to * Math.PI) / 180));
     }
   }
+});
+
+test("shallow line angles clip long text before it crosses the hub", () => {
+  const f = make();
+  const hub = f.state.hubs.B;
+  hub.morph = 1;
+  hub.fold = 0;
+  for (const angle of [-170, -10, 10, 170]) {
+    hub.angle = angle;
+    for (const z of [0.18, 1, 2.4]) {
+      const camera = { x: 0, y: 0, rotation: 0, z };
+      const normal = outwardNormal(hub, 0);
+      const anchor = hubToScreen(hub, material(hub, 0, 76), camera, f.state.viewport);
+      const curve = hubToScreen(hub, material(hub, 0), camera, f.state.viewport);
+      const placement = placeReading(anchor, normal, 316, 400, z);
+      const clearance = computeHubVerticalClearance(
+        hub, placement, 316, 400, normal, camera, f.state.viewport,
+      );
+      assert.ok(Number.isFinite(clearance));
+      const offset = normal.y > 0 ? 1200 : 0;
+      const clip = resolveReadingClip(normal, 2000, 400, offset, clearance);
+      assert.equal(clip.edge, normal.y > 0 ? "top" : "bottom");
+      const top = placement.top + clip.windowMarginTop * z;
+      const bottom = top + clip.windowHeight * z;
+      for (const x of [placement.left, placement.left + 316 * z]) {
+        for (const y of [top, bottom]) {
+          const distance = ((x - curve.x) * normal.x + (y - curve.y) * normal.y) / z;
+          assert.ok(distance >= 56 - 1e-6, `text overlaps hub at ${angle} degrees`);
+        }
+      }
+      assert.notEqual(resolveReadingClip(normal, 2000, 400, offset).edge, "none");
+    }
+  }
+  hub.angle = 0;
+  const normal = outwardNormal(hub, 0);
+  const camera = { x: 0, y: 0, rotation: 0, z: 1 };
+  const anchor = hubToScreen(hub, material(hub, 0, 76), camera, f.state.viewport);
+  const placement = placeReading(anchor, normal, 316, 400);
+  assert.equal(computeHubVerticalClearance(
+    hub, placement, 316, 400, normal, camera, f.state.viewport,
+  ), Infinity);
 });
