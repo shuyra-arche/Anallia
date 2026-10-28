@@ -1,4 +1,5 @@
 import type { FrameRate } from "./frame-rate.ts";
+import type { BackgroundMode } from "./background.ts";
 export interface Vec {
   x: number;
   y: number;
@@ -46,6 +47,9 @@ export interface HubDefinition {
   parentHub?: string;
 }
 export interface Hub extends HubDefinition {
+  /** Screen-space outward bearing chosen when approaching this hub. */
+  readingBearing?: number;
+  readingStart?: number;
   targetMorph: number;
   fold: number;
   scroll: number;
@@ -57,9 +61,9 @@ export interface Hub extends HubDefinition {
   anchorOffset: number;
   localScroll: number;
   localScrollTarget: number;
-  localDirection: -1 | 1;
 }
 export interface Settings {
+  background: BackgroundMode;
   frameRate: FrameRate;
   speed: number;
   range: number;
@@ -80,6 +84,9 @@ export interface Snapshot {
       target: number;
       morph: number;
       anchorOffset: number;
+      angle: number;
+      readingBearing?: number;
+      readingStart?: number;
     }
   >;
 }

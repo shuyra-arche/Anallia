@@ -1,7 +1,8 @@
 import { ArticleRenderer } from "./article.ts";
 import { LocalLabelTurns } from "./local-labels.ts";
-import { readingWidth } from "../core/layout.ts";
+import { placeReading, readingHeight, readingWidth } from "../core/layout.ts";
 import { frameRateFromAction } from "../core/frame-rate.ts";
+import { backgroundFromAction } from "../core/background.ts";
 import type {
   Chapter,
   Command,
@@ -10,22 +11,21 @@ import type {
   Settings,
   Vec,
 } from "../core/types.ts";
-import { ease, clamp } from "../core/math.ts";
+import { ease, clamp, rot } from "../core/math.ts";
 import {
   readingEnvelope,
   morphReadingEnvelope,
   pageTurnPose,
 } from "../core/transitions.ts";
 import type { PagePose } from "../core/transitions.ts";
-import { PAPER, SWEPT, BOUNDARY, blendHex } from "../core/palette.ts";
-import { classifyLabelContent, resolveIconToken } from "../core/icons.ts";
-import type { IconToken } from "../core/icons.ts";
+import { PAPER, BOUNDARY, blendHex, needsColorSweep } from "../core/palette.ts";
 import {
-  SYMBOL_KINDS,
-  evaluateSymbol,
-  resolveSymbolKind,
-  symbolMorphFromHub,
-} from "../core/symbol-morph.ts";
+  ICON_TOKENS,
+  classifyLabelContent,
+  resolveIconToken,
+} from "../core/icons.ts";
+import type { IconToken } from "../core/icons.ts";
+import { resolveSymbolKind } from "../core/symbol-morph.ts";
 import type { SymbolGeometry, SymbolKind } from "../core/symbol-morph.ts";
 import { Catalog } from "../content/catalog.ts";
 import {
@@ -40,6 +40,7 @@ import {
   passageGeometry,
   remotePortalGeometry,
   material,
+  outwardNormal,
   nodeS,
   hubToScreen,
 } from "../geometry/field.ts";
@@ -178,6 +179,8 @@ function isActionPressed(
   action: string,
   settings: Settings,
 ): boolean | undefined {
+  const background = backgroundFromAction(action);
+  if (background !== undefined) return background === settings.background;
   const rate = frameRateFromAction(action);
   if (rate !== undefined) return rate === settings.frameRate;
   switch (action) {
@@ -224,6 +227,12 @@ export class Scene {
       labels: Map<string, Label>;
     }
   >();
+  readingBounds: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null = null;
   private articles = new Map<string, HTMLElement>();
   readonly actions = new Map<string, Command>();
   private lastRenderKey = "";
@@ -304,7 +313,15 @@ export class Scene {
         btn.className = "hud-btn";
         btn.dataset.command = item.key;
         btn.title = item.title;
-        btn.textContent = item.label;
+        btn.setAttribute("aria-label", item.label);
+        const glyph = Array.from(item.label)[0];
+        const token = resolveIconToken(glyph);
+        if (token)
+          btn.append(
+            this.createInlineIconSvg(token),
+            document.createTextNode(item.label.slice(glyph.length)),
+          );
+        else btn.textContent = item.label;
         nav.append(btn);
       }
       host.append(nav);
@@ -524,48 +541,24 @@ export class Scene {
     e.group.dataset.contentKind = contentKind;
     e.group.classList.toggle("has-icon", Boolean(symbolKind || iconToken));
 
-    if (symbolKind) {
-      const symMorph = attachment?.symbolMorph ?? symbolMorphFromHub(hub);
-      const activity = this.getSymbolActivity(id, symbolKind, state);
+    if (iconToken) {
+      if (symbolKind) e.group.dataset.symbolKind = symbolKind;
+      else delete e.group.dataset.symbolKind;
       const fb = this.symbolFeedback.get(id);
-      e.group.dataset.symbolKind = symbolKind;
-      e.group.dataset.symbolMorph = symMorph.toFixed(4);
-      e.group.dataset.symbolActivity = activity.toFixed(3);
       e.group.classList.toggle("is-hovered", Boolean(fb?.hover));
       e.group.classList.toggle("is-pressed", Boolean(fb?.press));
       e.group.classList.toggle("is-focused", Boolean(fb?.focus));
-      e.group.classList.toggle("is-active-symbol", activity >= 0.35);
-      e.group.dataset.icon = symbolKind;
-      e.icon.style.display = "";
-      e.icon.setAttribute("class", `label-icon ${kind} is-symbol-morph`);
-      e.icon.setAttribute("transform", labelTransform);
-      const sig = `${symbolKind}:${symMorph.toFixed(4)}:${activity.toFixed(3)}`;
-      if (e.renderedSymbolSignature !== sig) {
-        const geom = evaluateSymbol(symbolKind, symMorph, activity);
-        renderSymbolGeometryToGroup(
-          e.iconGlyph,
-          geom,
-          e.symbolPaths,
-          e.symbolPoints,
-        );
-        e.renderedSymbolSignature = sig;
-        e.renderedIconId = undefined;
-      }
-      e.text.setAttribute("class", `label ${kind} is-sr-only`);
-      e.text.textContent = name;
-      e.text.setAttribute("transform", labelTransform);
-    } else if (iconToken) {
-      delete e.group.dataset.symbolKind;
-      delete e.group.dataset.symbolMorph;
-      delete e.group.dataset.symbolActivity;
-      e.group.dataset.icon = iconToken.id;
+      e.group.classList.toggle(
+        "is-active-symbol",
+        Boolean(
+          symbolKind && this.getSymbolActivity(id, symbolKind, state) >= 0.35,
+        ),
+      );
+      e.group.dataset.icon = iconToken.iconName;
       e.icon.style.display = "";
       e.icon.setAttribute("class", `label-icon ${kind}`);
       e.icon.setAttribute("transform", labelTransform);
       if (e.renderedIconId !== iconToken.id) {
-        e.symbolPaths?.clear();
-        e.symbolPoints?.clear();
-        e.renderedSymbolSignature = undefined;
         populateIconGlyph(e.iconGlyph, iconToken);
         e.renderedIconId = iconToken.id;
       }
@@ -710,6 +703,9 @@ export class Scene {
       ]),
       Object.values(s.hubs).map((h) => [
         h.id,
+        h.angle,
+        h.anchorOffset,
+        h.readingBearing,
         h.morph,
         h.fold,
         h.scroll,
@@ -873,11 +869,17 @@ export class Scene {
       stroke = requireElement<SVGPathElement>(this.host, "#portalStroke"),
       echo = requireElement<SVGPathElement>(this.host, "#portalEchoStroke");
     if (t) {
-      const geometry = passageGeometry(t, s.camera, s.viewport);
-      portal.setAttribute("visibility", "visible");
       this.host.dataset.transition = "passage";
       this.host.dataset.transitionKind = t.kind;
       this.host.dataset.direction = t.direction;
+    } else {
+      delete this.host.dataset.transition;
+      delete this.host.dataset.transitionKind;
+      delete this.host.dataset.direction;
+    }
+    if (t && needsColorSweep(t.sourceTheme, t.theme)) {
+      const geometry = passageGeometry(t, s.camera, s.viewport);
+      portal.setAttribute("visibility", "visible");
       const portalAlpha =
         ease(clamp(t.phase / 0.12, 0, 1)) *
         ease(clamp((1 - t.phase) / 0.12, 0, 1));
@@ -888,7 +890,7 @@ export class Scene {
       );
       requireElement(this.host, "#portalBg").setAttribute(
         "fill",
-        t.theme === t.sourceTheme ? SWEPT[t.theme] : PAPER[t.theme],
+        PAPER[t.theme],
       );
       stroke.setAttribute("d", geometry.strokeD);
       stroke.setAttribute("stroke", BOUNDARY[t.theme]);
@@ -906,9 +908,6 @@ export class Scene {
         echo.style.opacity = "0";
       }
     } else {
-      delete this.host.dataset.transition;
-      delete this.host.dataset.transitionKind;
-      delete this.host.dataset.direction;
       portal.setAttribute("visibility", "hidden");
       stroke.style.opacity = "0";
       echo.style.opacity = "0";
@@ -916,7 +915,7 @@ export class Scene {
     requireElement<HTMLElement>(this.host, "#descBar").textContent =
       s.description;
   }
-  private createInlineIconSvg(token: IconToken, hubMorph = 0): SVGSVGElement {
+  private createInlineIconSvg(token: IconToken, _hubMorph = 0): SVGSVGElement {
     const ns = "http://www.w3.org/2000/svg";
     const svgEl = document.createElementNS(ns, "svg");
     svgEl.setAttribute("class", "inline-svg-icon");
@@ -924,80 +923,31 @@ export class Scene {
     svgEl.setAttribute("width", "15");
     svgEl.setAttribute("height", "15");
     svgEl.setAttribute("aria-hidden", "true");
+    svgEl.setAttribute("fill", "none");
+    svgEl.setAttribute("stroke", "currentColor");
+    svgEl.setAttribute("stroke-linecap", "round");
+    svgEl.setAttribute("stroke-linejoin", "round");
     const g = document.createElementNS(ns, "g");
-    const symKind = resolveSymbolKind(token.glyph);
-    if (symKind) {
-      renderSymbolGeometryToGroup(
-        g,
-        evaluateSymbol(symKind, clamp(1 - hubMorph, 0, 1), 0),
-      );
-    } else {
-      populateIconGlyph(g, token);
-    }
+    populateIconGlyph(g, token);
     svgEl.append(g);
     return svgEl;
   }
-  private buildIconShowcase(hub: Hub): HTMLElement {
-    const wrapper = document.createElement("div");
-    wrapper.className = "symbol-morph-showcase";
-    const symMorph = symbolMorphFromHub(hub);
+  private buildIconShowcase(_hub: Hub): HTMLElement {
     const grid = document.createElement("div");
     grid.className = "icon-showcase-grid";
-
-    for (const kind of SYMBOL_KINDS) {
-      const liveGeom = evaluateSymbol(kind, symMorph, 0);
-      const token = liveGeom.optical;
+    for (const token of Object.values(ICON_TOKENS)) {
       const card = document.createElement("div");
-      card.className = "icon-showcase-card is-morph-card";
-      card.dataset.symbolKind = kind;
-
-      const stageRow = document.createElement("div");
-      stageRow.className = "icon-showcase-stages";
-      const ns = "http://www.w3.org/2000/svg";
-
-      for (const [label, mVal] of [
-        ["圆 m=1", 1],
-        ["中 m=.5", 0.5],
-        ["直 m=0", 0],
-      ] as const) {
-        const cell = document.createElement("div");
-        cell.className = "icon-stage-cell";
-        const svgEl = document.createElementNS(ns, "svg");
-        svgEl.setAttribute("class", "icon-showcase-svg");
-        svgEl.setAttribute("viewBox", "0 0 24 24");
-        svgEl.setAttribute("width", "22");
-        svgEl.setAttribute("height", "22");
-        const g = document.createElementNS(ns, "g");
-        renderSymbolGeometryToGroup(g, evaluateSymbol(kind, mVal, 0));
-        svgEl.append(g);
-        const cap = document.createElement("span");
-        cap.className = "icon-stage-cap";
-        cap.textContent = label;
-        cell.append(svgEl, cap);
-        stageRow.append(cell);
-      }
-
-      const meta = document.createElement("div");
-      meta.className = "icon-showcase-meta";
-      const title = document.createElement("span");
-      title.className = "icon-showcase-title";
-      title.textContent = `${token.glyph} ${token.label}`;
-      const spec = document.createElement("span");
-      spec.className = "icon-showcase-spec";
-      const stroke = (token.baseStrokeWidth + token.strokeCompensation).toFixed(
-        2,
-      );
-      spec.textContent = `当前 m=${symMorph.toFixed(2)} · ×${token.opticalScale.toFixed(2)} · ${stroke}px`;
-      meta.append(title, spec);
-
-      card.append(meta, stageRow);
+      card.className = "icon-showcase-card";
+      card.append(this.createInlineIconSvg(token));
+      const label = document.createElement("span");
+      label.textContent = token.label;
+      card.append(label);
       grid.append(card);
     }
-
-    wrapper.append(grid);
-    return wrapper;
+    return grid;
   }
   private renderTexts(s: FieldState) {
+    this.readingBounds = null;
     const hub = s.hubs[s.focus],
       nodes = this.catalog.siblings(this.selected(hub).id, s.searchResults),
       morph = ease(clamp(hub.morph, 0, 1));
@@ -1065,7 +1015,7 @@ export class Scene {
         if (article.getAttribute("aria-hidden") !== ariaHidden)
           article.setAttribute("aria-hidden", ariaHidden);
         const position = nodeS(hub, i, nodes.length, s.camera, s.viewport);
-        // Fixed outward normal attachment beyond the chapter label, without adaptive viewport flipping.
+        // Typography stays upright while its reading window follows the outward normal.
         const anchorPt = hubToScreen(
           hub,
           material(hub, position, 76),
@@ -1079,14 +1029,19 @@ export class Scene {
         const heightKey = JSON.stringify([node.id, presentation, widthStr]);
         let height = this.heights.get(heightKey);
         if (height === undefined) {
-          height = article.offsetHeight || 160;
+          height =
+            article.querySelector<HTMLElement>(".note-content")!.offsetHeight ||
+            160;
           this.heights.set(heightKey, height);
         }
-        if (article.dataset.side !== "right") article.dataset.side = "right";
-
-        const floatable = isLong || height > 215;
-        const baseAnchor = 58;
-        const maxFloat = floatable ? Math.max(0, height - 108) : 0;
+        const panelHeight = Math.min(
+          height,
+          readingHeight(s.viewport, s.camera.z),
+        );
+        const panelHeightStr = `${panelHeight.toFixed(1)}px`;
+        if (article.style.height !== panelHeightStr)
+          article.style.height = panelHeightStr;
+        const maxFloat = Math.max(0, height - panelHeight);
         const maxFloatStr = String(Math.round(maxFloat));
         if (article.dataset.maxFloat !== maxFloatStr)
           article.dataset.maxFloat = maxFloatStr;
@@ -1094,21 +1049,42 @@ export class Scene {
           Math.abs(i - hub.scroll) < 0.6
             ? clamp(hub.textOffset, 0, maxFloat)
             : 0;
-        const anchorY = baseAnchor + activeFloat;
-        const anchorVarStr = `${anchorY.toFixed(1)}px`;
+        const content = article.querySelector<HTMLElement>(".note-content")!;
+        const floatTransform = `translateY(${-activeFloat.toFixed(2)}px)`;
+        if (content.style.transform !== floatTransform)
+          content.style.transform = floatTransform;
+        const normal = rot(
+          outwardNormal(hub, position),
+          (s.camera.rotation * Math.PI) / 180,
+        );
+        const placement = placeReading(
+          anchorPt,
+          normal,
+          widthPx,
+          panelHeight,
+          s.camera.z,
+        );
+        if (article.dataset.side !== placement.side)
+          article.dataset.side = placement.side;
+        const anchorVarStr = `${placement.originY.toFixed(1)}px`;
         if (article.style.getPropertyValue("--anchor-y") !== anchorVarStr)
           article.style.setProperty("--anchor-y", anchorVarStr);
-        const originStr = `0 ${anchorY.toFixed(1)}px`;
+        const originStr = `${placement.originX.toFixed(3)}px ${placement.originY.toFixed(3)}px`;
         if (article.style.transformOrigin !== originStr)
           article.style.transformOrigin = originStr;
-
-        const targetLeft = anchorPt.x + 18 * depth * s.camera.z;
-        const targetTop = anchorPt.y - anchorY + 32 * depth * s.camera.z;
-
+        const targetLeft = placement.left + 18 * depth * s.camera.z;
+        const targetTop = placement.top + 32 * depth * s.camera.z;
         const turnY = page?.angle ?? 0;
-        const transformStr = `translate3d(${targetLeft.toFixed(2)}px,${targetTop.toFixed(2)}px,0) scale(${s.camera.z}) rotateY(${turnY.toFixed(2)}deg)`;
+        const transformStr = `translate3d(${(targetLeft + (s.camera.z - 1) * placement.originX).toFixed(2)}px,${(targetTop + (s.camera.z - 1) * placement.originY).toFixed(2)}px,0) scale(${s.camera.z}) rotateY(${turnY.toFixed(2)}deg)`;
         if (article.style.transform !== transformStr)
           article.style.transform = transformStr;
+        if (node.id === this.selected(hub).id)
+          this.readingBounds = {
+            left: targetLeft,
+            top: targetTop,
+            width: widthPx * s.camera.z,
+            height: panelHeight * s.camera.z,
+          };
         const blur = 8.5 * depth ** 1.12 * s.settings.blur;
         const filterStr =
           s.settings.reducedMotion || blur < 0.08 ? "none" : `blur(${blur}px)`;

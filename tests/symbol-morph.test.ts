@@ -5,7 +5,6 @@ import {
   SYMBOL_OPTICAL_TOKENS,
   evaluateSymbol,
   measureSymbolBounds,
-  symbolMorphFromHub,
 } from "../src/core/symbol-morph.ts";
 import type { SymbolKind } from "../src/core/symbol-morph.ts";
 import { Field } from "../src/application/field.ts";
@@ -147,59 +146,33 @@ test("Symbol Morph Reversibility: forward and reverse evaluations at any progres
   }
 });
 
-test("Symbol Morph Synchronization: global symbols track host Hub morph in Circle->Line, Line->Circle, pause, and host switch", () => {
+test("selected global icons stay static through hub morph, pause and host switch", () => {
   const f = makeField();
-  // Initial Hub A is in Circle form (hub.morph = 0 -> symbolMorph = 1)
-  assert.equal(f.hub.morph, 0);
-  assert.equal(symbolMorphFromHub(f.hub), 1);
-  let globals = globalAttachments(f.state, f.catalog);
-  const morphGlobals = globals.filter((g) => g.symbolKind);
-  assert.equal(morphGlobals.length, 4);
-  for (const g of morphGlobals) {
-    assert.equal(g.symbolMorph, 1);
-    assert.equal(g.symbolGeometry?.morph, 1);
-  }
-
-  // Trigger Hub A Circle -> Line morph and check synchronization at intermediate frames
-  f.dispatch({ type: "morph" });
-  for (const t of [120, 280, 420, 600, 840]) {
-    f.update(t, 16);
-    const expectedSymbolMorph = 1 - f.hub.morph;
-    globals = globalAttachments(f.state, f.catalog);
-    for (const g of globals.filter((x) => x.symbolKind)) {
-      assert.ok(Math.abs((g.symbolMorph ?? -1) - expectedSymbolMorph) < 1e-9);
-      assert.ok(
-        Math.abs((g.symbolGeometry?.morph ?? -1) - expectedSymbolMorph) < 1e-9,
-      );
-    }
-  }
-  assert.equal(f.hub.morph, 1);
-  assert.equal(symbolMorphFromHub(f.hub), 0);
-
-  // Pause at an arbitrary intermediate state (e.g. hub.morph = 0.38 -> symbolMorph = 0.62)
-  f.hub.morph = 0.38;
-  f.hub.targetMorph = 0.38;
-  globals = globalAttachments(f.state, f.catalog);
-  for (const g of globals.filter((x) => x.symbolKind)) {
-    assert.ok(Math.abs((g.symbolMorph ?? 0) - 0.62) < 1e-9);
-  }
-
-  // Switch focus to Hub D (Circle form, morph = 0) and Hub B (Line form, morph = 1)
-  f.state.focus = "D";
-  globals = globalAttachments(f.state, f.catalog);
-  assert.ok(
-    globals
-      .filter((x) => x.symbolKind)
-      .every((g) => g.anchor.hostHub === "D" && g.symbolMorph === 1),
+  const shapes = globalAttachments(f.state, f.catalog).map(
+    (g) => g.icon!.shapes,
   );
-
-  f.state.focus = "B";
-  globals = globalAttachments(f.state, f.catalog);
-  assert.ok(
-    globals
-      .filter((x) => x.symbolKind)
-      .every((g) => g.anchor.hostHub === "B" && g.symbolMorph === 0),
-  );
+  for (const morph of [0, 0.25, 0.5, 0.75, 1, 0]) {
+    f.hub.morph = f.hub.targetMorph = morph;
+    const globals = globalAttachments(f.state, f.catalog);
+    assert.deepEqual(
+      globals.map((g) => g.icon!.shapes),
+      shapes,
+    );
+    assert.ok(
+      globals.every(
+        (g) => g.symbolGeometry === undefined && g.symbolMorph === undefined,
+      ),
+    );
+  }
+  for (const hub of ["D", "B"]) {
+    f.state.focus = hub;
+    const globals = globalAttachments(f.state, f.catalog);
+    assert.ok(globals.every((g) => g.anchor.hostHub === hub));
+    assert.deepEqual(
+      globals.map((g) => g.icon!.shapes),
+      shapes,
+    );
+  }
 });
 
 test("Symbol Morph Visual Consistency: optical bounds, centroids, and projected zoom", () => {

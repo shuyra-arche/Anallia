@@ -1,13 +1,17 @@
 import { frameRateLimit } from "./core/frame-rate";
-import { readFrameRate, saveFrameRate } from "./platform/preferences";
+import {
+  readFrameRate,
+  saveFrameRate,
+  readBackground,
+  saveBackground,
+} from "./platform/preferences";
 import "./styles.css";
 import { rawContent, hubDefinitions } from "./content/field";
 import { Catalog } from "./content/catalog";
 import { Field } from "./application/field";
 import { Scene } from "./rendering/scene";
 import { screenToWorld, frameFor } from "./geometry/field";
-import { evaluateSymbol } from "./core/symbol-morph";
-import { Ambient } from "./effects/ambient";
+import { Background } from "./effects/background";
 import { createLoading } from "./effects/loading.js";
 import { requireElement } from "./rendering/dom";
 import { bindInput } from "./platform/input";
@@ -24,9 +28,13 @@ const field = new Field(
   motion.matches,
 );
 field.state.settings.frameRate = readFrameRate();
+field.state.settings.background = readBackground();
 let savedFrameRate = field.state.settings.frameRate;
+let savedBackground = field.state.settings.background;
 const scene = new Scene(host, field.catalog);
-const ambient = new Ambient(requireElement<SVGGElement>(host, "#gDecorations"));
+const background = new Background(
+  requireElement<SVGGElement>(host, "#gDecorations"),
+);
 const overlay = requireElement<HTMLElement>(host, "#loadingOverlay");
 const loader = createLoading(
   overlay,
@@ -99,7 +107,6 @@ try {
 (window as unknown as Record<string, unknown>).__shuyra = {
   field,
   scene,
-  evaluateSymbol,
 };
 
 const disposeInput = bindInput(host, {
@@ -115,9 +122,16 @@ const disposeInput = bindInput(host, {
   resolve: (key) => scene.actions.get(key),
 });
 const lifecycle = new AbortController();
-window.addEventListener("resize", () => field.resize(viewport()), {
-  signal: lifecycle.signal,
-});
+window.addEventListener(
+  "resize",
+  () => {
+    scene.invalidateLayout();
+    field.resize(viewport());
+  },
+  {
+    signal: lifecycle.signal,
+  },
+);
 motion.addEventListener(
   "change",
   () => field.setSystemReducedMotion(motion.matches),
@@ -127,6 +141,10 @@ let wasLoading = false;
 const stopClock = startClock(
   (now, dt) => {
     field.update(now, dt);
+    if (savedBackground !== field.state.settings.background) {
+      savedBackground = field.state.settings.background;
+      saveBackground(savedBackground);
+    }
     if (savedFrameRate !== field.state.settings.frameRate) {
       savedFrameRate = field.state.settings.frameRate;
       saveFrameRate(savedFrameRate);
@@ -150,19 +168,29 @@ const stopClock = startClock(
     }
     wasLoading = field.state.loading;
     scene.render(field.state);
-    ambient.render(
+    field.fitReading(scene.readingBounds);
+    background.render(
+      field.state.settings.background,
       field.state.camera,
       field.state.viewport,
-      field.state.settings.reducedMotion ? 0 : field.state.elapsed,
+      field.state.elapsed,
       field.impulses,
       field.state.overview,
       field.state.loading,
+      field.state.passage && field.state.passage.phase >= 0.5
+        ? field.state.passage.theme
+        : field.state.theme,
+      field.state.settings.reducedMotion,
       field.state.overview
         ? undefined
         : screenToWorld(
             {
-              x: field.state.viewport.width / 2 + 170,
-              y: field.state.viewport.height / 2,
+              x: scene.readingBounds
+                ? scene.readingBounds.left + scene.readingBounds.width / 2
+                : field.state.viewport.width / 2,
+              y: scene.readingBounds
+                ? scene.readingBounds.top + scene.readingBounds.height / 2
+                : field.state.viewport.height / 2,
             },
             field.state.camera,
             field.state.viewport,

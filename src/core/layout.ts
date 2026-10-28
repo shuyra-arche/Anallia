@@ -9,6 +9,45 @@ export function readingWidth(viewport: Viewport, long: boolean): number {
       : Math.min(355, Math.max(265, width * 0.29));
 }
 
+export interface ReadingPlacement {
+  left: number;
+  top: number;
+  originX: number;
+  originY: number;
+  side: "left" | "right";
+}
+
+/** Keep the whole upright reading window outside the curve's tangent half-plane.
+ * Direction comes from geometry, never from remaining viewport space. */
+export function placeReading(
+  anchor: Vec,
+  normal: Vec,
+  width: number,
+  height: number,
+  scale = 1,
+): ReadingPlacement {
+  const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+  const originX = width * clamp01(0.5 - normal.x * 1.6);
+  const originY = height * clamp01(0.5 - normal.y * 1.6);
+  const inward =
+    Math.min(0, normal.x * width) +
+    Math.min(0, normal.y * height) -
+    normal.x * originX -
+    normal.y * originY;
+  const clearance = Math.max(0, -inward);
+  return {
+    left: anchor.x + (normal.x * clearance - originX) * scale,
+    top: anchor.y + (normal.y * clearance - originY) * scale,
+    originX,
+    originY,
+    side: normal.x < 0 ? "left" : "right",
+  };
+}
+
+export function readingHeight(viewport: Viewport, scale: number): number {
+  return Math.max(80, (viewport.height - 144) / scale);
+}
+
 export interface AdaptiveLayout {
   side: 1 | -1;
   vertical: 1 | -1;

@@ -1,8 +1,13 @@
 import { frameRateFromAction, frameRateLabel } from "../core/frame-rate.ts";
+import {
+  BACKGROUND_OPTIONS,
+  backgroundFromAction,
+} from "../core/background.ts";
 import type {
   Camera,
   Command,
   FieldState,
+  Hub,
   Snapshot,
   TransitionKind,
   Vec,
@@ -20,6 +25,9 @@ import {
 } from "../core/math.ts";
 import {
   frameFor,
+  readingRotation,
+  readingBearing,
+  cameraPinnedToPoint,
   arcLengthAt,
   overviewCamera,
   screenToWorld,
@@ -38,6 +46,7 @@ import {
   MOTION,
 } from "../core/transitions.ts";
 import { Catalog } from "../content/catalog.ts";
+import { needsColorSweep } from "../core/palette.ts";
 import { localBandForHub } from "./attachments.ts";
 
 export class Field {
@@ -51,6 +60,8 @@ export class Field {
     profile: "ordinary" | "flight" | "axis" | "remote";
   } | null = null;
   private follow = false;
+  private readingPin: Vec | null = null;
+  private autoFit = true;
   private graspStart: number | null = null;
   private queuedCommand: Command | null = null;
   private now = 0;
@@ -68,6 +79,8 @@ export class Field {
           {
             ...h,
             center: { ...h.center },
+            readingBearing: h.angle,
+            readingStart: 0,
             targetMorph: h.morph,
             fold: 0,
             scroll: 0,
@@ -78,7 +91,6 @@ export class Field {
             anchorOffset: 0,
             localScroll: 0,
             localScrollTarget: 0,
-            localDirection: 1,
           },
         ]),
       ),
@@ -88,6 +100,7 @@ export class Field {
       camera: { x: 0, y: 0, z: 1, rotation: 0 },
       viewport,
       settings: {
+        background: "flow",
         speed: 1,
         range: 0.62,
         blur: 1,
@@ -128,6 +141,77 @@ export class Field {
       this.state.viewport,
     );
   }
+  private approach(hub: Hub, index: number, count: number, origin: Vec) {
+    const s = this.state;
+    const toward = sub(origin, hub.center);
+    if (Math.hypot(toward.x, toward.y) < 1) return;
+    const angle = (Math.atan2(toward.y, toward.x) * 180) / Math.PI;
+    const settled = {
+      ...hub,
+      angle: 0,
+      anchorOffset: 0,
+      morph: hub.targetMorph,
+      scroll: index,
+    };
+    const n = outwardNormal(
+      settled,
+      nodeS(settled, index, count, s.camera, s.viewport),
+    );
+    hub.angle = angle - (Math.atan2(n.y, n.x) * 180) / Math.PI;
+    hub.readingBearing = angle + s.camera.rotation;
+    hub.readingStart = index;
+    this.autoFit = true;
+  }
+
+  private pinReading() {
+    const s = this.state;
+    const along = nodeS(
+      this.hub,
+      this.hub.scroll,
+      this.siblings().length,
+      s.camera,
+      s.viewport,
+    );
+    this.readingPin = worldToScreen(
+      material(this.hub, along, 48),
+      s.camera,
+      s.viewport,
+    );
+  }
+
+  /** Fit the measured reading window after automatic movement, once. Manual
+   * pan and zoom deliberately relinquish this viewport constraint. */
+  fitReading(
+    bounds: { left: number; top: number; width: number; height: number } | null,
+  ) {
+    const s = this.state;
+    if (!this.autoFit || !bounds || this.isAnimating || s.overview || s.loading)
+      return;
+    this.autoFit = false;
+    const margin = s.viewport.width < 700 ? 16 : 24;
+    const dx =
+      bounds.left < margin
+        ? margin - bounds.left
+        : bounds.left + bounds.width > s.viewport.width - margin
+          ? s.viewport.width - margin - bounds.left - bounds.width
+          : 0;
+    const dy =
+      bounds.top < 76
+        ? 76 - bounds.top
+        : bounds.top + bounds.height > s.viewport.height - 48
+          ? s.viewport.height - 48 - bounds.top - bounds.height
+          : 0;
+    if (Math.abs(dx) + Math.abs(dy) < 1) return;
+    const delta = rot(
+      { x: dx / s.camera.z, y: dy / s.camera.z },
+      (-s.camera.rotation * Math.PI) / 180,
+    );
+    this.fly(
+      { ...s.camera, x: s.camera.x - delta.x, y: s.camera.y - delta.y },
+      MOTION.resize,
+    );
+  }
+
   private duration(ms: number) {
     return this.state.settings.reducedMotion
       ? 1
@@ -167,6 +251,9 @@ export class Field {
             target: h.scrollTarget,
             morph: h.targetMorph,
             anchorOffset: h.anchorOffset,
+            angle: h.angle,
+            readingBearing: h.readingBearing,
+            readingStart: h.readingStart,
           },
         ]),
       ),
@@ -191,6 +278,9 @@ export class Field {
         textOffset: 0,
         textOffsetTarget: 0,
         anchorOffset: h.anchorOffset ?? 0,
+        angle: h.angle ?? s.hubs[id].angle,
+        readingBearing: h.readingBearing,
+        readingStart: h.readingStart,
         localScroll: 0,
         localScrollTarget: 0,
       });
@@ -255,6 +345,7 @@ export class Field {
     commit: () => void,
     direction: 1 | -1 = 1,
   ) {
+    this.autoFit = true;
     const s = this.state;
     const hub = this.hub;
     const oldSiblings = this.siblings(hub);
@@ -296,6 +387,8 @@ export class Field {
 
   private navigateSibling(path: string[], target: string) {
     const hub = this.hub;
+    this.pinReading();
+    this.autoFit = true;
     hub.path = path;
     hub.localScroll = hub.localScrollTarget = 0;
     hub.scrollTarget = this.catalog
@@ -388,6 +481,14 @@ export class Field {
         }
         if (s.overview) {
           this.remember();
+          this.approach(
+            dest,
+            this.catalog
+              .siblings(node.id, s.searchResults)
+              .findIndex((n) => n.id === node.id),
+            this.catalog.siblings(node.id, s.searchResults).length,
+            s.camera,
+          );
           s.focus = dest.id;
           s.overview = false;
           dest.path = chain;
@@ -414,6 +515,12 @@ export class Field {
         const index = this.catalog
           .siblings(node.id, s.searchResults)
           .findIndex((n) => n.id === node.id);
+        this.approach(
+          dest,
+          index,
+          this.catalog.siblings(node.id, s.searchResults).length,
+          this.hub.center,
+        );
         const settledDest = { ...dest, anchorOffset: 0 };
         const camera = frameFor(
           settledDest,
@@ -447,6 +554,9 @@ export class Field {
           return;
         }
         this.remember();
+        if (s.overview)
+          this.approach(h, h.scrollTarget, this.siblings(h).length, s.camera);
+        this.autoFit = true;
         s.focus = h.id;
         s.overview = false;
         s.theme = h.theme;
@@ -456,6 +566,7 @@ export class Field {
       }
       case "morph": {
         const hub = this.hub;
+        this.autoFit = true;
         const to = hub.targetMorph > 0.5 ? 0 : 1;
         const siblings = this.siblings();
         const focusIndex = siblings.findIndex(
@@ -495,7 +606,6 @@ export class Field {
           s.camera,
           s.viewport,
         );
-        h.localDirection = band.direction;
         h.localScrollTarget = clamp(
           h.localScrollTarget + command.delta,
           0,
@@ -511,12 +621,6 @@ export class Field {
           next = clamp(index + command.delta, 0, nodes.length - 1);
         if (next !== index) {
           this.dispatch({ type: "navigate", target: nodes[next].id });
-        } else if (
-          nodes.length === 1 &&
-          here.children.length > 0 &&
-          command.delta > 0
-        ) {
-          this.dispatch({ type: "navigate", target: here.children[0] });
         }
         return;
       }
@@ -607,6 +711,12 @@ export class Field {
   }
   private setting(action: string) {
     const settings = this.state.settings;
+    const background = backgroundFromAction(action);
+    if (background !== undefined) {
+      settings.background = background;
+      this.state.description = `背景已设置为：${BACKGROUND_OPTIONS.find((option) => option.value === background)!.label}`;
+      return;
+    }
     const frameRate = frameRateFromAction(action);
     if (frameRate !== undefined) {
       settings.frameRate = frameRate;
@@ -614,6 +724,7 @@ export class Field {
       return;
     }
     if (action === "reset_defaults") {
+      settings.background = "flow";
       settings.range = 0.62;
       settings.blur = 1;
       settings.speed = 1;
@@ -655,6 +766,7 @@ export class Field {
     this.state.settings.reducedMotion = value;
   }
   resize(viewport: Viewport) {
+    this.autoFit = true;
     this.state.viewport = viewport;
     this.fly(
       this.state.overview ? overviewCamera(viewport) : this.frame(),
@@ -678,6 +790,8 @@ export class Field {
       hub.scrollTarget = index;
       hub.localScroll = hub.localScrollTarget = 0;
       hub.textOffsetTarget = 0;
+      this.pinReading();
+      this.autoFit = true;
       this.follow = hub.targetMorph < 0.99;
       this.graspStart = null;
       s.description = `${hub.glyph} · ${siblings[index].name} · 吸附到阅读锚点`;
@@ -734,6 +848,7 @@ export class Field {
       return;
     this.tween = null;
     this.follow = false;
+    this.autoFit = false;
     const d = rot(mul(delta, 1 / start.z), (-start.rotation * Math.PI) / 180);
     Object.assign(this.state.camera, { x: start.x - d.x, y: start.y - d.y });
   }
@@ -747,6 +862,7 @@ export class Field {
       return;
     this.tween = null;
     this.follow = false;
+    this.autoFit = false;
     const s = this.state,
       before = screenToWorld(point, s.camera, s.viewport);
     s.camera.z = clamp(s.camera.z * factor, 0.18, 2.4);
@@ -813,10 +929,9 @@ export class Field {
       );
       const point = material(movingHub, along);
       const normal = outwardNormal(movingHub, along);
-      const desiredRotation = -(
-        (Math.atan2(normal.y, normal.x) * 180) /
-        Math.PI
-      );
+      const desiredRotation =
+        readingBearing(movingHub) -
+        (Math.atan2(normal.y, normal.x) * 180) / Math.PI;
       const rotation = unwrapAngle(turn.startRotation, desiredRotation);
       Object.assign(
         s.camera,
@@ -835,29 +950,28 @@ export class Field {
       }
     }
     if (this.follow && !s.overview && !s.passage && !s.morphTurn) {
-      const target = frameFor(
-        this.hub,
-        this.hub.scroll,
-        this.siblings().length,
-        s.camera,
-        s.viewport,
+      const hub = this.hub;
+      const count = this.siblings().length;
+      const rotation = unwrapAngle(
+        s.camera.rotation,
+        readingRotation(hub, hub.scroll, count, s.camera, s.viewport),
       );
-      const rotation =
-        this.hub.targetMorph < 0.99
-          ? mix(
-              s.camera.rotation,
-              unwrapAngle(s.camera.rotation, target.rotation),
-              k * (1 - this.hub.morph),
-            )
-          : s.camera.rotation;
-      Object.assign(s.camera, orbitCamera(s.camera, this.hub.center, rotation));
-      const aligned =
-        this.hub.targetMorph >= 0.99 ||
-        Math.abs(
-          unwrapAngle(s.camera.rotation, target.rotation) - s.camera.rotation,
-        ) < 0.001;
-      if (this.hub.scroll === this.hub.scrollTarget && aligned)
+      const along = nodeS(hub, hub.scroll, count, s.camera, s.viewport);
+      if (!this.readingPin) this.pinReading();
+      Object.assign(
+        s.camera,
+        cameraPinnedToPoint(
+          material(hub, along, 48),
+          this.readingPin!,
+          s.camera,
+          s.viewport,
+          rotation,
+        ),
+      );
+      if (hub.scroll === hub.scrollTarget) {
         this.follow = false;
+        this.readingPin = null;
+      }
     }
     if (this.tween) {
       const t = this.tween,
@@ -894,7 +1008,10 @@ export class Field {
       const t = s.passage,
         p = clamp((now - t.started) / t.duration, 0, 1);
       t.phase = p;
-      if (t.kind === "remote" || t.kind === "loading") {
+      if (
+        (t.kind === "remote" || t.kind === "loading") &&
+        needsColorSweep(t.sourceTheme, t.theme)
+      ) {
         const fold = p < 0.5 ? ease(2 * p) : ease(2 - 2 * p);
         s.hubs[t.source].fold = fold;
         s.hubs[t.target].fold = fold;

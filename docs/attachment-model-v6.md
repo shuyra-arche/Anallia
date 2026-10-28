@@ -27,7 +27,7 @@ focused-hub:beta  / operation:settings
 ### Placement grammar
 
 `ordinary` and `local` use the same `content` side of the focused hub.
-Local items appear immediately before or after the ordinary focused tag, following the same generalized-circle arc-length ordering and bounded scrolling band. When ordinary-label scrolling changes focus, the outgoing local group folds closed around its material hinges before the new group unfolds. Retired leaves retain their old glyphs and commands until removed; turning leaves are not interactive. Rapid scrolling drops unopened intermediate groups, and reduced motion settles the current group immediately. Their visible count widens neighboring ordinary-label gaps; the focused material anchor stays fixed.
+Local items always follow the focused ordinary tag in generalized-circle sequence order. They use a bounded scrolling band in the following gap and do not switch to the preceding side when it has more space. When ordinary-label scrolling changes focus, the outgoing local group folds closed around its material hinges before the new group unfolds. Retired leaves retain their old glyphs and commands until removed; turning leaves are not interactive. Rapid scrolling drops unopened intermediate groups, and reduced motion settles the current group immediately. Their visibility and count never change ordinary material anchors or spacing; excess local entries scroll inside the available gap.
 
 In focused reading at camera zoom 0.45 or above, global operations `⊙ ⌕ ⚙ ◌ ↶` attach to material points on the opposite side of the host hub. During cross-hub passages they use the destination host immediately. The attachment planner also defines an overview refocus action; the renderer uses a fixed toolbar in overview and below zoom 0.45, including `⌖`. Global scope describes the operation's meaning independently of either presentation.
 
@@ -66,3 +66,9 @@ Hub-attached global actions are declared in `GLOBAL_OPERATIONS` and resolve targ
 - In very narrow viewports, hub-attached global operations can be outside the screen. This is deliberately **not** repaired by shrinking labels or shifting hubs; it is the consequence of the requested spatial-composition rule. A future discoverability strategy can be designed separately.
 - Presentation still uses existing article layout/cache and transition rendering. v6 unifies **label attachment semantics and geometry projection**, not the complete article or all effects pipelines.
 - No new parent–child hub links are inferred automatically.
+
+### Selected static icons
+
+Operation icons now use the selected static shapes independently of Hub morph and activity. Color provides hover/focus/active feedback; camera scaling, semantic attachment and local-label page turns remain in effect.
+
+Current directional reading and viewport boundaries are defined in [directional-reading.md](directional-reading.md).

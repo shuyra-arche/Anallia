@@ -21,7 +21,7 @@ export function quint(t: number): number {
   return c * c * c * (c * (c * 6 - 15) + 10);
 }
 export const unwrapAngle = (a: number, b: number): number =>
-  a + (((b - a + 540) % 360) - 180);
+  a + ((((b - a + 180) % 360) + 360) % 360) - 180;
 export function rot(a: Vec, rad: number): Vec {
   const c = Math.cos(rad),
     s = Math.sin(rad);

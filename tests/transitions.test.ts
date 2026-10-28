@@ -180,8 +180,9 @@ test("line-form settings content flip preserves the same hinge and never runs MÃ
   assert.equal(f.hub.morph,1);
 });
 
-test("remote travel does not borrow a content page clock",()=>{
+test("different-background remote travel does not borrow a content page clock",()=>{
   const f=create();
+  f.state.hubs.B.theme="dark";
   f.state.hubs.B.center={x:f.hub.center.x+14000,y:f.hub.center.y};
   f.dispatch({type:"navigate",target:"b1"});
   assert.equal(f.state.passage?.kind,"remote");

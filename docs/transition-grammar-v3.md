@@ -1,3 +1,5 @@
+> 当前换色规则：遮罩由源、目标底色是否变化决定，与 Near / Flight / Remote / Axis 距离路由独立。同底色无换色遮罩或枢折叠；不同底色保留扫掠，历史返回使用相同条件。下表中的原遮罩限制以此规则为准。
+
 # Shuyra Field · Transition Grammar v3
 
 ## 单一语义入口

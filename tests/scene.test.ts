@@ -190,7 +190,7 @@ test("frame rate selection is visible and updates without changing presentation"
   window.close();
 });
 
-test("transition masks labels and keeps one continuous portal while the content commits", () => {
+test("different-background travel keeps one continuous color sweep while the content commits", () => {
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
   window.document.write(
@@ -205,7 +205,7 @@ test("transition masks labels and keeps one continuous portal while the content 
     height: 820,
   });
   const scene = new Scene(host as unknown as HTMLElement, field.catalog);
-  field.dispatch({ type: "navigate", target: "b1" });
+  field.dispatch({ type: "navigate", target: "d0" });
   scene.render(field.state);
   assert.equal(host.getAttribute("data-transition"), "passage");
   const begin = host.querySelector("#portalBoundaryPath")!.getAttribute("d")!;
@@ -235,4 +235,136 @@ test("transition masks labels and keeps one continuous portal while the content 
   );
   scene.destroy();
   window.close();
+});
+
+test("same-background near, flight, remote and axis travel never draw a color mask or fold hubs", () => {
+  for (const kind of ["near", "flight", "remote", "axis"] as const) {
+    const window = new Window(),
+      saved = globalThis.document;
+    Object.assign(globalThis, { document: window.document });
+    window.document.write(
+      readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+        /<script[^>]*>[\s\S]*?<\/script>/g,
+        "",
+      ),
+    );
+    const field = new Field(new Catalog(hubDefinitions, rawContent), {
+      width: 1366,
+      height: 820,
+    });
+    const host = window.document.querySelector("#scene")!;
+    const scene = new Scene(host as unknown as HTMLElement, field.catalog);
+    try {
+      const target = field.state.hubs.B,
+        source = field.state.hubs.A;
+      target.center = {
+        x:
+          source.center.x +
+          (kind === "near" ? 100 : kind === "remote" ? 4000 : 1000),
+        y: source.center.y,
+      };
+      if (kind === "axis") target.parentHub = "A";
+      const camera = { ...field.state.camera };
+      field.dispatch({ type: "navigate", target: "b0" });
+      const passage = field.state.passage!;
+      assert.equal(passage.kind, kind);
+      for (const phase of [0, 0.25, 0.5, 0.75, 0.99]) {
+        field.update(passage.duration * phase, 20);
+        scene.render(field.state);
+        assert.equal(host.getAttribute("data-transition"), "passage");
+        assert.equal(
+          host.querySelector("#portalViewport")!.getAttribute("visibility"),
+          "hidden",
+        );
+        assert.equal(
+          (host.querySelector("#portalStroke")! as unknown as HTMLElement).style
+            .opacity,
+          "0",
+        );
+        assert.equal(
+          (host.querySelector("#portalEchoStroke")! as unknown as HTMLElement)
+            .style.opacity,
+          "0",
+        );
+        assert.equal(
+          host.querySelector("#baseBg")!.getAttribute("fill")!.toLowerCase(),
+          "#f5f6f2",
+        );
+        assert.equal(source.fold, 0);
+        assert.equal(target.fold, 0);
+      }
+      assert.notDeepEqual(
+        field.state.camera,
+        camera,
+        "camera travel remains active without a mask",
+      );
+      field.update(passage.duration + 20, 20);
+      scene.render(field.state);
+      assert.equal(field.state.focus, "B");
+      assert.equal(host.getAttribute("data-transition"), null);
+    } finally {
+      scene.destroy();
+      window.close();
+      Object.assign(globalThis, { document: saved });
+    }
+  }
+});
+
+test("same-background travel clears a preceding color mask and reverse history uses the same color condition", () => {
+  const window = new Window(),
+    saved = globalThis.document;
+  Object.assign(globalThis, { document: window.document });
+  window.document.write(
+    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+      /<script[^>]*>[\s\S]*?<\/script>/g,
+      "",
+    ),
+  );
+  const field = new Field(new Catalog(hubDefinitions, rawContent), {
+    width: 1366,
+    height: 820,
+  });
+  const host = window.document.querySelector("#scene")!;
+  const scene = new Scene(host as unknown as HTMLElement, field.catalog);
+  let now = 0;
+  const finish = () => {
+    now += field.state.passage!.duration + 20;
+    field.update(now, 20);
+  };
+  const mask = () =>
+    host.querySelector("#portalViewport")!.getAttribute("visibility");
+  try {
+    field.dispatch({ type: "navigate", target: "d0" });
+    field.update(field.state.passage!.duration * 0.25, 20);
+    scene.render(field.state);
+    assert.equal(mask(), "visible");
+    finish();
+    field.dispatch({ type: "navigate", target: "s0" });
+    scene.render(field.state);
+    assert.equal(
+      mask(),
+      "hidden",
+      "a stale dark-theme sweep must not survive into dark-to-dark travel",
+    );
+    finish();
+    field.dispatch({ type: "back" });
+    scene.render(field.state);
+    assert.equal(mask(), "hidden");
+    finish();
+    field.dispatch({ type: "back" });
+    scene.render(field.state);
+    assert.equal(
+      mask(),
+      "visible",
+      "dark-to-light history return still sweeps",
+    );
+    assert.equal(
+      host.querySelector("#portalBg")!.getAttribute("fill"),
+      "#F5F6F2",
+    );
+  } finally {
+    scene.destroy();
+    window.close();
+    Object.assign(globalThis, { document: saved });
+  }
 });

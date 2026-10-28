@@ -23,6 +23,27 @@ const near = (actual: number, expected: number) =>
 function settle(field: Field, start = 0) {
   for (let i = 1; i <= 80; i++) field.update(start + i * 20, 20);
 }
+test("single-label scrolling stays at the current depth, including input queued during morph", () => {
+  const f = create();
+  assert.equal(f.siblings().length, 1);
+  assert.ok(f.selected().children.length > 0);
+  const camera = { ...f.state.camera };
+  for (const delta of [1, 1, -1, 5, -5]) f.dispatch({ type: "step", delta });
+  assert.equal(f.selected().id, "a0");
+  assert.equal(f.state.history.length, 0);
+  assert.equal(f.state.contentTurn, null);
+  assert.deepEqual(f.state.camera, camera);
+  f.dispatch({ type: "morph" });
+  f.dispatch({ type: "step", delta: 1 });
+  settle(f);
+  assert.equal(f.selected().id, "a0");
+  f.dispatch({ type: "navigate", target: "a1" });
+  settle(f, 1600);
+  assert.equal(f.selected().id, "a1");
+  f.dispatch({ type: "step", delta: 1 });
+  settle(f, 3200);
+  assert.equal(f.selected().id, "a2");
+});
 test("projection round trips under rotation and zoom", () => {
   for (const rotation of [-180, -75, 0, 36, 180])
     for (const z of [0.18, 0.54, 1, 2.4]) {
@@ -164,23 +185,57 @@ test("catalog rejects duplicate IDs, cycles and invalid references", () => {
   rows.A[0][6].push(["bad", "missing"]);
   assert.throws(() => new Catalog(hubDefinitions, rows), /Unknown chapter/);
 });
-test("circle reading scroll preserves the exact projected hub center and user zoom at every frame", () => {
+test("circle reading scroll pins the reading label while the center moves and user zoom stays unchanged", () => {
   const f = create();
   f.dispatch({ type: "navigate", target: "a1" });
   settle(f);
   f.zoom(1.4, { x: 800, y: 440 });
   const center = { ...f.hub.center },
-    before = worldToScreen(center, f.state.camera, viewport),
+    before = worldToScreen(
+      material(
+        f.hub,
+        nodeS(
+          f.hub,
+          f.hub.scroll,
+          f.siblings().length,
+          f.state.camera,
+          viewport,
+        ),
+        48,
+      ),
+      f.state.camera,
+      viewport,
+    ),
+    centerBefore = worldToScreen(center, f.state.camera, viewport),
     zoom = f.state.camera.z;
   f.dispatch({ type: "step", delta: 1 });
   for (let i = 1; i <= 160; i++) {
     f.update(1600 + i * 20, 20);
-    const after = worldToScreen(center, f.state.camera, viewport);
+    const after = worldToScreen(
+      material(
+        f.hub,
+        nodeS(
+          f.hub,
+          f.hub.scroll,
+          f.siblings().length,
+          f.state.camera,
+          viewport,
+        ),
+        48,
+      ),
+      f.state.camera,
+      viewport,
+    );
     near(after.x, before.x);
     near(after.y, before.y);
     near(f.state.camera.z, zoom);
     assert.deepEqual(f.hub.center, center);
   }
+  const centerAfter = worldToScreen(center, f.state.camera, viewport);
+  assert.ok(
+    Math.hypot(centerAfter.x - centerBefore.x, centerAfter.y - centerBefore.y) >
+      5,
+  );
   assert.equal(f.selected().id, "a2");
 });
 test("line reading scroll keeps the entire camera state (x, y, z, rotation) completely unchanged", () => {
@@ -216,7 +271,13 @@ test("search hub updates perimeter labels in real time without moving q0 or came
   assert.equal(f.state.focus, "Q");
   assert.equal(f.selected().id, "q0");
   const cameraBefore = { ...f.state.camera };
-  const sBefore = nodeS(f.hub, 0, f.siblings().length, f.state.camera, viewport);
+  const sBefore = nodeS(
+    f.hub,
+    0,
+    f.siblings().length,
+    f.state.camera,
+    viewport,
+  );
   near(sBefore, 0);
   for (const query of ["流", "流场", "圆轴", "长文", ""]) {
     f.dispatch({ type: "search", query });

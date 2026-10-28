@@ -151,6 +151,13 @@ export class ArticleRenderer {
     tail.className = "tail";
     tail.textContent = `${node.name} · ${presentation === "circle" ? "RADIAL TO CENTER" : "LINEAR SPINE"}`;
     article.append(tail);
+    const content = document.createElement("div");
+    content.className = "note-content";
+    content.append(...Array.from(article.childNodes));
+    const window = document.createElement("div");
+    window.className = "note-window";
+    window.append(content);
+    article.append(window);
     article.dataset.presentation = presentation;
   }
 }

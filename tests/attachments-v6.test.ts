@@ -183,7 +183,7 @@ test("hierarchical radial stem distances retain their proportions under camera z
   );
 });
 
-test("appending local extension labels widens the arc gap to neighboring ordinary labels while keeping localScroll invariant", () => {
+test("local extension labels never change ordinary material anchors or spacing", () => {
   const f = fresh();
   f.hub.path = ["a0", "a3", "a31"];
   f.hub.scroll = 0;
@@ -201,7 +201,6 @@ test("appending local extension labels widens the arc gap to neighboring ordinar
     .map((e) => [e.anchor.id, e.anchor.parameter]);
   assert.ok(before.some((e) => e.role === "local"));
 
-  // Compare with a synthetic chapter with zero local extension items: neighboring ordinary label on band.direction side is pushed further apart when local items are appended.
   const bareChapter = { ...current, parent: undefined, refs: [] };
   const bareHub = { ...f.hub, path: [current.id] };
   const bareAttachments = ordinaryAndLocalAttachments(
@@ -223,8 +222,8 @@ test("appending local extension labels widens the arc gap to neighboring ordinar
     arcLengthAt(f.hub, nextWithoutLocal) - arcLengthAt(f.hub, focusParam),
   );
   assert.ok(
-    arcWithLocal > arcWithoutLocal + 40,
-    "appended local labels widen the arc-length distance to neighboring ordinary labels",
+    Math.abs(arcWithLocal - arcWithoutLocal) < 1e-7,
+    "local entries occupy the existing gap without shifting ordinary labels",
   );
 
   f.hub.localScroll = 7;
@@ -260,8 +259,11 @@ test("switching hubs binds global labels immediately to destination hub without 
   );
   const globals = globalAttachments(f.state, f.catalog);
   assert.ok(
-    globals.filter((g) => g.symbolKind).every((g) => g.symbolMorph === 0),
-    "global symbols immediately adopt destination hub's settled morph without transition animation",
+    globals.every(
+      (g) =>
+        g.icon && g.symbolMorph === undefined && g.symbolGeometry === undefined,
+    ),
+    "static global icons retain their shape on the destination host",
   );
 });
 
@@ -307,7 +309,7 @@ test("unified 24x24 SVG geometric icon tokens define optical calibration for all
     assert.ok(token, `missing icon token for ${glyph}`);
     assert.equal(token.viewBox, "0 0 24 24");
     assert.equal(token.sizePx, 20);
-    assert.equal(token.baseStrokeWidth, 1.8);
+    assert.equal(token.baseStrokeWidth, 2);
     assert.ok(token.opticalScale > 0.8 && token.opticalScale < 1.2);
     assert.ok(token.shapes.length > 0);
   }
@@ -328,4 +330,38 @@ test("local input never scrolls beyond its actual geometric visible band", () =>
   close(f.hub.localScrollTarget, band.maxScroll);
   f.dispatch({ type: "scroll-local", delta: -1 });
   close(f.hub.localScrollTarget, Math.max(0, band.maxScroll - 1));
+});
+
+test("changing local counts or focus identity never displaces ordinary tags during continuous scrolling", () => {
+  const f = fresh();
+  const nodes = f.catalog.siblings("a31");
+  for (const morph of [0, 0.45, 1]) {
+    f.hub.morph = f.hub.targetMorph = morph;
+    for (const scroll of [0, 0.2, 0.7, 1, 2.4]) {
+      f.hub.scroll = scroll;
+      let baseline: unknown;
+      for (const count of [0, 1, 3, 12]) {
+        const current = {
+          ...nodes[Math.round(scroll)],
+          refs: Array.from({ length: count }, () => ({
+            glyph: "β",
+            target: "b0",
+          })),
+          parent: null,
+        };
+        const entries = ordinaryAndLocalAttachments(
+          f.hub,
+          current,
+          nodes,
+          f.state.camera,
+          f.state.viewport,
+        );
+        const positions = entries
+          .filter((e) => e.role === "ordinary")
+          .map((e) => [e.id, e.anchor.parameter, e.distance]);
+        if (baseline) assert.deepEqual(positions, baseline);
+        baseline = positions;
+      }
+    }
+  }
 });

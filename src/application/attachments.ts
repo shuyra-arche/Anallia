@@ -11,11 +11,10 @@ import {
   resolveGlobalCommand,
 } from "../core/attachments.ts";
 import { classifyLabelContent, resolveIconToken } from "../core/icons.ts";
-import { evaluateSymbol, symbolMorphFromHub } from "../core/symbol-morph.ts";
 import { planLocalBand, localVisible } from "../core/local-nav.ts";
 import type { LocalBand } from "../core/local-nav.ts";
 import { arcLengthAt, arcOffsetS, nodeS } from "../geometry/field.ts";
-import { clamp } from "../core/math.ts";
+import { clamp, ease } from "../core/math.ts";
 import { Catalog } from "../content/catalog.ts";
 
 /**
@@ -32,13 +31,8 @@ export const STEM_DISTANCE = {
   globalOperation: 52,
 } as const;
 
-/**
- * Unified Label & Relationship-Driven Placement:
- * - Appending `local` extension labels (`↑` and `current.refs`) next to the focused ordinary label
- *   automatically pushes apart neighboring `ordinary` labels by `localSpreadArc`,
- *   preventing cross-level crowding while keeping each ordinary anchor's identity stable.
- * - Radial stem distances are stratified by hierarchy level (`48px` current, `34px` peer, `22px` local).
- */
+/** Ordinary material anchors are independent of local-label visibility.
+ * Local entries use the available following gap and scroll within it. */
 export function ordinaryAndLocalAttachments(
   hub: Hub,
   current: Chapter,
@@ -46,10 +40,6 @@ export function ordinaryAndLocalAttachments(
   camera: Camera,
   viewport: Viewport,
 ): FieldAttachment[] {
-  const focusIndex = Math.max(
-    0,
-    nodes.findIndex((node) => node.id === current.id),
-  );
   const focus = nodeS(hub, hub.scroll, nodes.length, camera, viewport);
   const items: {
     glyph: string;
@@ -99,10 +89,6 @@ export function ordinaryAndLocalAttachments(
     });
   });
 
-  // Appended local labels widen the arc distance to neighboring ordinary labels
-  const visibleLocalCount = local.length;
-  const spreadMagnitude = visibleLocalCount * band.step;
-
   const windowed = nodes.length > 6;
   const ordinary: FieldAttachment[] = [];
   nodes.forEach((chapter, index) => {
@@ -110,23 +96,7 @@ export function ordinaryAndLocalAttachments(
     if (windowed && dist > 3.6 && !(hub.layout === "anchored" && index === 0))
       return;
     const selected = chapter.id === current.id;
-    const baseParam = nodeS(hub, index, nodes.length, camera, viewport);
-    let deltaArc = 0;
-    if (visibleLocalCount > 0 && index !== focusIndex) {
-      if ((index - focusIndex) * band.direction > 0) {
-        deltaArc = band.direction * spreadMagnitude;
-      } else if (focusIndex === 0 && band.direction === -1 && index > 0) {
-        deltaArc = spreadMagnitude * 0.65;
-      } else if (
-        focusIndex === nodes.length - 1 &&
-        band.direction === 1 &&
-        index < focusIndex
-      ) {
-        deltaArc = -spreadMagnitude * 0.65;
-      }
-    }
-    const parameter =
-      deltaArc !== 0 ? arcOffsetS(hub, baseParam, deltaArc) : baseParam;
+    const parameter = nodeS(hub, index, nodes.length, camera, viewport);
     ordinary.push({
       id: chapter.id,
       glyph: chapter.name,
@@ -134,9 +104,10 @@ export function ordinaryAndLocalAttachments(
       role: "ordinary",
       scope: "chapter",
       side: "content",
-      distance: selected
-        ? STEM_DISTANCE.currentOrdinary
-        : STEM_DISTANCE.peerOrdinary,
+      distance:
+        STEM_DISTANCE.peerOrdinary +
+        (STEM_DISTANCE.currentOrdinary - STEM_DISTANCE.peerOrdinary) *
+          ease(clamp(1 - dist, 0, 1)),
       anchor: {
         id: `chapter:${chapter.id}`,
         hostHub: hub.id,
@@ -171,15 +142,6 @@ export function localBandForHub(
   );
   const settledHub = { ...hub, scroll: index };
   const focus = nodeS(settledHub, index, nodes.length, camera, viewport);
-  const before =
-    index > 0
-      ? Math.abs(
-          arcLengthAt(
-            settledHub,
-            nodeS(settledHub, index - 1, nodes.length, camera, viewport),
-          ) - arcLengthAt(settledHub, focus),
-        )
-      : null;
   const after =
     index + 1 < nodes.length
       ? Math.abs(
@@ -189,7 +151,7 @@ export function localBandForHub(
           ) - arcLengthAt(settledHub, focus),
         )
       : null;
-  return planLocalBand(before, after, count, hub.localDirection);
+  return planLocalBand(after, count);
 }
 
 /**
@@ -225,19 +187,14 @@ export function resolveGlobalHostHub(state: FieldState): Hub {
 /**
  * Opposite Operations (`role: "operation"`):
  * Global controls attach to the opposite material-normal side (`side: "opposite"`, `distance: 52`)
- * of the host hub. When switching hubs, global symbols immediately use the target hub's settled
- * morph state without cross-hub morph animation; they only animate during a single-hub `morphTurn`.
+ * of the host hub. Their selected icon geometry is static; only the host projection and
+ * interaction colors change.
  */
 export function globalAttachments(
   state: FieldState,
   catalog: Catalog,
 ): FieldAttachment[] {
   const hub = resolveGlobalHostHub(state);
-  const effectiveMorph =
-    state.morphTurn && state.morphTurn.hub === hub.id
-      ? hub.morph
-      : hub.targetMorph;
-  const symMorph = symbolMorphFromHub({ morph: effectiveMorph });
   const current = catalog.get(hub.path.at(-1)!);
   const nodes = catalog.siblings(current.id, state.searchResults);
   const focus = nodeS(
@@ -251,12 +208,6 @@ export function globalAttachments(
     catalog.definitions.map((def) => [def.glyph, def.root]),
   );
   const operations: FieldAttachment[] = GLOBAL_OPERATIONS.map((op) => {
-    const activeState =
-      (op.symbolKind === "overview" && state.overview) ||
-      (op.symbolKind === "search" && !state.overview && state.focus === "Q") ||
-      (op.symbolKind === "settings" && !state.overview && state.focus === "S")
-        ? 0.35
-        : 0;
     return {
       id: `global:${op.id}`,
       glyph: op.glyph,
@@ -276,10 +227,6 @@ export function globalAttachments(
       contentKind: classifyLabelContent(op.glyph),
       icon: resolveIconToken(op.glyph),
       symbolKind: op.symbolKind,
-      symbolMorph: op.symbolKind ? symMorph : undefined,
-      symbolGeometry: op.symbolKind
-        ? evaluateSymbol(op.symbolKind, symMorph, activeState)
-        : undefined,
     };
   });
   if (state.overview) {

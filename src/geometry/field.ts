@@ -1,5 +1,5 @@
 import type { Camera, Hub, Passage, Vec, Viewport } from "../core/types.ts";
-import { readingWidth } from "../core/layout.ts";
+import { placeReading, readingHeight, readingWidth } from "../core/layout.ts";
 import {
   V,
   add,
@@ -260,6 +260,30 @@ export function evaluateHubGeometry(
     b = project(V(x0 - 5000, lo));
   return { strokeD: path, sweptClipD: `${path}L${a.x} ${a.y}L${b.x} ${b.y}Z` };
 }
+/** A limited change in the reading bearing lets the circle move around the
+ * pinned label, without sweeping the full circle through the reading window. */
+export function readingBearing(hub: Hub, scroll = hub.scroll): number {
+  const step = hub.layout === "anchored" ? 68 : 118;
+  const drift =
+    32 * Math.tanh((((scroll - (hub.readingStart ?? 0)) * step) / R) * 0.6);
+  return (hub.readingBearing ?? hub.angle) + drift * (1 - ease(hub.morph));
+}
+
+export function readingRotation(
+  hub: Hub,
+  scroll: number,
+  count: number,
+  camera: Camera,
+  viewport: Viewport,
+): number {
+  const s = nodeS(hub, scroll, count, camera, viewport);
+  const normal = outwardNormal(hub, s);
+  return (
+    readingBearing(hub, scroll) -
+    (Math.atan2(normal.y, normal.x) * 180) / Math.PI
+  );
+}
+
 export function frameFor(
   hub: Hub,
   scroll: number,
@@ -271,19 +295,25 @@ export function frameFor(
   const margin = w < 700 ? 16 : 24;
   const width = readingWidth(viewport, true);
   const z = Math.min(1.12, Math.max(1, w - 2 * margin) / width);
-  const s = nodeS({ ...hub, scroll }, scroll, count, camera, viewport),
-    u = ease(clamp(hub.targetMorph, 0, 1));
-  const p = material(hub, s, 0, u),
-    n = outwardNormal(hub, s, u),
-    angle = (Math.atan2(n.y, n.x) * 180) / Math.PI;
-  const left = clamp(w * 0.45, margin, w - margin - width * z);
-  const top = Math.min(180, Math.max(72, h * 0.2));
+  const settled = { ...hub, scroll, morph: hub.targetMorph };
+  const s = nodeS(settled, scroll, count, camera, viewport);
+  const p = material(settled, s, 76);
+  const rotation = readingRotation(settled, scroll, count, camera, viewport);
+  const normal = rot(outwardNormal(settled, s), (rotation * Math.PI) / 180);
+  const height = Math.min(360, readingHeight(viewport, z));
+  const placement = placeReading(V(0, 0), normal, width, height, z);
+  const left = clamp(
+    (w - width * z) / 2 + normal.x * 65,
+    margin,
+    w - margin - width * z,
+  );
+  const top = Math.max(76, (h - height * z) / 2);
   return cameraPinnedToPoint(
     p,
-    V(left - 76 * z, top + 58 * z),
+    V(left - placement.left, top - placement.top),
     { ...camera, z },
     viewport,
-    -angle,
+    rotation,
   );
 }
 export const overviewCamera = (v: Viewport): Camera => ({

@@ -19,20 +19,29 @@ const fresh = () =>
 const near = (a: number, b: number) =>
   assert.ok(Math.abs(a - b) < 1e-5, `${a} != ${b}`);
 test("local labels are virtualized in a bounded part of ordinary-tag arc gap", () => {
-  const band = planLocalBand(170, 160, 12);
-  assert.equal(band.direction, -1);
-  assert.equal(band.capacity, 3);
-  assert.equal(band.maxScroll, 9);
+  const band = planLocalBand(160, 12);
+  assert.equal(band.direction, 1);
+  assert.equal(band.capacity, 2);
+  assert.equal(band.maxScroll, 10);
   assert.ok(localVisible(0, 0, band));
   assert.equal(localVisible(8, 0, band), null);
   assert.ok(localVisible(8, 7.5, band));
-  assert.ok(localVisible(11, 9, band));
+  assert.ok(localVisible(11, 10, band));
 });
-test("one-sided gap keeps ordinary tags unmoved and extends local labels along curve", () => {
-  const band = planLocalBand(null, 145, 8);
-  assert.equal(band.direction, -1);
-  assert.equal(band.capacity, 4);
+test("a first ordinary tag appends locals into the following gap instead of the empty preceding side", () => {
+  const band = planLocalBand(145, 8);
+  assert.equal(band.direction, 1);
+  assert.equal(band.capacity, 2);
   assert.ok(band.maxScroll > 0);
+});
+test("local labels keep following sequence order for both narrow and open-ended gaps", () => {
+  for (const gap of [50, 145, 260, null]) {
+    const band = planLocalBand(gap, 8);
+    assert.equal(band.direction, 1);
+    assert.ok(localVisible(0, 0, band)!.arc > 0);
+    assert.ok(band.maxScroll > 0);
+    assert.ok(localVisible(7, band.maxScroll, band));
+  }
 });
 test("layout leaves article full-width even if it extends past the viewport", () => {
   const v = { width: 320, height: 600 };

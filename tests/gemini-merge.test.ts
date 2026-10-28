@@ -265,13 +265,19 @@ test("list settings keep their structure and invalidate height after active opti
   const scene = new Scene(dom.host, field.catalog),
     article = dom.host.querySelector<HTMLElement>("#text-s1")!;
   let measurements = 0;
-  Object.defineProperty(article, "offsetHeight", {
-    get: () => {
-      measurements++;
-      return 300;
+  scene.render(field.state);
+  Object.defineProperty(
+    article.querySelector(".note-content")!,
+    "offsetHeight",
+    {
+      get: () => {
+        measurements++;
+        return 300;
+      },
     },
-  });
+  );
   try {
+    scene.invalidateLayout();
     scene.render(field.state);
     assert.ok(
       article.querySelector(

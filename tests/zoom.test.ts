@@ -7,8 +7,13 @@ import { hubDefinitions, rawContent } from "../src/content/field.ts";
 import { Field } from "../src/application/field.ts";
 import { Scene } from "../src/rendering/scene.ts";
 import { Ambient } from "../src/effects/ambient.ts";
-import { hubToScreen, material, nodeS } from "../src/geometry/field.ts";
-import { readingWidth } from "../src/core/layout.ts";
+import {
+  hubToScreen,
+  material,
+  nodeS,
+  outwardNormal,
+} from "../src/geometry/field.ts";
+import { readingWidth, placeReading } from "../src/core/layout.ts";
 
 const fresh = () =>
   new Field(new Catalog(hubDefinitions, rawContent), {
@@ -108,16 +113,24 @@ test("zoom preserves reading layout and text offset while scaling labels and art
       const translation = /translate3d\(([^,]+)px,([^,]+)px,0\)/.exec(
         article.style.transform,
       )!;
-      const articleAnchor = hubToScreen(
+      const originX = Number.parseFloat(
+        article.style.transformOrigin.split(" ")[0],
+      );
+      const visualLeft = Number(translation[1]) + (1 - z) * originX;
+      const visualTop = Number(translation[2]) + (1 - z) * anchorY;
+      const bounds = scene.readingBounds!;
+      assert.ok(Math.abs(visualLeft - bounds.left) < 0.02);
+      assert.ok(Math.abs(visualTop - bounds.top) < 0.02);
+      const anchor = hubToScreen(
         f.hub,
         material(f.hub, 0, 76),
         f.state.camera,
         f.state.viewport,
       );
-      assert.ok(Math.abs(Number(translation[1]) - articleAnchor.x) < 0.01);
-      assert.ok(
-        Math.abs(Number(translation[2]) + anchorY - articleAnchor.y) < 0.02,
-      );
+      const n = outwardNormal(f.hub, 0);
+      for (const x of [bounds.left, bounds.left + bounds.width])
+        for (const y of [bounds.top, bounds.top + bounds.height])
+          assert.ok((x - anchor.x) * n.x + (y - anchor.y) * n.y >= -0.02);
       assert.equal(host.style.getPropertyValue("--camera-scale"), String(z));
     }
   } finally {
@@ -198,19 +211,31 @@ test("entering any hub restores a readable scale and fits the reading column aft
         f.state.camera,
         viewport,
       );
-      assert.ok(
-        article.x >= 15,
-        `${hub.id}: reading column begins inside viewport`,
+      const n = outwardNormal(hub, parameter);
+      const rad = (f.state.camera.rotation * Math.PI) / 180;
+      const normal = {
+        x: n.x * Math.cos(rad) - n.y * Math.sin(rad),
+        y: n.x * Math.sin(rad) + n.y * Math.cos(rad),
+      };
+      const placement = placeReading(
+        article,
+        normal,
+        readingWidth(viewport, true),
+        360,
+        f.state.camera.z,
       );
       assert.ok(
-        article.x + readingWidth(viewport, true) * f.state.camera.z <=
+        placement.left >= 15,
+        `${hub.id}: reading window begins inside viewport`,
+      );
+      assert.ok(
+        placement.left + readingWidth(viewport, true) * f.state.camera.z <=
           viewport.width - 15,
-        `${hub.id}: reading column fits at readable scale`,
+        `${hub.id}: reading window fits horizontally`,
       );
-      const top = article.y - 58 * f.state.camera.z;
       assert.ok(
-        top >= 60 && top <= 181,
-        `${hub.id}: article starts above the viewport midpoint`,
+        placement.top >= 60 && placement.top < viewport.height / 2,
+        `${hub.id}: title starts above midpoint`,
       );
     };
     check();
