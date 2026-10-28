@@ -44,17 +44,42 @@ import {
 import { projectAttachment } from "../geometry/attachments.ts";
 import type { FieldAttachment } from "../core/attachments.ts";
 import {
-  evaluateHubGeometry,
-  evaluateHubAuraGeometry,
   computeHubVerticalClearance,
-  passageGeometry,
-  remotePortalGeometry,
   material,
   outwardNormal,
   nodeS,
   hubToScreen,
 } from "../geometry/field.ts";
-import { svg, requireElement } from "./dom.ts";
+import { NS, svg, requireElement } from "./dom.ts";
+import type {
+  BackgroundFrame,
+  GraphicsOptions,
+  HitRegion,
+  LabelFrame,
+  PortalFrame,
+  ResolvedRendererKind,
+  SceneFrame,
+  SceneMask,
+  ScenePrimitive,
+} from "../core/graphics.ts";
+import {
+  emptySceneFrame,
+  hitTestFrame,
+  sceneLayer,
+} from "../core/graphics.ts";
+import {
+  clipMaskShapes,
+  clipToSvgPath,
+  curveToPrimitive,
+  curveToSvgPath,
+  evaluateFilament,
+  evaluateHubAuraCurve,
+  evaluateHubCurve,
+  evaluatePassageGeometry,
+  evaluateRemotePortalGeometry,
+} from "../geometry/graphics.ts";
+import { evaluateBackgroundFrame } from "./graphics/background.ts";
+import { PixiGraphicsRenderer } from "./graphics/pixi-renderer.ts";
 
 /** Camera zoom threshold below which focused hub global tags yield to the traditional HUD bar. */
 export const TRADITIONAL_HUD_ZOOM_THRESHOLD = 0.45;
@@ -233,6 +258,15 @@ export class Scene {
   private labels: SVGGElement;
   private reading: HTMLElement;
   private hudControls: HTMLElement;
+  private backgroundRoot: SVGGElement;
+  private backgroundFlow: SVGGElement;
+  private backgroundStars: SVGGElement;
+  private flowPaths: SVGPathElement[] = [];
+  private flowMarkers: SVGCircleElement[] = [];
+  private starPoints: SVGCircleElement[] = [];
+  private starTrails: SVGPathElement[] = [];
+  private meteorPaths: SVGPathElement[] = [];
+  private meteorHeads: SVGCircleElement[] = [];
   private hubs = new Map<
     string,
     {
@@ -261,30 +295,139 @@ export class Scene {
   private readonly localLabelTurns = new LocalLabelTurns();
   private symbolFeedback = new Map<string, SymbolInteractionState>();
   private hoveredTarget: string | null = null;
+  private readonly options: Required<
+    Pick<GraphicsOptions, "renderer" | "background">
+  > & { dpr?: number };
+  private resolvedKind: ResolvedRendererKind = "svg";
+  private gpu: PixiGraphicsRenderer | null = null;
+  private initPromise: Promise<void> | null = null;
+  private destroyed = false;
+  private frameRevision = 0;
+  private currentFrame: SceneFrame;
+  private backgroundCacheKey = "";
+  private backgroundCache: BackgroundFrame | null = null;
 
   invalidateLayout() {
     this.heights.clear();
     this.lastRenderKey = "";
+    this.gpu?.invalidateGlyphs("font");
   }
 
   get isAnimating(): boolean {
     return this.localLabelTurns.isAnimating;
   }
 
+  /** Concrete renderer chosen after `initialize` (WebGL or permanent SVG). */
+  get rendererKind(): ResolvedRendererKind {
+    return this.resolvedKind;
+  }
+
+  /** Last numeric scene frame. Both renderers consume this data. */
+  get frame(): SceneFrame {
+    return this.currentFrame;
+  }
+
+  /** Single CPU hit-test over the current frame's semantic regions. */
+  hitTest(point: Vec): HitRegion | null {
+    return hitTestFrame(this.currentFrame, point);
+  }
+
+  /**
+   * Try WebGL once. Any failure (missing canvas, unsupported GPU, context loss)
+   * permanently settles on SVG while retaining the latest FieldState.
+   */
+  initialize(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.initializeRenderer();
+    }
+    return this.initPromise;
+  }
+
+  private async initializeRenderer(): Promise<void> {
+    if (this.options.renderer === "svg") {
+      this.resolvedKind = "svg";
+      this.host.dataset.renderer = "svg";
+      return;
+    }
+    if (this.gpu && !this.gpu.isLost) return;
+    const canUseCanvas =
+      typeof window !== "undefined" &&
+      typeof document !== "undefined" &&
+      typeof document.createElement === "function";
+    if (!canUseCanvas) {
+      this.installSvgFallback();
+      return;
+    }
+    try {
+      const dpr =
+        this.options.dpr ??
+        (typeof window !== "undefined" && window.devicePixelRatio
+          ? window.devicePixelRatio
+          : 1);
+      const gpu = await PixiGraphicsRenderer.create({
+        dpr,
+        onContextLost: () => this.installSvgFallback(),
+      });
+      if (this.destroyed) {
+        gpu.destroy();
+        return;
+      }
+      this.gpu = gpu;
+      this.resolvedKind = "webgl";
+      this.host.dataset.renderer = "webgl";
+      this.reading.before(gpu.canvas);
+      this.lastRenderKey = "";
+      if (this.lastState) this.render(this.lastState);
+    } catch {
+      this.installSvgFallback();
+    }
+  }
+
+  private installSvgFallback(): void {
+    if (this.resolvedKind === "svg" && !this.gpu) {
+      this.host.dataset.renderer = "svg";
+      return;
+    }
+    this.resolvedKind = "svg";
+    this.host.dataset.renderer = "svg";
+    this.gpu?.destroy();
+    this.gpu = null;
+    this.lastRenderKey = "";
+    if (!this.destroyed && this.lastState) this.render(this.lastState);
+  }
+
   private host: HTMLElement;
   private catalog: Catalog;
-  constructor(host: HTMLElement, catalog: Catalog) {
+  constructor(host: HTMLElement, catalog: Catalog, options: GraphicsOptions = {}) {
     this.articleRenderer = new ArticleRenderer(catalog, {
       inlineIcon: (token, morph) => this.createInlineIconSvg(token, morph),
       iconShowcase: (hub) => this.buildIconShowcase(hub),
     });
     this.host = host;
     this.catalog = catalog;
+    this.options = {
+      renderer: options.renderer ?? "auto",
+      background: options.background ?? true,
+      dpr: options.dpr,
+    };
+    this.currentFrame = emptySceneFrame(
+      this.resolvedKind,
+      { width: 0, height: 0 },
+      { x: 0, y: 0, z: 1, rotation: 0 },
+      "light",
+    );
     this.root = requireElement(host, "#world");
     this.geometry = requireElement(host, "#gGeometry");
     this.labels = requireElement(host, "#gLabels");
     this.reading = requireElement(host, "#reading");
     this.hudControls = this.ensureHudControls(host);
+    this.backgroundRoot = this.ensureBackgroundRoot();
+    this.backgroundFlow = svg("g", this.backgroundRoot, {
+      class: "background-flow",
+    });
+    this.backgroundStars = svg("g", this.backgroundRoot, {
+      class: "background-stars",
+    });
     this.relationFilaments = svg("path", this.geometry, {
       id: "relationFilaments",
       class: "relation-filaments",
@@ -328,6 +471,163 @@ export class Scene {
       this.articles.set(node.id, article);
     }
     this.bindSymbolFeedbackListeners();
+    if (
+      this.options.renderer !== "svg" &&
+      typeof window !== "undefined" &&
+      typeof document !== "undefined" &&
+      window.document === document
+    ) {
+      void this.initialize();
+    }
+  }
+
+  private ensureBackgroundRoot(): SVGGElement {
+    const existing = this.host.querySelector<SVGGElement>("#gSceneBackground");
+    if (existing) return existing;
+    const root = document.createElementNS(NS, "g");
+    root.id = "gSceneBackground";
+    root.setAttribute("aria-hidden", "true");
+    root.setAttribute("pointer-events", "none");
+    this.geometry.parentNode?.insertBefore(root, this.geometry);
+    // The Scene owns the numeric background now; the legacy SVG Background
+    // instance stays available for its own tests but must not double-draw.
+    const legacy = this.host.querySelector<SVGGElement>("#gDecorations");
+    if (legacy) legacy.style.display = "none";
+    return root;
+  }
+
+  private ensureBackgroundPools(frame: BackgroundFrame): void {
+    for (let i = this.flowPaths.length; i < frame.streamlines.length; i++) {
+      this.flowPaths.push(
+        svg("path", this.backgroundFlow, {
+          class: "flow-line",
+          fill: "none",
+          "stroke-width": 1.05,
+        }),
+      );
+      this.flowMarkers.push(
+        svg("circle", this.backgroundFlow, {
+          class: "flow-marker",
+          r: 1.7,
+        }),
+      );
+    }
+    for (let i = this.starPoints.length; i < frame.stars.length; i++)
+      this.starPoints.push(
+        svg("circle", this.backgroundStars, { class: "star-point" }),
+      );
+    for (let i = this.starTrails.length; i < frame.trails.length; i++)
+      this.starTrails.push(
+        svg("path", this.backgroundStars, {
+          class: "star-trail",
+          fill: "none",
+          "stroke-linecap": "round",
+        }),
+      );
+    for (let i = this.meteorPaths.length; i < frame.meteors.length; i++) {
+      this.meteorPaths.push(
+        svg("path", this.backgroundStars, {
+          class: "star-meteor",
+          fill: "none",
+          "stroke-linecap": "round",
+        }),
+      );
+      this.meteorHeads.push(
+        svg("circle", this.backgroundStars, { class: "meteor-head" }),
+      );
+    }
+  }
+
+  private renderSvgBackground(frame: BackgroundFrame): void {
+    this.ensureBackgroundPools(frame);
+    const flowVisible = frame.mode === "flow";
+    const starsVisible = frame.mode === "stars";
+    const flowDisplay = flowVisible ? "" : "none";
+    if (this.backgroundFlow.style.display !== flowDisplay)
+      this.backgroundFlow.style.display = flowDisplay;
+    const starsDisplay = starsVisible ? "" : "none";
+    if (this.backgroundStars.style.display !== starsDisplay)
+      this.backgroundStars.style.display = starsDisplay;
+    this.backgroundRoot.style.opacity =
+      frame.mode === "none" ? "0" : String(frame.opacity);
+    if (flowVisible) {
+      frame.streamlines.forEach((line, i) => {
+        const path = this.flowPaths[i];
+        const d = line.points
+          .map(
+            (point, index) =>
+              `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`,
+          )
+          .join("");
+        path.setAttribute("d", d);
+        path.setAttribute("stroke-width", String(line.width));
+        path.style.opacity = String(line.opacity);
+        const marker = this.flowMarkers[i];
+        marker.setAttribute("cx", line.marker.x.toFixed(2));
+        marker.setAttribute("cy", line.marker.y.toFixed(2));
+        marker.setAttribute("r", String(line.markerRadius));
+        marker.style.opacity = String(line.markerOpacity);
+      });
+      for (let i = frame.streamlines.length; i < this.flowPaths.length; i++) {
+        this.flowPaths[i].style.display = "none";
+        this.flowMarkers[i].style.display = "none";
+      }
+      return;
+    }
+    if (!starsVisible) return;
+    frame.stars.forEach((star, i) => {
+      const point = this.starPoints[i];
+      point.style.display = "";
+      point.setAttribute("cx", star.at.x.toFixed(2));
+      point.setAttribute("cy", star.at.y.toFixed(2));
+      point.setAttribute("r", String(star.radius));
+      point.setAttribute("fill", star.fill);
+      point.style.opacity = String(star.opacity);
+    });
+    for (let i = frame.stars.length; i < this.starPoints.length; i++)
+      this.starPoints[i].style.display = "none";
+    frame.trails.forEach((trail, i) => {
+      const start = {
+        x: trail.center.x + Math.cos(trail.startAngle) * trail.radius,
+        y: trail.center.y + Math.sin(trail.startAngle) * trail.radius,
+      };
+      const end = {
+        x: trail.center.x + Math.cos(trail.endAngle) * trail.radius,
+        y: trail.center.y + Math.sin(trail.endAngle) * trail.radius,
+      };
+      const path = this.starTrails[i];
+      path.setAttribute(
+        "d",
+        `M${start.x.toFixed(2)} ${start.y.toFixed(2)}A${trail.radius.toFixed(2)} ${trail.radius.toFixed(2)} 0 0 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`,
+      );
+      path.setAttribute("stroke", trail.color);
+      path.setAttribute("stroke-width", String(trail.width));
+      path.style.opacity = String(trail.opacity);
+    });
+    for (let i = frame.trails.length; i < this.starTrails.length; i++)
+      this.starTrails[i].style.opacity = "0";
+    frame.meteors.forEach((meteor, i) => {
+      const path = this.meteorPaths[i];
+      path.style.display = "";
+      path.setAttribute(
+        "d",
+        `M${meteor.from.x.toFixed(2)} ${meteor.from.y.toFixed(2)}L${meteor.to.x.toFixed(2)} ${meteor.to.y.toFixed(2)}`,
+      );
+      path.setAttribute("stroke", meteor.color);
+      path.setAttribute("stroke-width", String(meteor.width));
+      path.style.opacity = String(meteor.opacity);
+      const head = this.meteorHeads[i];
+      head.style.display = "";
+      head.setAttribute("cx", meteor.head.x.toFixed(2));
+      head.setAttribute("cy", meteor.head.y.toFixed(2));
+      head.setAttribute("r", String(meteor.headRadius));
+      head.setAttribute("fill", meteor.color);
+      head.style.opacity = String(meteor.opacity);
+    });
+    for (let i = frame.meteors.length; i < this.meteorPaths.length; i++) {
+      this.meteorPaths[i].style.display = "none";
+      this.meteorHeads[i].style.display = "none";
+    }
   }
 
   private ensureHudControls(host: HTMLElement): HTMLElement {
@@ -345,7 +645,6 @@ export class Scene {
         { key: "hud:search", label: "⌕ 检索", title: "打开检索枢" },
         { key: "hud:settings", label: "⚙ 设置", title: "打开设置枢" },
         { key: "hud:sound", label: "♪ 声场", title: "切换几何声场" },
-        { key: "hud:loading", label: "◌ 加载", title: "演练加载动效" },
       ];
       for (const item of items) {
         const btn = document.createElement("button");
@@ -665,6 +964,61 @@ export class Scene {
     e.hit.setAttribute("y", "-22");
     e.hit.setAttribute("width", String(width));
     e.hit.setAttribute("transform", labelTransform);
+
+    const frameLabel: LabelFrame = {
+      id,
+      command,
+      aria,
+      hubId: hub.id,
+      attachment,
+      glyph: name,
+      visual: kind,
+      contentKind,
+      layout: {
+        hinge: anchor,
+        position: at,
+        offset: { x: deltaX, y: deltaY },
+        degree,
+        width,
+        height: 44,
+        scale: zoom,
+      },
+      opacity: alpha,
+      interactive,
+      localScrollHub: key.startsWith("local:") ? hub.id : undefined,
+      icon: iconToken,
+      symbolKind,
+      symbolGeometry: attachment?.symbolGeometry,
+      symbolActivity: symbolKind
+        ? this.getSymbolActivity(id, symbolKind, state)
+        : undefined,
+      interaction: this.symbolFeedback.get(id),
+      page,
+      linkTarget:
+        command.type === "navigate" ? command.target : undefined,
+    };
+    this.currentFrame.labels.push(frameLabel);
+    if (interactive) {
+      this.currentFrame.hitRegions.push({
+        id,
+        command,
+        aria,
+        hubId: hub.id,
+        chapterId:
+          attachment?.role === "ordinary" ? attachment.id : undefined,
+        localScrollHub: key.startsWith("local:") ? hub.id : undefined,
+        graspKind: "label",
+        shape: {
+          type: "rect",
+          x: at.x,
+          y: at.y,
+          width: width * zoom,
+          height: 44 * zoom,
+          rotation: degree,
+        },
+        priority: 30,
+      });
+    }
   }
 
   private renderUnfocusedTraces(
@@ -673,6 +1027,7 @@ export class Scene {
     s: FieldState,
     perception?: HubPerception,
     darkPalette = false,
+    primitives: ScenePrimitive[] = [],
   ) {
     const entry = this.hubs.get(h.id)!;
     if (s.loading || (h.id === s.focus && !s.overview)) {
@@ -708,6 +1063,13 @@ export class Scene {
       segs.push(
         `M${p0.x.toFixed(2)} ${p0.y.toFixed(2)}L${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`,
       );
+      primitives.push({
+        type: "polyline",
+        points: [p0, p1],
+        stroke: strokeColor,
+        strokeWidth: 0.9 * s.camera.z,
+        opacity: perception?.traceOpacity ?? 0.2,
+      });
       if (sig && (sig.archetype === "origin" || sig.archetype === "portal" || sig.archetype === "instrument")) {
         const pOut = hubToScreen(
           h,
@@ -718,6 +1080,13 @@ export class Scene {
         segs.push(
           `M${p0.x.toFixed(2)} ${p0.y.toFixed(2)}L${pOut.x.toFixed(2)} ${pOut.y.toFixed(2)}`,
         );
+        primitives.push({
+          type: "polyline",
+          points: [p0, pOut],
+          stroke: strokeColor,
+          strokeWidth: 0.75 * s.camera.z,
+          opacity: perception?.traceOpacity ?? 0.2,
+        });
       }
       if (isSelected) {
         dotPt = hubToScreen(
@@ -751,6 +1120,14 @@ export class Scene {
         "is-resonating",
         perception?.tier === "resonating",
       );
+      primitives.push({
+        type: "circle",
+        cx: dotPt.x,
+        cy: dotPt.y,
+        radius: 2.4 * dotScale * s.camera.z,
+        fill: sig?.accentColor ?? strokeColor,
+        opacity: perception?.traceOpacity ?? 0.2,
+      });
     } else {
       entry.traceDot.style.display = "none";
     }
@@ -774,6 +1151,20 @@ export class Scene {
           ? sig.accentColor
           : strokeColor;
       entry.beacon.dataset.tier = perception.tier;
+      primitives.push({
+        type: "text",
+        x: beaconPt.x,
+        y: beaconPt.y,
+        text: h.glyph,
+        fontSize: fontScale * Math.max(0.55, s.camera.z),
+        fill:
+          perception.tier === "resonating" && sig
+            ? sig.accentColor
+            : strokeColor,
+        align: "center",
+        baseline: "middle",
+        opacity: perception.beaconOpacity,
+      });
     } else {
       entry.beacon.style.display = "none";
     }
@@ -785,8 +1176,10 @@ export class Scene {
     this.actions.set("hud:refocus", { type: "focus", hub: s.focus });
     this.actions.set("hud:search", { type: "navigate", target: "q0" });
     this.actions.set("hud:settings", { type: "navigate", target: "s0" });
-    this.actions.set("hud:sound", { type: "navigate", target: "act:toggle_sound" });
-    this.actions.set("hud:loading", { type: "loading" });
+    this.actions.set("hud:sound", {
+      type: "navigate",
+      target: "act:toggle_sound",
+    });
 
     this.hudControls.hidden = !showTraditionalHud || s.loading;
     if (!showTraditionalHud || s.loading) return;
@@ -871,8 +1264,21 @@ export class Scene {
         h.path,
       ]),
     ]);
-    if (key === this.lastRenderKey) return;
+    if (key === this.lastRenderKey) {
+      if (this.resolvedKind === "webgl" && this.gpu) {
+        this.refreshBackgroundFrame(s);
+        this.gpu.render(this.currentFrame);
+      }
+      return;
+    }
     this.lastRenderKey = key;
+    this.currentFrame = emptySceneFrame(
+      this.resolvedKind,
+      s.viewport,
+      s.camera,
+      s.theme,
+    );
+    this.currentFrame.revision = ++this.frameRevision;
     this.host.style.setProperty("--camera-scale", String(s.camera.z));
     const settingsKey = JSON.stringify(s.settings);
     if (this.measuredSettings !== settingsKey) {
@@ -909,8 +1315,11 @@ export class Scene {
 
     const visualThemeForField =
       s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
+    this.currentFrame.visualTheme = visualThemeForField;
     const darkPalette = isDarkTheme(visualThemeForField);
     const filamentSegs: string[] = [];
+    const hubPrimitives: ScenePrimitive[] = [];
+    const relationPrimitives: ScenePrimitive[] = [];
     const focusHubObj = s.hubs[perception.focusedHubId] ?? s.hubs[s.focus];
     const focusSibs = this.catalog.siblings(
       this.selected(focusHubObj).id,
@@ -933,14 +1342,56 @@ export class Scene {
         hubPerception = perception.hubs[h.id],
         sig = hubPerception.signature;
       const strokeColor = darkPalette ? sig.darkStroke : sig.lightStroke;
-      const path = evaluateHubGeometry(h, s.camera, s.viewport).strokeD;
+      const curve = evaluateHubCurve(h, s.camera, s.viewport);
+      const path = curveToSvgPath(curve);
       entry.path.setAttribute("d", path);
       entry.hit.setAttribute("d", path);
+      hubPrimitives.push(
+        curveToPrimitive(curve, {
+          stroke: strokeColor,
+          strokeWidth: 1.25 * hubPerception.strokeWidthScale * s.camera.z,
+          opacity: hubPerception.curveOpacity,
+          dash:
+            !active &&
+            sig.curveDash &&
+            hubPerception.tier !== "resonating"
+              ? sig.curveDash.split(/\s+/).map(Number)
+              : undefined,
+        }),
+      );
+      this.currentFrame.hitRegions.push({
+        id: `hub:${h.id}`,
+        command: active
+          ? { type: "morph" }
+          : { type: "focus", hub: h.id },
+        hubId: h.id,
+        graspKind: "hub",
+        shape:
+          curve.kind === "circle"
+            ? {
+                type: "circle",
+                x: curve.cx,
+                y: curve.cy,
+                radius: curve.radius,
+              }
+            : {
+                type: "polyline",
+                points: curve.points,
+                tolerance: Math.max(8, 10 * s.camera.z),
+              },
+        priority: 10,
+      });
 
-      const auraD =
+      const auraCurve =
         hubPerception.auraOpacity > 0.01
-          ? evaluateHubAuraGeometry(h, s.camera, s.viewport, sig.auraOffset)
-          : "";
+          ? evaluateHubAuraCurve(
+              h,
+              s.camera,
+              s.viewport,
+              sig.auraOffset,
+            )
+          : null;
+      const auraD = auraCurve ? curveToSvgPath(auraCurve, false) : "";
       entry.auraPath.setAttribute("d", auraD);
       entry.auraPath.style.display = auraD ? "" : "none";
       entry.auraPath.style.opacity = String(hubPerception.auraOpacity);
@@ -950,6 +1401,21 @@ export class Scene {
         entry.auraPath.setAttribute("stroke-dasharray", sig.auraDash);
       } else {
         entry.auraPath.removeAttribute("stroke-dasharray");
+      }
+      if (auraCurve) {
+        hubPrimitives.push(
+          curveToPrimitive(auraCurve, {
+            stroke:
+              hubPerception.tier === "resonating"
+                ? sig.accentColor
+                : strokeColor,
+            strokeWidth: 0.9 * s.camera.z,
+            opacity: hubPerception.auraOpacity,
+            dash: sig.auraDash
+              ? sig.auraDash.split(/\s+/).map(Number)
+              : undefined,
+          }),
+        );
       }
 
       const tierClass =
@@ -983,7 +1449,14 @@ export class Scene {
       );
       const current = this.selected(h);
       const nodes = this.catalog.siblings(current.id, s.searchResults);
-      this.renderUnfocusedTraces(h, nodes, s, hubPerception, darkPalette);
+      this.renderUnfocusedTraces(
+        h,
+        nodes,
+        s,
+        hubPerception,
+        darkPalette,
+        hubPrimitives,
+      );
 
       if (
         !s.loading &&
@@ -1011,6 +1484,13 @@ export class Scene {
           filamentSegs.push(
             `M${focusAnchorScreen.x.toFixed(1)} ${focusAnchorScreen.y.toFixed(1)}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${targetScreen.x.toFixed(1)} ${targetScreen.y.toFixed(1)}`,
           );
+          relationPrimitives.push({
+            type: "polyline",
+            points: evaluateFilament(focusAnchorScreen, targetScreen),
+            stroke: strokeColor,
+            strokeWidth: 0.9 * s.camera.z,
+            opacity: 0.22,
+          });
         }
       }
 
@@ -1052,6 +1532,10 @@ export class Scene {
         : s.overview
           ? "0.34"
           : "0.22";
+    this.currentFrame.layers.push(
+      sceneLayer("hubs", 30, hubPrimitives),
+      sceneLayer("relations", 40, relationPrimitives),
+    );
 
     for (const leaf of locals) {
       const attachment = leaf.attachment;
@@ -1120,17 +1604,30 @@ export class Scene {
     }
     this.renderTexts(s);
     this.labels.style.opacity = "";
-    this.labels.style.pointerEvents = s.passage ? "none" : "";
+    this.labels.style.pointerEvents =
+      this.resolvedKind === "webgl" || s.passage ? "none" : "";
+    this.geometry.style.pointerEvents =
+      this.resolvedKind === "webgl" ? "none" : "";
     const visualTheme =
       s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
     this.host.ownerDocument.documentElement.dataset.theme = visualTheme;
     const t = s.passage;
     const bgMix = t ? ease(clamp((t.phase - 0.42) / 0.58, 0, 1)) : 1;
-    requireElement(this.host, "#baseBg").setAttribute(
-      "fill",
-      t
-        ? blendHex(PAPER[t.sourceTheme], PAPER[t.theme], bgMix)
-        : PAPER[s.theme],
+    const baseFill = t
+      ? blendHex(PAPER[t.sourceTheme], PAPER[t.theme], bgMix)
+      : PAPER[s.theme];
+    requireElement(this.host, "#baseBg").setAttribute("fill", baseFill);
+    this.currentFrame.layers.unshift(
+      sceneLayer("base", 0, [
+        {
+          type: "rect",
+          x: 0,
+          y: 0,
+          width: s.viewport.width,
+          height: s.viewport.height,
+          fill: baseFill,
+        },
+      ]),
     );
     const portal = requireElement<SVGGElement>(this.host, "#portalViewport"),
       stroke = requireElement<SVGPathElement>(this.host, "#portalStroke"),
@@ -1145,7 +1642,7 @@ export class Scene {
       delete this.host.dataset.direction;
     }
     if (t && needsColorSweep(t.sourceTheme, t.theme)) {
-      const geometry = passageGeometry(t, s.camera, s.viewport);
+      const geometry = evaluatePassageGeometry(t, s.camera, s.viewport);
       portal.setAttribute("visibility", "visible");
       const portalAlpha =
         ease(clamp(t.phase / 0.12, 0, 1)) *
@@ -1153,34 +1650,156 @@ export class Scene {
       portal.style.opacity = String(portalAlpha);
       requireElement(this.host, "#portalBoundaryPath").setAttribute(
         "d",
-        geometry.sweptClipD,
+        clipToSvgPath(geometry.boundary),
       );
       requireElement(this.host, "#portalBg").setAttribute(
         "fill",
         PAPER[t.theme],
       );
-      stroke.setAttribute("d", geometry.strokeD);
+      stroke.setAttribute("d", curveToSvgPath(geometry.stroke));
       stroke.setAttribute("stroke", BOUNDARY[t.theme]);
       stroke.style.opacity = String(Math.sin(t.phase * Math.PI) * 0.82);
+      let echoGeometry: ReturnType<typeof evaluateRemotePortalGeometry> | null =
+        null;
       if (t.kind === "remote" || t.kind === "axis") {
-        const delayed = remotePortalGeometry(
+        echoGeometry = evaluateRemotePortalGeometry(
           clamp(t.phase - 0.055, 0, 1),
-          s.camera,
           s.viewport,
         );
-        echo.setAttribute("d", delayed.strokeD);
+        echo.setAttribute("d", curveToSvgPath(echoGeometry.stroke));
         echo.setAttribute("stroke", BOUNDARY[t.sourceTheme]);
         echo.style.opacity = String(Math.sin(t.phase * Math.PI) * 0.26);
       } else {
         echo.style.opacity = "0";
       }
+      const mask: SceneMask = {
+        id: "portal",
+        visible: true,
+        opacity: portalAlpha,
+        rule: geometry.boundary.rule,
+        shapes: clipMaskShapes(geometry.boundary),
+        outerRect: geometry.boundary.outerRect,
+        fill: PAPER[t.theme],
+      };
+      this.currentFrame.masks.push(mask);
+      const portalFrame: PortalFrame = {
+        visible: true,
+        opacity: portalAlpha,
+        fill: PAPER[t.theme],
+        maskId: mask.id,
+        stroke: {
+          path: geometry.stroke,
+          color: BOUNDARY[t.theme],
+          opacity: Math.sin(t.phase * Math.PI) * 0.82,
+          width: 1.1 * s.camera.z,
+        },
+        echo:
+          echoGeometry &&
+          (t.kind === "remote" || t.kind === "axis")
+            ? {
+                path: echoGeometry.stroke,
+                color: BOUNDARY[t.sourceTheme],
+                opacity: Math.sin(t.phase * Math.PI) * 0.26,
+                width: 1.0 * s.camera.z,
+              }
+            : undefined,
+      };
+      this.currentFrame.portal = portalFrame;
     } else {
       portal.setAttribute("visibility", "hidden");
       stroke.style.opacity = "0";
       echo.style.opacity = "0";
+      this.currentFrame.portal = null;
+    }
+    this.currentFrame.layers.push(
+      sceneLayer("portal", 10),
+      sceneLayer("background", 20),
+      sceneLayer("labels", 50),
+      sceneLayer("reading", 60),
+    );
+    this.currentFrame.layers.sort((a, b) => a.order - b.order);
+    this.refreshBackgroundFrame(s);
+    if (this.resolvedKind === "svg" && this.currentFrame.background)
+      this.renderSvgBackground(this.currentFrame.background);
+    this.currentFrame.rendererKind = this.resolvedKind;
+    if (this.gpu) {
+      const dpr =
+        this.options.dpr ??
+        (typeof window !== "undefined" && window.devicePixelRatio
+          ? window.devicePixelRatio
+          : 1);
+      this.gpu.resize(s.viewport.width, s.viewport.height, dpr);
+      this.gpu.render(this.currentFrame);
     }
     requireElement<HTMLElement>(this.host, "#descBar").textContent =
       s.description;
+  }
+
+  private refreshBackgroundFrame(s: FieldState): void {
+    if (!this.options.background) {
+      this.currentFrame.background = null;
+      return;
+    }
+    const quiet = this.readingBounds
+      ? {
+          x:
+            (this.readingBounds.left + this.readingBounds.width / 2 -
+              s.viewport.width / 2) /
+              s.camera.z,
+          y:
+            (this.readingBounds.top + this.readingBounds.height / 2 -
+              s.viewport.height / 2) /
+              s.camera.z,
+        }
+      : undefined;
+    // Convert the screen-space reading centre back to a world quiet zone.
+    const worldQuiet = quiet
+      ? {
+          x:
+            s.camera.x +
+            (quiet.x * Math.cos((-s.camera.rotation * Math.PI) / 180) -
+              quiet.y * Math.sin((-s.camera.rotation * Math.PI) / 180)),
+          y:
+            s.camera.y +
+            (quiet.x * Math.sin((-s.camera.rotation * Math.PI) / 180) +
+              quiet.y * Math.cos((-s.camera.rotation * Math.PI) / 180)),
+        }
+      : undefined;
+    const visualTheme =
+      s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
+    const bucket = Math.floor(s.elapsed / 40);
+    const key = JSON.stringify([
+      s.settings.background,
+      visualTheme,
+      s.camera.x.toFixed(2),
+      s.camera.y.toFixed(2),
+      s.camera.z.toFixed(4),
+      s.camera.rotation.toFixed(2),
+      s.viewport.width,
+      s.viewport.height,
+      bucket,
+      s.settings.reducedMotion,
+      s.loading,
+      s.overview,
+      worldQuiet,
+    ]);
+    if (key === this.backgroundCacheKey && this.backgroundCache) {
+      this.currentFrame.background = this.backgroundCache;
+      return;
+    }
+    this.backgroundCacheKey = key;
+    this.backgroundCache = evaluateBackgroundFrame({
+      mode: s.settings.background,
+      camera: s.camera,
+      viewport: s.viewport,
+      elapsed: s.elapsed,
+      theme: visualTheme,
+      reduced: s.settings.reducedMotion,
+      loading: s.loading,
+      overview: s.overview,
+      quiet: worldQuiet,
+    });
+    this.currentFrame.background = this.backgroundCache;
   }
   private createInlineIconSvg(token: IconToken, _hubMorph = 0): SVGSVGElement {
     const ns = "http://www.w3.org/2000/svg";
@@ -1213,6 +1832,33 @@ export class Scene {
     }
     return grid;
   }
+  private syncArticle(
+    article: HTMLElement,
+    node: Chapter,
+    hub: Hub,
+    presentation: "circle" | "line",
+  ) {
+    const renderer = this.articleRenderer as unknown as {
+      syncArticle?: (
+        article: HTMLElement,
+        node: Chapter,
+        hub: Hub,
+        presentation: "circle" | "line",
+      ) => void;
+      fillArticle: (
+        article: HTMLElement,
+        node: Chapter,
+        hub: Hub,
+        presentation: "circle" | "line",
+      ) => void;
+    };
+    if (typeof renderer.syncArticle === "function") {
+      renderer.syncArticle(article, node, hub, presentation);
+    } else if (article.dataset.presentation !== presentation) {
+      renderer.fillArticle(article, node, hub, presentation);
+    }
+  }
+
   private renderTexts(s: FieldState) {
     this.readingBounds = null;
     const hub = s.hubs[s.focus],
@@ -1240,8 +1886,7 @@ export class Scene {
         const article = this.articles.get(node.id)!,
           depth = 1 - surface,
           presentation = morph > 0.5 ? "line" : "circle";
-        if (article.dataset.presentation !== presentation)
-          this.articleRenderer.fillArticle(article, node, hub, presentation);
+        this.syncArticle(article, node, hub, presentation);
         if (node.id === this.catalog.searchRoot) {
           const input = article.querySelector<HTMLInputElement>(
             "input.hub-search-input",
@@ -1400,6 +2045,33 @@ export class Scene {
         const pointerStr = inert ? "none" : "auto";
         if (article.style.pointerEvents !== pointerStr)
           article.style.pointerEvents = pointerStr;
+        this.currentFrame.reading.push({
+          id: `reading:${node.id}`,
+          chapterId: node.id,
+          hubId: hub.id,
+          presentation,
+          visible: true,
+          inert,
+          left: targetLeft,
+          top: targetTop,
+          width: widthPx * s.camera.z,
+          height: panelHeight * s.camera.z,
+          scale: s.camera.z,
+          opacity: surface ** 1.2,
+          blur: s.settings.reducedMotion ? 0 : blur,
+          rotationY: turnY,
+          transformOrigin: {
+            x: placement.originX,
+            y: placement.originY,
+          },
+          anchorY: placement.originY,
+          side: placement.side,
+          clipEdge: clip.edge,
+          maskImage: clip.maskImage,
+          textOffset: activeFloat,
+          maxFloat,
+          pointerEvents: inert ? "none" : "auto",
+        });
       });
     for (const [id, article] of this.articles)
       if (!visible.has(id)) {
@@ -1410,11 +2082,28 @@ export class Scene {
       }
   }
   destroy() {
+    this.destroyed = true;
+    this.gpu?.destroy();
+    this.gpu = null;
     this.localLabelTurns.clear();
     this.geometry.replaceChildren();
     this.labels.replaceChildren();
+    this.backgroundRoot.replaceChildren();
+    this.flowPaths = [];
+    this.flowMarkers = [];
+    this.starPoints = [];
+    this.starTrails = [];
+    this.meteorPaths = [];
+    this.meteorHeads = [];
     this.reading.replaceChildren();
     this.hudControls.remove();
     this.actions.clear();
+    delete this.host.dataset.renderer;
+    this.currentFrame = emptySceneFrame(
+      this.resolvedKind,
+      { width: 0, height: 0 },
+      { x: 0, y: 0, z: 1, rotation: 0 },
+      "light",
+    );
   }
 }
