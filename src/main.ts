@@ -5,7 +5,8 @@ import { rawContent, hubDefinitions } from "./content/field";
 import { Catalog } from "./content/catalog";
 import { Field } from "./application/field";
 import { Scene } from "./rendering/scene";
-import { screenToWorld } from "./geometry/field";
+import { screenToWorld, frameFor } from "./geometry/field";
+import { evaluateSymbol } from "./core/symbol-morph";
 import { Ambient } from "./effects/ambient";
 import { createLoading } from "./effects/loading.js";
 import { requireElement } from "./rendering/dom";
@@ -32,11 +33,82 @@ const loader = createLoading(
   () => field.dispatch({ type: "close-loading" }),
   (description: string) => (field.state.description = description),
 );
+
+// Support deterministic URL parameters (?chapter=...&morph=...&theme=...&activity=...) for keyframe inspection
+try {
+  const params = new URLSearchParams(window.location.search);
+  const chapterId = params.get("chapter");
+  if (chapterId && field.catalog.chapters.has(chapterId)) {
+    const ch = field.catalog.get(chapterId);
+    const h = field.state.hubs[ch.hub];
+    field.state.focus = h.id;
+    h.path = field.catalog.chain(ch.id);
+    const siblings = field.catalog.siblings(ch.id, field.state.searchResults);
+    const idx = Math.max(
+      0,
+      siblings.findIndex((n) => n.id === ch.id),
+    );
+    h.scroll = h.scrollTarget = idx;
+    field.state.theme = h.theme;
+    field.state.camera = frameFor(
+      h,
+      idx,
+      siblings.length,
+      field.state.camera,
+      field.state.viewport,
+    );
+  }
+  const morphParam = params.get("morph");
+  if (morphParam !== null) {
+    const m = Math.max(0, Math.min(1, Number(morphParam)));
+    if (Number.isFinite(m)) {
+      field.hub.morph = m;
+      field.hub.targetMorph = m;
+      const siblings = field.siblings();
+      const idx = Math.max(
+        0,
+        siblings.findIndex((n) => n.id === field.selected().id),
+      );
+      field.state.camera = frameFor(
+        field.hub,
+        idx,
+        siblings.length,
+        field.state.camera,
+        field.state.viewport,
+      );
+    }
+  }
+  const themeParam = params.get("theme");
+  if (
+    themeParam === "light" ||
+    themeParam === "dark" ||
+    themeParam === "obsidian"
+  ) {
+    field.state.theme = themeParam;
+  }
+  const hoverSymbol = params.get("hoverSymbol");
+  if (hoverSymbol) {
+    scene.setSymbolInteraction(`${field.state.focus}:global:${hoverSymbol}`, {
+      hover: true,
+    });
+  }
+} catch {
+  /* Ignore URL parameter parsing errors in restricted environments. */
+}
+
+(window as unknown as Record<string, unknown>).__shuyra = {
+  field,
+  scene,
+  evaluateSymbol,
+};
+
 const disposeInput = bindInput(host, {
   dispatch: (command) => field.dispatch(command),
   pan: (delta, start) => field.pan(delta, start),
   zoom: (factor, point) => field.zoom(factor, point),
   camera: () => field.state.camera,
+  grasp: (delta) => field.grasp(delta),
+  graspGeometry: () => field.graspGeometry(),
   overview: () => field.state.overview,
   loading: () => field.state.loading,
   exitLoading: () => loader.exit(),

@@ -7,6 +7,7 @@ import { rawContent, hubDefinitions } from "../src/content/field.ts";
 import { Field } from "../src/application/field.ts";
 import { Scene } from "../src/rendering/scene.ts";
 import { bindInput } from "../src/platform/input.ts";
+import type { Command } from "../src/core/types.ts";
 const create = (
   reduced = false,
   catalog = new Catalog(hubDefinitions, rawContent),
@@ -144,6 +145,8 @@ test("Chinese composition commits once and search rerenders preserve input focus
       pan: (delta, start) => field.pan(delta, start),
       zoom: (factor, point) => field.zoom(factor, point),
       camera: () => field.state.camera,
+      grasp: (delta) => field.grasp(delta),
+      graspGeometry: () => field.graspGeometry(),
       overview: () => field.state.overview,
       loading: () => field.state.loading,
       exitLoading: () => {},
@@ -175,16 +178,23 @@ test("Chinese composition commits once and search rerenders preserve input focus
     assert.equal(dom.window.document.activeElement, input);
     assert.equal(input.selectionStart, 1);
     assert.equal(field.selected().id, "q0");
+    const result = field.state.searchResults[0];
+    assert.ok(result);
+    assert.deepEqual(scene.actions.get(`Q:${result}`), {
+      type: "navigate",
+      target: result,
+    });
   } finally {
     dispose();
     scene.destroy();
     dom.close();
   }
 });
-test("long-article wheel pans the reading surface without changing chapters or blocking text selection", () => {
+test("long-article wheel floats text without moving the camera or blocking text selection", () => {
   const dom = setupDOM(),
     article = dom.window.document.createElement("article");
   article.className = "note is-long";
+  article.dataset.maxFloat = "900";
   dom.host.querySelector("#reading")!.append(article as unknown as Node);
   Object.defineProperty(article, "getBoundingClientRect", {
     value: () => ({
@@ -197,12 +207,14 @@ test("long-article wheel pans the reading surface without changing chapters or b
     }),
   });
   const pans: { x: number; y: number }[] = [],
-    commands: string[] = [],
+    commands: Command[] = [],
     dispose = bindInput(dom.host, {
-      dispatch: (command) => commands.push(command.type),
+      dispatch: (command) => commands.push(command),
       pan: (delta) => pans.push(delta),
       zoom: () => {},
       camera: () => ({ x: 0, y: 0, z: 1, rotation: 0 }),
+      grasp: () => {},
+      graspGeometry: () => null,
       overview: () => false,
       loading: () => false,
       exitLoading: () => {},
@@ -216,12 +228,15 @@ test("long-article wheel pans the reading surface without changing chapters or b
         deltaY: 120,
       }),
     );
-    assert.deepEqual(pans, [{ x: 0, y: -120 }]);
-    assert.deepEqual(commands, []);
+    assert.deepEqual(pans, []);
+    assert.deepEqual(commands, [
+      { type: "float-text", delta: 120 * 0.72, maxOffset: 900 },
+    ]);
     article.dispatchEvent(
       new dom.window.PointerEvent("pointerdown", {
         bubbles: true,
         button: 0,
+        pointerType: "mouse",
         pointerId: 1,
         clientX: 10,
         clientY: 10,
@@ -234,7 +249,8 @@ test("long-article wheel pans the reading surface without changing chapters or b
         clientY: 50,
       }),
     );
-    assert.equal(pans.length, 1);
+    assert.equal(pans.length, 0);
+    assert.equal(commands.length, 1);
   } finally {
     dispose();
     dom.close();

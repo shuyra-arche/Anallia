@@ -42,13 +42,22 @@ export interface HubDefinition {
   angle: number;
   morph: number;
   root: string;
+  /** Optional explicit recursive hub relation; never inferred from proximity. */
+  parentHub?: string;
 }
 export interface Hub extends HubDefinition {
   targetMorph: number;
   fold: number;
   scroll: number;
   scrollTarget: number;
+  textOffset: number;
+  textOffsetTarget: number;
   path: string[];
+  /** Material arc-length shift: a content switch can preserve its actual hinge. */
+  anchorOffset: number;
+  localScroll: number;
+  localScrollTarget: number;
+  localDirection: -1 | 1;
 }
 export interface Settings {
   frameRate: FrameRate;
@@ -65,10 +74,27 @@ export interface Snapshot {
   camera: Camera;
   hubs: Record<
     string,
-    { path: string[]; scroll: number; target: number; morph: number }
+    {
+      path: string[];
+      scroll: number;
+      target: number;
+      morph: number;
+      anchorOffset: number;
+    }
   >;
 }
+export type TransitionKind = "near" | "flight" | "remote" | "axis" | "loading";
+export interface PortalAnchor {
+  center: Vec;
+  angle: number;
+  morph: number;
+}
 export interface Passage {
+  kind: TransitionKind;
+  direction: "forward" | "reverse";
+  from: PortalAnchor;
+  to: PortalAnchor;
+  sourceTheme: Theme;
   source: string;
   target: string;
   theme: Theme;
@@ -77,6 +103,30 @@ export interface Passage {
   phase: number;
   commit: () => void;
   committed: boolean;
+}
+/** The one transition which replaces content at a fixed material hinge. */
+export interface ContentTurn {
+  hub: string;
+  from: string;
+  to: string;
+  started: number;
+  duration: number;
+  phase: number;
+  direction: 1 | -1;
+  commit: () => void;
+  committed: boolean;
+}
+/** A complete, reversible page turn around points on the current Möbius hub. */
+export interface MorphTurn {
+  hub: string;
+  from: number;
+  to: number;
+  started: number;
+  duration: number;
+  phase: number;
+  /** Fixed viewport projection of the focused material point during the morph. */
+  screenAnchor: Vec;
+  startRotation: number;
 }
 export interface FieldState {
   hubs: Record<string, Hub>;
@@ -88,6 +138,8 @@ export interface FieldState {
   settings: Settings;
   history: Snapshot[];
   passage: Passage | null;
+  morphTurn: MorphTurn | null;
+  contentTurn: ContentTurn | null;
   loading: boolean;
   description: string;
   elapsed: number;
@@ -99,5 +151,7 @@ export type Command =
   | { type: "focus"; hub: string }
   | { type: "morph" }
   | { type: "step"; delta: number }
+  | { type: "scroll-local"; delta: number }
+  | { type: "float-text"; delta: number; maxOffset?: number }
   | { type: "search"; query: string }
   | { type: "up" | "back" | "overview" | "loading" | "close-loading" };

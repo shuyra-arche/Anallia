@@ -8,6 +8,7 @@ import {
   screenToWorld,
   evaluateHubGeometry,
   material,
+  outwardNormal,
   transformLocal,
   nodeS,
   arcOffsetS,
@@ -182,15 +183,19 @@ test("circle reading scroll preserves the exact projected hub center and user zo
   }
   assert.equal(f.selected().id, "a2");
 });
-test("line reading scroll retains user zoom", () => {
+test("line reading scroll keeps the entire camera state (x, y, z, rotation) completely unchanged", () => {
   const f = create();
   f.dispatch({ type: "navigate", target: "b1" });
   settle(f);
   f.zoom(1.3, { x: 900, y: 500 });
-  const zoom = f.state.camera.z;
+  f.pan({ x: 45, y: -30 }, { ...f.state.camera });
+  const camBefore = { ...f.state.camera };
   f.dispatch({ type: "step", delta: 1 });
-  settle(f, 1600);
-  near(f.state.camera.z, zoom);
+  for (let i = 1; i <= 80; i++) {
+    f.update(1600 + i * 20, 20);
+    assert.deepEqual(f.state.camera, camBefore);
+  }
+  assert.equal(f.selected().id, "b2");
 });
 test("reading animation settles completely instead of following forever", () => {
   const f = create();
@@ -260,4 +265,36 @@ test("arcOffsetS preserves exact uniform spacing for special nav labels at any s
       near(Math.hypot(b.x - a.x, b.y - a.y), baselinePairDist);
     }
   }
+});
+test("line labels and text blocks have zero tangential drift at any scroll position", () => {
+  const f = create();
+  const h = f.state.hubs.B; // B is in line mode (morph = 1)
+  const n = outwardNormal(h, 0, 1);
+  const t = { x: -n.y, y: n.x }; // unit tangent along the line
+  for (const s of [-1200, -680, -340, 0, 340, 680, 1200]) {
+    const anchor = material(h, s, 0, 1);
+    for (const offset of [-38, 34, 104]) {
+      const displaced = material(h, s, offset, 1);
+      const diff = { x: displaced.x - anchor.x, y: displaced.y - anchor.y };
+      const tangentialDrift = diff.x * t.x + diff.y * t.y;
+      const normalDist = diff.x * n.x + diff.y * n.y;
+      near(tangentialDrift, 0);
+      near(normalDist, offset);
+    }
+  }
+});
+test("long text floats smoothly along label horizontal line and resets on chapter step", () => {
+  const f = create();
+  f.dispatch({ type: "navigate", target: "a4" });
+  settle(f);
+  assert.equal(f.selected().id, "a4");
+  assert.equal(f.hub.textOffset, 0);
+  f.dispatch({ type: "float-text", delta: 120, maxOffset: 260 });
+  assert.equal(f.hub.textOffsetTarget, 120);
+  settle(f, 1600);
+  near(f.hub.textOffset, 120);
+  f.dispatch({ type: "float-text", delta: 500, maxOffset: 260 });
+  assert.equal(f.hub.textOffsetTarget, 260);
+  f.dispatch({ type: "step", delta: -1 });
+  assert.equal(f.hub.textOffsetTarget, 0);
 });

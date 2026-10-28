@@ -101,7 +101,7 @@ export class Catalog {
     }
     const tokens = q.split(/\s+/).filter(Boolean);
     return this.searchPool
-      .filter((item) => tokens.every((token) => item.haystack.includes(token)))
+      .filter((item) => tokens.every((t) => item.haystack.includes(t)))
       .slice(0, 8)
       .map((item) => item.chapter);
   }

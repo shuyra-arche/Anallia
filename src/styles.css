@@ -1,54 +1,82 @@
 :root {
-  --paper: #f7f8f5;
-  --paper-swept: #e6efe9;
-  --ink: #213a35;
-  --body-ink: #416359;
-  --quiet: #7f968c;
-  --line: #44796f;
-  --low: #9eb7ac;
-  --decor: #b2c7be;
-  --decor-strong: #7fa699;
-  --amber: #b17d48;
-  --accent: #21765d;
-  --stem: #80a89b;
-  --stem-nav: #c3a381;
+  --paper: #F5F6F2;
+  --paper-swept: #E5ECE7;
+  --ink: #233532;
+  --body-ink: #405651;
+  --quiet: #5E726C;
+  --line: #2D716B;
+  --low: #ABBCB5;
+  --decor: #B8C8C0;
+  --decor-strong: #7B9A90;
+  --amber: #986632;
+  --accent: #2D716B;
+  --stem: #8FA99E;
+  --stem-nav: #B69A79;
   --loader-ink: #f2f3f1;
   --loader-arc: #949a9e;
   --loader-arc-light: #bcc0c1;
   --loader-shimmer: #ffffff;
+  --font-sans:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Noto Sans SC",
+    "Microsoft YaHei",
+    sans-serif;
+  --font-symbol:
+    "STIX Two Math",
+    "Cambria Math",
+    "Latin Modern Math",
+    "Apple Symbols",
+    "Segoe UI Symbol",
+    "Inter",
+    "SF Pro Display",
+    "Noto Sans SC",
+    sans-serif;
+  --font-mono:
+    "JetBrains Mono",
+    "SF Mono",
+    ui-monospace,
+    Menlo,
+    Consolas,
+    monospace;
 }
 html[data-theme="dark"] {
-  --paper: #101d22;
-  --paper-swept: #192c34;
-  --ink: #eaf2f2;
-  --body-ink: #bfd0d1;
-  --quiet: #849ea6;
-  --line: #9cc4e5;
-  --low: #466978;
-  --decor: #2a4754;
-  --decor-strong: #4d7a8c;
-  --amber: #f6bc71;
-  --accent: #a4e0aa;
-  --stem: #638ea0;
-  --stem-nav: #d8a96e;
+  --paper: #10191B;
+  --paper-swept: #1B302F;
+  --ink: #EBF0EA;
+  --body-ink: #BCCDC5;
+  --quiet: #93AAA1;
+  --line: #88CEC0;
+  --low: #344D4B;
+  --decor: #304A47;
+  --decor-strong: #5A7974;
+  --amber: #E7B879;
+  --accent: #88CEC0;
+  --stem: #5A7974;
+  --stem-nav: #B69A79;
 }
 html[data-theme="obsidian"] {
-  --paper: #0c0e10;
-  --paper-swept: #161a1e;
-  --ink: #f2f3f1;
-  --body-ink: #b6bcb8;
-  --quiet: #8d9494;
-  --line: #949a9e;
-  --low: #3a4044;
-  --decor: #262b2e;
-  --decor-strong: #545c61;
-  --amber: #d8b27c;
-  --accent: #e2e6e3;
-  --stem: #6c7377;
-  --stem-nav: #b89b72;
+  --paper: #0C0E10;
+  --paper-swept: #181D1E;
+  --ink: #F2F3F1;
+  --body-ink: #B6BCB8;
+  --quiet: #9DA5A2;
+  --line: #949A9E;
+  --low: #3A4044;
+  --decor: #262B2E;
+  --decor-strong: #545C61;
+  --amber: #BCA789;
+  --accent: #E2E6E3;
+  --stem: #6C7377;
+  --stem-nav: #B89B72;
 }
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 html,
 body {
@@ -56,16 +84,14 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  touch-action: none;
   background: var(--paper);
   color: var(--ink);
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Noto Sans SC",
-    "Microsoft Yahei",
-    sans-serif;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02" 1, "cv03" 1, "cv04" 1, "tnum" 1;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
   transition: color 0.3s ease;
 }
 button {
@@ -75,6 +101,7 @@ button {
   position: fixed;
   inset: 0;
   overflow: hidden;
+  touch-action: none;
 }
 #world {
   position: absolute;
@@ -135,7 +162,7 @@ button {
 .hit {
   fill: none;
   stroke: transparent;
-  stroke-width: 24;
+  stroke-width: 32;
   pointer-events: stroke;
   cursor: pointer;
 }
@@ -149,33 +176,75 @@ button {
 .stem.nav {
   stroke: var(--stem-nav);
 }
+
+/* 统一标签字体排印与数学符号栈 (Section 3 & 4) */
 .label {
-  dominant-baseline: middle;
+  dominant-baseline: central;
   text-anchor: middle;
   fill: var(--accent);
-  font:
-    500 17px/1 Inter,
-    sans-serif;
+  font-family: var(--font-symbol);
+  font-size: 16.5px;
+  font-weight: 560;
+  line-height: 1;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1, "cv02" 1;
   pointer-events: none;
   paint-order: stroke;
   stroke: var(--paper);
   stroke-width: 4px;
   stroke-linejoin: round;
 }
+.label.is-text {
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+  letter-spacing: 0.01em;
+}
 .label.current {
-  font-weight: 730;
+  font-weight: 720;
 }
 .label.background {
   font-size: 13px;
+  font-weight: 520;
   fill: var(--quiet);
 }
 .label.nav {
-  font:
-    600 16px/1 Georgia,
-    "Noto Serif SC",
-    serif;
+  font-family: var(--font-symbol);
+  font-size: 16px;
+  font-weight: 620;
   fill: var(--amber);
 }
+.label.is-sr-only {
+  opacity: 0;
+  font-size: 0;
+  stroke-width: 0;
+  pointer-events: none;
+}
+
+/* 统一 24×24 SVG 几何图标体系 (Section 4) */
+.label-icon {
+  pointer-events: none;
+  overflow: visible;
+  color: var(--accent);
+  filter: drop-shadow(0 0 2.5px var(--paper)) drop-shadow(0 0 1.5px var(--paper));
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+.label-icon.nav {
+  color: var(--amber);
+}
+.label-icon.current {
+  color: var(--accent);
+}
+.label-icon.background {
+  color: var(--quiet);
+}
+.label-icon-glyph {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .label-ring {
   fill: none;
   stroke: var(--amber);
@@ -200,6 +269,10 @@ button {
 .tag-group:focus-visible .label,
 .tag-group:hover .label {
   fill: var(--amber);
+}
+.tag-group:focus-visible .label-icon,
+.tag-group:hover .label-icon {
+  color: var(--amber);
 }
 .tag-group:focus-visible {
   outline: none;
@@ -235,13 +308,25 @@ article.note {
   margin: 0;
   pointer-events: auto;
   overflow: visible;
+  touch-action: none;
   user-select: text;
   -webkit-user-select: text;
   cursor: auto;
-  /* 锚定在左边缘中点 (0, 50%)，使整个文本块的中轴线严格沿圆心径向延长线辐射 */
   transform-origin: 0 50%;
   contain: layout style;
   color: var(--ink);
+}
+article.note.is-long::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: var(--anchor-y, 58px);
+  width: 9px;
+  height: 1.5px;
+  background: var(--amber);
+  opacity: 0.68;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 article.note[hidden] {
   display: none !important;
@@ -249,18 +334,16 @@ article.note[hidden] {
 }
 article.note .eyebrow {
   font:
-    10px/1.5 ui-monospace,
-    Menlo,
-    Consolas,
-    monospace;
+    500 10px/1.5 var(--font-mono);
   letter-spacing: 0.14em;
+  font-variant-numeric: tabular-nums;
   color: var(--quiet);
   margin-bottom: 10px;
 }
 article.note h2 {
-  font-weight: 600;
+  font-weight: 620;
   font-size: clamp(20px, 1.95vw, 27px);
-  letter-spacing: -0.035em;
+  letter-spacing: -0.032em;
   line-height: 1.3;
   margin: 0 0 11px;
   color: var(--ink);
@@ -280,18 +363,20 @@ article.note.is-long p {
 }
 article.note .tail {
   font:
-    9.5px/1.5 ui-monospace,
-    Menlo,
-    Consolas,
-    monospace;
+    500 9.5px/1.5 var(--font-mono);
   letter-spacing: 0.13em;
   color: var(--quiet);
   padding-top: 4px;
 }
 article.note .inline-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: baseline;
   border: 0;
   background: none;
-  padding: 0 2px;
+  padding: 2px 3px;
+  font-family: var(--font-symbol);
   color: var(--amber);
   cursor: pointer;
   text-decoration: underline;
@@ -302,6 +387,14 @@ article.note .inline-ref {
     opacity 0.2s ease,
     color 0.2s ease,
     text-shadow 0.2s ease;
+}
+article.note .inline-ref .inline-svg-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  transform: translateY(1.5px);
+  color: currentColor;
 }
 article.note .inline-ref:hover {
   opacity: 0.85;
@@ -329,6 +422,96 @@ article.note .inline-ref:focus-visible {
 }
 .inline-ref[aria-pressed="false"]:hover {
   opacity: 0.72;
+}
+
+/* Symbol Morph 动态图标 3 阶段对比与视觉验收网格 */
+.symbol-morph-showcase {
+  margin: 6px 0 12px;
+}
+.icon-showcase-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.icon-showcase-card.is-morph-card {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 7px 9px;
+}
+.icon-showcase-stages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.icon-stage-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 2px;
+  border-radius: 4px;
+  border: 1px dashed color-mix(in srgb, var(--line) 32%, transparent);
+  color: var(--amber);
+}
+.icon-stage-cap {
+  font-family: var(--font-mono);
+  font-size: 8.8px;
+  color: var(--quiet);
+}
+.icon-showcase-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--low) 36%, transparent);
+  background: color-mix(in srgb, var(--paper-swept) 45%, transparent);
+}
+.icon-showcase-stage {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 4px;
+  border: 1px dashed color-mix(in srgb, var(--line) 32%, transparent);
+  color: var(--amber);
+}
+.icon-showcase-svg {
+  width: 20px;
+  height: 20px;
+  overflow: visible;
+}
+.icon-showcase-svg g {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-showcase-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+.icon-showcase-title {
+  font-family: var(--font-symbol);
+  font-size: 11.8px;
+  font-weight: 640;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.icon-showcase-spec {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--quiet);
+  letter-spacing: 0.02em;
 }
 
 /* 竖排列表 (.shuyra-list.is-vertical) 与 横排列表 (.shuyra-list.is-horizontal) */
@@ -440,10 +623,7 @@ article.note .inline-ref:focus-visible {
 .search-status {
   margin-top: 5px;
   font:
-    10px/1.45 ui-monospace,
-    Menlo,
-    Consolas,
-    monospace;
+    10px/1.45 var(--font-mono);
   letter-spacing: 0.06em;
   color: var(--quiet);
 }
@@ -506,10 +686,7 @@ article.note .inline-ref:focus-visible {
   bottom: 22px;
   max-width: min(580px, 88vw);
   font:
-    11px/1.75 ui-monospace,
-    Menlo,
-    Consolas,
-    monospace;
+    11px/1.75 var(--font-mono);
   letter-spacing: 0.06em;
   color: var(--quiet);
   pointer-events: none;
@@ -524,18 +701,23 @@ article.note .inline-ref:focus-visible {
     font-size: 9.5px;
   }
   article.note h2 {
-    font-size: 19px;
-    margin-bottom: 7px;
+    font-size: 18px;
+    margin-bottom: 6px;
   }
   article.note p {
-    font-size: 12.5px;
-    line-height: 1.72;
+    font-size: 12.6px;
+    line-height: 1.7;
   }
-  .label {
-    font-size: 15px;
+  .shuyra-list.is-vertical > .shuyra-list-item {
+    font-size: 12.2px;
   }
-  .label.nav {
-    font-size: 14px;
+  .shuyra-list .list-key,
+  .shuyra-list .list-val,
+  .shuyra-list.is-horizontal > .shuyra-list-item {
+    font-size: 12px;
+  }
+  .icon-showcase-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -556,4 +738,125 @@ article.note .inline-ref:focus-visible {
 .flow-marker {
   fill: var(--amber);
   pointer-events: none;
+}
+
+/* Attached leaves: the semantic pin is fixed to a point on the generalized
+   Möbius circle/line. Both SVG tags and HTML reading use the same page clock. */
+.page-pin {
+  fill: var(--amber);
+  stroke: var(--paper);
+  stroke-width: 1.1;
+  pointer-events: none;
+}
+.page-leaf {
+  pointer-events: none;
+}
+.page-leaf .label-hit { pointer-events: all; }
+.tag-group.turning .page-leaf .label-hit { pointer-events: none; }
+#reading { perspective: 1400px; perspective-origin: 50% 50%; }
+article.note {
+  transform-origin: 0 50%;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  #reading { perspective: none; }
+}
+
+/* v4: the semantic hinge is unchanged when reading content chooses the other
+   side; swap only the short visual tick, never mirror typography. */
+article.note[data-side="left"].is-long::before {
+  left: calc(100% + 5px);
+}
+@media (max-width: 700px) {
+  article.note { font-size: 15px; line-height: 1.65; }
+  .label { font-size: 16.5px; }
+  .hit { stroke-width: 44px; }
+}
+
+/* Preserve custom keyboard focus feedback without the browser's default SVG box. */
+.tag-group:focus { outline: none; }
+.tag-group:focus-visible .label-ring { opacity: 1; }
+
+/* 失去焦点枢的传统内部径向刻线与焦点圆点（不显示任何文字标签） */
+.inner-trace {
+  fill: none;
+  stroke: var(--decor-strong);
+  stroke-width: 1.05;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+  opacity: 0.48;
+}
+.inner-dot {
+  fill: var(--amber);
+  pointer-events: none;
+  opacity: 0.68;
+}
+
+/* 径向竖线分层级样式（不同层级长度与描边权重不同） */
+.stem.stem-global {
+  stroke: var(--stem-nav);
+  stroke-width: 1.3;
+  opacity: 0.92;
+}
+.stem.stem-current {
+  stroke: var(--amber);
+  stroke-width: 1.45;
+  opacity: 0.96;
+}
+.stem.stem-ordinary {
+  stroke: var(--stem);
+  stroke-width: 1.15;
+  opacity: 0.82;
+}
+.stem.stem-local {
+  stroke: var(--stem-nav);
+  stroke-width: 1.05;
+  opacity: 0.78;
+}
+
+/* 缩小过大或全域观察时的传统顶部全局控制栏 (#hudControls) */
+.hud-controls {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  z-index: 8;
+  pointer-events: auto;
+}
+.hud-controls[hidden] {
+  display: none !important;
+  pointer-events: none !important;
+}
+.hud-btn {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--low) 55%, transparent);
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--ink);
+  font-family: var(--font-symbol);
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background-color 0.18s ease;
+}
+.hud-btn:hover:not(:disabled),
+.hud-btn[aria-pressed="true"] {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+.hud-btn:disabled {
+  opacity: 0.36;
+  cursor: default;
 }

@@ -12,6 +12,8 @@ const vortices = [
   { x: -540, y: -180, radius: 620, strength: 58 },
   { x: 510, y: 350, radius: 680, strength: -52 },
   { x: 30, y: -440, radius: 470, strength: 36 },
+  { x: -860, y: -340, radius: 560, strength: -44 },
+  { x: 1080, y: -440, radius: 640, strength: 48 },
 ];
 /** World-space velocity: a smooth solenoidal flow plus transient radial waves. */
 export function sampleFlow(

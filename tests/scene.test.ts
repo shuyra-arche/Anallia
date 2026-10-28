@@ -41,6 +41,13 @@ test("scene switches circle/line expressions and renders links as real buttons",
   scene.render(field.state);
   assert.ok(article.hasAttribute("hidden"));
   assert.equal(article.getAttribute("aria-hidden"), "true");
+  const refocus = scene.actions.get("hud:refocus");
+  assert.deepEqual(refocus, { type: "focus", hub: field.state.focus });
+  field.dispatch(refocus!);
+  for (let now = 1620; now <= 3200; now += 20) field.update(now, 20);
+  scene.render(field.state);
+  assert.equal(field.state.overview, false);
+  assert.equal(article.hasAttribute("hidden"), false);
   scene.destroy();
   assert.equal(host.querySelectorAll("article").length, 0);
   window.close();
@@ -176,6 +183,53 @@ test("frame rate selection is visible and updates without changing presentation"
   field.dispatch({ type: "navigate", target: "act:fpsdisplay" });
   scene.render(field.state);
   assert.equal(selected(), "act:fpsdisplay");
+  scene.destroy();
+  window.close();
+});
+
+test("transition masks labels and keeps one continuous portal while the content commits", () => {
+  const window = new Window();
+  Object.assign(globalThis, { document: window.document });
+  window.document.write(
+    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+      /<script[^>]*>[\s\S]*?<\/script>/g,
+      "",
+    ),
+  );
+  const host = window.document.querySelector("#scene")!;
+  const field = new Field(new Catalog(hubDefinitions, rawContent), {
+    width: 1366,
+    height: 820,
+  });
+  const scene = new Scene(host as unknown as HTMLElement, field.catalog);
+  field.dispatch({ type: "navigate", target: "b1" });
+  scene.render(field.state);
+  assert.equal(host.getAttribute("data-transition"), "passage");
+  const begin = host.querySelector("#portalBoundaryPath")!.getAttribute("d")!;
+  field.update(540, 20);
+  scene.render(field.state);
+  assert.equal(
+    host
+      .querySelector("#gLabels")!
+      .getAttribute("style")
+      ?.includes("pointer-events: none"),
+    true,
+  );
+  const midpoint = host
+    .querySelector("#portalBoundaryPath")!
+    .getAttribute("d")!;
+  assert.notEqual(midpoint, begin);
+  assert.equal(
+    host.querySelector("#portalViewport")!.getAttribute("visibility"),
+    "visible",
+  );
+  for (let now = 560; now <= 1600; now += 20) field.update(now, 20);
+  scene.render(field.state);
+  assert.equal(host.getAttribute("data-transition"), null);
+  assert.equal(
+    host.querySelector("#portalViewport")!.getAttribute("visibility"),
+    "hidden",
+  );
   scene.destroy();
   window.close();
 });

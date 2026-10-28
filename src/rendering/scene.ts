@@ -1,24 +1,177 @@
-import { fillArticle } from "./article.ts";
+import { ArticleRenderer } from "./article.ts";
 import { frameRateFromAction } from "../core/frame-rate.ts";
-import type { Command, FieldState, Hub, Settings, Vec } from "../core/types.ts";
-import { rot, unit, ease, mix, clamp } from "../core/math.ts";
+import type {
+  Chapter,
+  Command,
+  FieldState,
+  Hub,
+  Settings,
+  Vec,
+} from "../core/types.ts";
+import { ease, clamp } from "../core/math.ts";
+import {
+  readingEnvelope,
+  morphReadingEnvelope,
+  pageTurnPose,
+} from "../core/transitions.ts";
+import type { PagePose } from "../core/transitions.ts";
+import { PAPER, SWEPT, BOUNDARY, blendHex } from "../core/palette.ts";
+import { classifyLabelContent, resolveIconToken } from "../core/icons.ts";
+import type { IconToken } from "../core/icons.ts";
+import {
+  SYMBOL_KINDS,
+  evaluateSymbol,
+  resolveSymbolKind,
+  symbolMorphFromHub,
+} from "../core/symbol-morph.ts";
+import type { SymbolGeometry, SymbolKind } from "../core/symbol-morph.ts";
 import { Catalog } from "../content/catalog.ts";
 import {
+  ordinaryAndLocalAttachments,
+  globalAttachments,
+  resolveGlobalHostHub,
+} from "../application/attachments.ts";
+import { projectAttachment } from "../geometry/attachments.ts";
+import type { FieldAttachment } from "../core/attachments.ts";
+import {
   evaluateHubGeometry,
+  passageGeometry,
+  remotePortalGeometry,
   material,
-  outwardNormal,
   nodeS,
-  arcOffsetS,
-  worldToScreen,
+  hubToScreen,
 } from "../geometry/field.ts";
 import { svg, requireElement } from "./dom.ts";
+
+/** Camera zoom threshold below which focused hub global tags yield to the traditional HUD bar. */
+export const TRADITIONAL_HUD_ZOOM_THRESHOLD = 0.45;
+
 interface Label {
   group: SVGGElement;
+  leaf: SVGGElement;
+  pin: SVGCircleElement;
   stem: SVGPathElement;
   ring: SVGCircleElement;
+  icon: SVGSVGElement;
+  iconGlyph: SVGGElement;
   text: SVGTextElement;
   hit: SVGRectElement;
+  renderedIconId?: string;
+  renderedSymbolSignature?: string;
+  symbolPaths?: Map<string, SVGPathElement>;
+  symbolPoints?: Map<string, SVGCircleElement>;
 }
+
+export interface SymbolInteractionState {
+  hover: boolean;
+  focus: boolean;
+  press: boolean;
+  active: boolean;
+}
+
+function populateIconGlyph(target: SVGGElement, token: IconToken) {
+  target.replaceChildren();
+  const strokeWidth = (
+    token.baseStrokeWidth + token.strokeCompensation
+  ).toFixed(2);
+  const dx = (-12 + token.opticalOffset.x).toFixed(2);
+  const dy = (-12 + token.opticalOffset.y).toFixed(2);
+  target.setAttribute(
+    "transform",
+    `translate(12 12) scale(${token.opticalScale}) translate(${dx} ${dy})`,
+  );
+  target.setAttribute("stroke-width", strokeWidth);
+  for (const shape of token.shapes) {
+    svg(shape.tag, target, shape.attrs);
+  }
+}
+
+/**
+ * Render or update a dynamic SymbolGeometry in-place inside `target` (<g class="label-icon-glyph">),
+ * preserving existing <path> and <circle> DOM nodes across all intermediate morph frames m ∈ [0, 1].
+ */
+export function renderSymbolGeometryToGroup(
+  target: SVGGElement,
+  geom: SymbolGeometry,
+  pathCache?: Map<string, SVGPathElement>,
+  pointCache?: Map<string, SVGCircleElement>,
+) {
+  const { optical } = geom;
+  const baseStroke = optical.baseStrokeWidth + optical.strokeCompensation;
+  const dx = (-12 + optical.opticalOffset.x).toFixed(2);
+  const dy = (-12 + optical.opticalOffset.y).toFixed(2);
+  target.setAttribute(
+    "transform",
+    `translate(12 12) scale(${optical.opticalScale}) translate(${dx} ${dy})`,
+  );
+  target.setAttribute("stroke-width", baseStroke.toFixed(2));
+  target.dataset.symbolKind = geom.kind;
+  target.dataset.symbolMorph = geom.morph.toFixed(4);
+  target.dataset.symbolActivity = geom.activity.toFixed(3);
+
+  const canReuse =
+    pathCache &&
+    pointCache &&
+    pathCache.size === geom.paths.length &&
+    pointCache.size === geom.points.length &&
+    geom.paths.every((p) => pathCache.has(p.id)) &&
+    geom.points.every((pt) => pointCache.has(pt.id));
+
+  if (!canReuse) {
+    target.replaceChildren();
+    pathCache?.clear();
+    pointCache?.clear();
+    for (const p of geom.paths) {
+      const el = svg("path", target, {
+        class: `symbol-path is-${p.role}`,
+        "data-part-id": p.id,
+        d: p.d,
+        fill: "none",
+      });
+      if (p.strokeScale !== undefined) {
+        el.setAttribute(
+          "stroke-width",
+          (baseStroke * p.strokeScale).toFixed(2),
+        );
+      }
+      if (p.opacity !== undefined) {
+        el.setAttribute("opacity", p.opacity.toFixed(3));
+      }
+      pathCache?.set(p.id, el);
+    }
+    for (const pt of geom.points) {
+      const el = svg("circle", target, {
+        class: `symbol-point is-${pt.role}`,
+        "data-part-id": pt.id,
+        cx: pt.x.toFixed(3),
+        cy: pt.y.toFixed(3),
+        r: pt.r.toFixed(3),
+        fill: pt.filled !== false ? "currentColor" : "none",
+        stroke: pt.filled !== false ? "none" : "currentColor",
+      });
+      if (pt.opacity !== undefined) {
+        el.setAttribute("opacity", pt.opacity.toFixed(3));
+      }
+      pointCache?.set(pt.id, el);
+    }
+    return;
+  }
+
+  for (const p of geom.paths) {
+    const el = pathCache!.get(p.id)!;
+    el.setAttribute("d", p.d);
+    if (p.strokeScale !== undefined) {
+      el.setAttribute("stroke-width", (baseStroke * p.strokeScale).toFixed(2));
+    }
+  }
+  for (const pt of geom.points) {
+    const el = pointCache!.get(pt.id)!;
+    el.setAttribute("cx", pt.x.toFixed(3));
+    el.setAttribute("cy", pt.y.toFixed(3));
+    el.setAttribute("r", pt.r.toFixed(3));
+  }
+}
+
 function isActionPressed(
   action: string,
   settings: Settings,
@@ -52,36 +205,59 @@ function isActionPressed(
       return undefined;
   }
 }
+
 export class Scene {
   private root: SVGSVGElement;
   private geometry: SVGGElement;
   private labels: SVGGElement;
   private reading: HTMLElement;
+  private hudControls: HTMLElement;
   private hubs = new Map<
     string,
-    { path: SVGPathElement; hit: SVGPathElement; labels: Map<string, Label> }
+    {
+      path: SVGPathElement;
+      hit: SVGPathElement;
+      tracePath: SVGPathElement;
+      traceDot: SVGCircleElement;
+      labels: Map<string, Label>;
+    }
   >();
   private articles = new Map<string, HTMLElement>();
   readonly actions = new Map<string, Command>();
   private lastRenderKey = "";
+  private lastState: FieldState | null = null;
   private heights = new Map<string, number>();
   private measuredSettings = "";
+  private readonly articleRenderer: ArticleRenderer;
+  private symbolFeedback = new Map<string, SymbolInteractionState>();
+
   invalidateLayout() {
     this.heights.clear();
     this.lastRenderKey = "";
   }
+
   private host: HTMLElement;
   private catalog: Catalog;
   constructor(host: HTMLElement, catalog: Catalog) {
+    this.articleRenderer = new ArticleRenderer(catalog, {
+      inlineIcon: (token, morph) => this.createInlineIconSvg(token, morph),
+      iconShowcase: (hub) => this.buildIconShowcase(hub),
+    });
     this.host = host;
     this.catalog = catalog;
     this.root = requireElement(host, "#world");
     this.geometry = requireElement(host, "#gGeometry");
     this.labels = requireElement(host, "#gLabels");
     this.reading = requireElement(host, "#reading");
+    this.hudControls = this.ensureHudControls(host);
     for (const hub of catalog.definitions)
       this.hubs.set(hub.id, {
         path: svg("path", this.geometry, { class: "curve" }),
+        tracePath: svg("path", this.geometry, { class: "inner-trace" }),
+        traceDot: svg("circle", this.geometry, {
+          class: "inner-dot",
+          r: 2.2,
+        }),
         hit: svg("path", this.geometry, {
           class: "hit",
           "data-command": `hub:${hub.id}`,
@@ -96,7 +272,113 @@ export class Scene {
       this.reading.append(article);
       this.articles.set(node.id, article);
     }
+    this.bindSymbolFeedbackListeners();
   }
+
+  private ensureHudControls(host: HTMLElement): HTMLElement {
+    let nav = host.querySelector<HTMLElement>("#hudControls");
+    if (!nav) {
+      nav = document.createElement("nav");
+      nav.id = "hudControls";
+      nav.className = "hud-controls";
+      nav.setAttribute("aria-label", "全域与传统全局索引");
+      nav.hidden = true;
+      const items: Array<{ key: string; label: string; title: string }> = [
+        { key: "hud:back", label: "↶ 返回", title: "返回上一位置" },
+        { key: "hud:overview", label: "⊙ 全域", title: "切换全域观察" },
+        { key: "hud:refocus", label: "⌖ 聚焦", title: "回到聚焦枢" },
+        { key: "hud:search", label: "⌕ 检索", title: "打开检索枢" },
+        { key: "hud:settings", label: "⚙ 设置", title: "打开设置枢" },
+        { key: "hud:loading", label: "◌ 加载", title: "演练加载动效" },
+      ];
+      for (const item of items) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "hud-btn";
+        btn.dataset.command = item.key;
+        btn.title = item.title;
+        btn.textContent = item.label;
+        nav.append(btn);
+      }
+      host.append(nav);
+    }
+    return nav;
+  }
+
+  private bindSymbolFeedbackListeners() {
+    const resolveTagKey = (target: EventTarget | null): string | null => {
+      if (!(target instanceof Element)) return null;
+      const group = target.closest<SVGGElement>(".tag-group[data-symbol-kind]");
+      return group?.dataset.command ?? null;
+    };
+    this.labels.addEventListener("pointerover", (e) => {
+      const key = resolveTagKey(e.target);
+      if (key) this.setSymbolInteraction(key, { hover: true });
+    });
+    this.labels.addEventListener("pointerout", (e) => {
+      const key = resolveTagKey(e.target);
+      if (key) this.setSymbolInteraction(key, { hover: false, press: false });
+    });
+    this.labels.addEventListener("pointerdown", (e) => {
+      const key = resolveTagKey(e.target);
+      if (key) this.setSymbolInteraction(key, { press: true });
+    });
+    this.labels.addEventListener("pointerup", (e) => {
+      const key = resolveTagKey(e.target);
+      if (key) this.setSymbolInteraction(key, { press: false });
+    });
+    this.labels.addEventListener("focusin", (e) => {
+      const key = resolveTagKey(e.target);
+      if (key) this.setSymbolInteraction(key, { focus: true });
+    });
+    this.labels.addEventListener("focusout", (e) => {
+      const key = resolveTagKey(e.target);
+      if (key) this.setSymbolInteraction(key, { focus: false, press: false });
+    });
+  }
+
+  /**
+   * Update orthogonal interaction feedback state (Hover / Focus / Press / Active)
+   * on a Symbol Morph icon without altering the host Hub's morph or camera state.
+   */
+  setSymbolInteraction(
+    commandKey: string,
+    patch: Partial<SymbolInteractionState>,
+  ) {
+    const current = this.symbolFeedback.get(commandKey) ?? {
+      hover: false,
+      focus: false,
+      press: false,
+      active: false,
+    };
+    const next: SymbolInteractionState = { ...current, ...patch };
+    this.symbolFeedback.set(commandKey, next);
+    if (this.lastState) {
+      this.lastRenderKey = "";
+      this.render(this.lastState);
+    }
+  }
+
+  getSymbolActivity(
+    commandKey: string,
+    kind: SymbolKind,
+    s?: FieldState | null,
+  ): number {
+    const fb = this.symbolFeedback.get(commandKey);
+    const semanticActive =
+      fb?.active ||
+      Boolean(
+        s &&
+        ((kind === "overview" && s.overview) ||
+          (kind === "search" && !s.overview && s.focus === "Q") ||
+          (kind === "settings" && !s.overview && s.focus === "S")),
+      );
+    let activity = semanticActive ? 0.35 : 0;
+    if (fb?.hover || fb?.focus) activity = Math.max(activity, 0.62);
+    if (fb?.press) activity = 1.0;
+    return clamp(activity, 0, 1);
+  }
+
   private selected(hub: Hub) {
     return this.catalog.get(hub.path.at(-1)!);
   }
@@ -111,6 +393,9 @@ export class Scene {
     command: Command,
     aria = name,
     alpha = 1,
+    page: PagePose | null = null,
+    attachment?: FieldAttachment,
+    state?: FieldState,
   ) {
     const pool = this.hubs.get(hub.id)!.labels;
     let entry = pool.get(key);
@@ -120,12 +405,39 @@ export class Scene {
         tabindex: 0,
         role: "button",
       });
+      const pin = svg("circle", group, {
+        class: "page-pin",
+        cx: 0,
+        cy: 0,
+        r: 2.6,
+      });
+      const leaf = svg("g", group, { class: "page-leaf" });
+      const stem = svg("path", leaf);
+      const ring = svg("circle", leaf, { class: "label-ring", r: 16 });
+      const icon = svg("svg", leaf, {
+        class: "label-icon",
+        viewBox: "0 0 24 24",
+        width: 20,
+        height: 20,
+        x: -10,
+        y: -10,
+        overflow: "visible",
+      });
+      const iconGlyph = svg("g", icon, { class: "label-icon-glyph" });
+      const text = svg("text", leaf);
+      const hit = svg("rect", leaf, { class: "label-hit", height: 44, rx: 8 });
       entry = {
         group,
-        stem: svg("path", group),
-        ring: svg("circle", group, { class: "label-ring", r: 16 }),
-        text: svg("text", group),
-        hit: svg("rect", group, { class: "label-hit", height: 38, rx: 6 }),
+        leaf,
+        pin,
+        stem,
+        ring,
+        icon,
+        iconGlyph,
+        text,
+        hit,
+        symbolPaths: new Map(),
+        symbolPoints: new Map(),
       };
       pool.set(key, entry);
     }
@@ -134,26 +446,215 @@ export class Scene {
     this.actions.set(id, command);
     e.group.style.display = "";
     e.group.style.opacity = alpha < 0.999 ? String(alpha) : "";
+    e.group.setAttribute("transform", `translate(${anchor.x} ${anchor.y})`);
+    e.group.classList.toggle("turning", !!page);
+    e.pin.style.opacity = page && kind === "current" ? "1" : "0";
+    const interactive = !page || page.interactive;
+    e.hit.style.pointerEvents = interactive ? "" : "none";
+    e.group.setAttribute("tabindex", interactive ? "0" : "-1");
+    e.group.setAttribute("aria-hidden", interactive ? "false" : "true");
     e.group.dataset.command = id;
+    if (attachment) {
+      e.group.dataset.scope = attachment.scope;
+      e.group.dataset.role = attachment.role;
+      e.group.dataset.anchor = attachment.anchor.id;
+      e.group.dataset.hostHub = attachment.anchor.hostHub;
+      e.group.dataset.side = attachment.side;
+    }
+    if (key.startsWith("local:")) e.group.dataset.localScroll = hub.id;
+    else delete e.group.dataset.localScroll;
     e.group.classList.toggle("is-current", kind === "current");
     e.group.setAttribute("aria-label", aria);
-    e.stem.setAttribute("class", `stem${kind === "nav" ? " nav" : ""}`);
-    e.stem.setAttribute("d", `M${anchor.x} ${anchor.y}L${at.x} ${at.y}`);
-    e.ring.setAttribute("cx", String(at.x));
-    e.ring.setAttribute("cy", String(at.y));
-    e.text.setAttribute("class", `label ${kind}`);
-    e.text.setAttribute("x", String(at.x));
-    e.text.setAttribute("y", String(at.y));
-    e.text.textContent = name;
+
+    const deltaX = at.x - anchor.x,
+      deltaY = at.y - anchor.y;
+    const dist = Math.hypot(deltaX, deltaY);
+    const stemTier =
+      attachment?.role === "operation"
+        ? "global"
+        : attachment?.role === "local"
+          ? "local"
+          : kind === "current"
+            ? "current"
+            : "ordinary";
+    const stemEnd = Math.max(4, dist - 14);
+    const sx = dist > 1e-4 ? (deltaX / dist) * stemEnd : deltaX;
+    const sy = dist > 1e-4 ? (deltaY / dist) * stemEnd : deltaY;
+    e.stem.setAttribute(
+      "class",
+      `stem stem-${stemTier}${kind === "nav" ? " nav" : ""}`,
+    );
+    e.stem.dataset.stemTier = stemTier;
+    e.stem.dataset.stemLength = stemEnd.toFixed(1);
+    e.stem.setAttribute("d", `M0 0L${sx.toFixed(2)} ${sy.toFixed(2)}`);
+
+    const stemAngle = (Math.atan2(deltaY, deltaX) * 180) / Math.PI;
+    const flip = page ? page.squash : 1;
+    e.leaf.setAttribute(
+      "transform",
+      `rotate(${stemAngle}) scale(${flip} 1) rotate(${-stemAngle})`,
+    );
+    e.leaf.style.opacity = page ? String(page.opacity) : "";
     while (degree > 90) degree -= 180;
     while (degree < -90) degree += 180;
-    e.text.setAttribute("transform", `rotate(${degree} ${at.x} ${at.y})`);
-    const width = Math.max(38, name.length * 14 + 18);
-    e.hit.setAttribute("x", String(at.x - width / 2));
-    e.hit.setAttribute("y", String(at.y - 19));
+    // Section 1.3 & 4.2: Label, icon, and hit-target sizes remain constant in screen space.
+    const labelTransform = `translate(${deltaX} ${deltaY}) rotate(${degree})`;
+    e.ring.setAttribute("cx", "0");
+    e.ring.setAttribute("cy", "0");
+    e.ring.setAttribute("transform", labelTransform);
+
+    const symbolKind =
+      attachment?.symbolKind ??
+      (attachment?.scope === "global" ? resolveSymbolKind(name) : undefined);
+    const iconToken = attachment?.icon ?? resolveIconToken(name);
+    const contentKind =
+      attachment?.contentKind ??
+      (symbolKind || iconToken ? "icon" : classifyLabelContent(name));
+    e.group.dataset.contentKind = contentKind;
+    e.group.classList.toggle("has-icon", Boolean(symbolKind || iconToken));
+
+    if (symbolKind) {
+      const symMorph = attachment?.symbolMorph ?? symbolMorphFromHub(hub);
+      const activity = this.getSymbolActivity(id, symbolKind, state);
+      const fb = this.symbolFeedback.get(id);
+      e.group.dataset.symbolKind = symbolKind;
+      e.group.dataset.symbolMorph = symMorph.toFixed(4);
+      e.group.dataset.symbolActivity = activity.toFixed(3);
+      e.group.classList.toggle("is-hovered", Boolean(fb?.hover));
+      e.group.classList.toggle("is-pressed", Boolean(fb?.press));
+      e.group.classList.toggle("is-focused", Boolean(fb?.focus));
+      e.group.classList.toggle("is-active-symbol", activity >= 0.35);
+      e.group.dataset.icon = symbolKind;
+      e.icon.style.display = "";
+      e.icon.setAttribute("class", `label-icon ${kind} is-symbol-morph`);
+      e.icon.setAttribute("transform", labelTransform);
+      const sig = `${symbolKind}:${symMorph.toFixed(4)}:${activity.toFixed(3)}`;
+      if (e.renderedSymbolSignature !== sig) {
+        const geom = evaluateSymbol(symbolKind, symMorph, activity);
+        renderSymbolGeometryToGroup(
+          e.iconGlyph,
+          geom,
+          e.symbolPaths,
+          e.symbolPoints,
+        );
+        e.renderedSymbolSignature = sig;
+        e.renderedIconId = undefined;
+      }
+      e.text.setAttribute("class", `label ${kind} is-sr-only`);
+      e.text.textContent = name;
+      e.text.setAttribute("transform", labelTransform);
+    } else if (iconToken) {
+      delete e.group.dataset.symbolKind;
+      delete e.group.dataset.symbolMorph;
+      delete e.group.dataset.symbolActivity;
+      e.group.dataset.icon = iconToken.id;
+      e.icon.style.display = "";
+      e.icon.setAttribute("class", `label-icon ${kind}`);
+      e.icon.setAttribute("transform", labelTransform);
+      if (e.renderedIconId !== iconToken.id) {
+        e.symbolPaths?.clear();
+        e.symbolPoints?.clear();
+        e.renderedSymbolSignature = undefined;
+        populateIconGlyph(e.iconGlyph, iconToken);
+        e.renderedIconId = iconToken.id;
+      }
+      e.text.setAttribute("class", `label ${kind} is-sr-only`);
+      e.text.textContent = name;
+      e.text.setAttribute("transform", labelTransform);
+    } else {
+      delete e.group.dataset.symbolKind;
+      delete e.group.dataset.symbolMorph;
+      delete e.group.dataset.symbolActivity;
+      delete e.group.dataset.icon;
+      e.icon.style.display = "none";
+      const subClass = contentKind === "symbol" ? "is-symbol" : "is-text";
+      e.text.setAttribute("class", `label ${kind} ${subClass}`);
+      e.text.setAttribute("x", "0");
+      e.text.setAttribute("y", "0");
+      e.text.textContent = name;
+      e.text.setAttribute("transform", labelTransform);
+    }
+
+    const width =
+      symbolKind || iconToken ? 44 : Math.max(44, name.length * 14 + 20);
+    e.hit.setAttribute("x", String(-width / 2));
+    e.hit.setAttribute("y", "-22");
     e.hit.setAttribute("width", String(width));
+    e.hit.setAttribute("transform", labelTransform);
   }
+
+  private renderUnfocusedTraces(h: Hub, nodes: Chapter[], s: FieldState) {
+    const entry = this.hubs.get(h.id)!;
+    if (s.loading || (h.id === s.focus && !s.overview)) {
+      entry.tracePath.setAttribute("d", "");
+      entry.tracePath.style.display = "none";
+      entry.traceDot.style.display = "none";
+      return;
+    }
+    const segs: string[] = [];
+    const activeIdx =
+      ((Math.round(h.scroll) % nodes.length) + nodes.length) % nodes.length;
+    let dotPt: Vec | null = null;
+    for (let j = 0; j < nodes.length; j++) {
+      const param = nodeS(h, j, nodes.length, s.camera, s.viewport);
+      const p0 = hubToScreen(h, material(h, param, 0), s.camera, s.viewport);
+      const isSelected = j === activeIdx;
+      const tickLen = isSelected ? -24 : -14;
+      const p1 = hubToScreen(
+        h,
+        material(h, param, tickLen),
+        s.camera,
+        s.viewport,
+      );
+      segs.push(
+        `M${p0.x.toFixed(2)} ${p0.y.toFixed(2)}L${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`,
+      );
+      if (isSelected) {
+        dotPt = hubToScreen(h, material(h, param, -29), s.camera, s.viewport);
+      }
+    }
+    entry.tracePath.style.display = "";
+    entry.tracePath.setAttribute("d", segs.join(""));
+    if (dotPt) {
+      entry.traceDot.style.display = "";
+      entry.traceDot.setAttribute("cx", dotPt.x.toFixed(2));
+      entry.traceDot.setAttribute("cy", dotPt.y.toFixed(2));
+    } else {
+      entry.traceDot.style.display = "none";
+    }
+  }
+
+  private updateHudControls(s: FieldState, showTraditionalHud: boolean) {
+    this.actions.set("hud:back", { type: "back" });
+    this.actions.set("hud:overview", { type: "overview" });
+    this.actions.set("hud:refocus", { type: "focus", hub: s.focus });
+    this.actions.set("hud:search", { type: "navigate", target: "q0" });
+    this.actions.set("hud:settings", { type: "navigate", target: "s0" });
+    this.actions.set("hud:loading", { type: "loading" });
+
+    this.hudControls.hidden = !showTraditionalHud || s.loading;
+    if (!showTraditionalHud || s.loading) return;
+
+    const backBtn = this.hudControls.querySelector<HTMLButtonElement>(
+      '[data-command="hud:back"]',
+    );
+    if (backBtn) backBtn.disabled = s.history.length === 0;
+    const overviewBtn = this.hudControls.querySelector<HTMLButtonElement>(
+      '[data-command="hud:overview"]',
+    );
+    if (overviewBtn)
+      overviewBtn.setAttribute("aria-pressed", String(s.overview));
+  }
+
   render(s: FieldState) {
+    this.lastState = s;
+    const feedbackSig = [...this.symbolFeedback.entries()].map(([k, v]) => [
+      k,
+      v.hover,
+      v.focus,
+      v.press,
+      v.active,
+    ]);
     const key = JSON.stringify([
       s.camera,
       s.viewport,
@@ -167,11 +668,16 @@ export class Scene {
       s.searchResults,
       s.history.length,
       s.passage?.phase,
+      s.morphTurn?.phase,
+      s.contentTurn?.phase,
+      feedbackSig,
       Object.values(s.hubs).map((h) => [
         h.id,
         h.morph,
         h.fold,
         h.scroll,
+        h.localScroll,
+        h.textOffset,
         h.path,
       ]),
     ]);
@@ -189,7 +695,17 @@ export class Scene {
     this.actions.clear();
     for (const { labels } of this.hubs.values())
       for (const e of labels.values()) e.group.style.display = "none";
-    const project = (p: Vec) => worldToScreen(p, s.camera, s.viewport);
+
+    const contentTurn = s.contentTurn;
+    const turnPose = contentTurn
+      ? pageTurnPose(
+          contentTurn.phase,
+          s.settings.reducedMotion,
+          contentTurn.direction,
+        )
+      : null;
+    const chapterEnvelope = s.passage ? readingEnvelope(s.passage.phase) : 1;
+
     for (const h of Object.values(s.hubs)) {
       const entry = this.hubs.get(h.id)!,
         active = h.id === s.focus && !s.overview && !s.loading;
@@ -209,158 +725,220 @@ export class Scene {
         `hub:${h.id}`,
         active ? { type: "morph" } : { type: "focus", hub: h.id },
       );
-      if (s.loading) continue;
-      const current = this.selected(h),
-        nodes = this.catalog.siblings(current.id, s.searchResults),
-        focus = nodeS(h, h.scroll, nodes.length, s.camera, s.viewport);
-      const label = (
-        key: string,
-        name: string,
-        position: number,
-        offset: number,
-        kind: string,
-        command: Command,
-        aria?: string,
-        alpha = 1,
-      ) => {
-        const a = project(material(h, position)),
-          q = project(material(h, position, offset)),
-          n = unit(
-            rot(
-              outwardNormal(h, position),
-              (s.camera.rotation * Math.PI) / 180,
-            ),
-          );
+      const current = this.selected(h);
+      const nodes = this.catalog.siblings(current.id, s.searchResults);
+      this.renderUnfocusedTraces(h, nodes, s);
+
+      if (s.loading || !active) continue;
+
+      const materialSide: 1 | -1 = 1;
+      const entries = ordinaryAndLocalAttachments(
+        h,
+        current,
+        nodes,
+        s.camera,
+        s.viewport,
+      );
+      for (const attachment of entries) {
+        const point = projectAttachment(
+          h,
+          attachment,
+          s.camera,
+          s.viewport,
+          materialSide,
+        );
         this.label(
           h,
-          key,
-          name,
-          q,
-          a,
-          kind,
-          (Math.atan2(n.y, n.x) * 180) / Math.PI,
-          command,
-          aria,
-          alpha,
+          attachment.id,
+          attachment.glyph,
+          point.position,
+          point.hinge,
+          attachment.visual,
+          point.degree,
+          attachment.command,
+          attachment.aria,
+          attachment.opacity * chapterEnvelope,
+          contentTurn?.hub === h.id ? turnPose : null,
+          attachment,
+          s,
         );
-      };
-      if (!active) {
-        label("background", current.name, focus, 30, "background", {
-          type: "focus",
-          hub: h.id,
-        });
-        continue;
       }
-      const windowed = nodes.length > 6;
-      nodes.forEach((n, i) => {
-        const dist = Math.abs(i - h.scroll);
-        if (windowed && dist > 3.6 && !(h.layout === "anchored" && i === 0))
-          return;
-        const alpha = windowed ? clamp((3.8 - dist) / 1.1, 0.25, 1) : 1;
-        label(
-          n.id,
-          n.name,
-          nodeS(h, i, nodes.length, s.camera, s.viewport),
-          34,
-          n.id === current.id ? "current" : "peer",
-          n.id === current.id
-            ? { type: "morph" }
-            : { type: "navigate", target: n.id },
-          `${n.name} · ${n.title}${n.id === current.id ? " · 切换圆线形态" : ""}`,
-          alpha,
+    }
+
+    const useTraditionalHud =
+      s.overview || s.camera.z < TRADITIONAL_HUD_ZOOM_THRESHOLD;
+    this.updateHudControls(s, useTraditionalHud);
+
+    if (!s.loading && !useTraditionalHud) {
+      const owner = resolveGlobalHostHub(s);
+      const materialSide: 1 | -1 = 1;
+      for (const attachment of globalAttachments(s, this.catalog)) {
+        const point = projectAttachment(
+          owner,
+          attachment,
+          s.camera,
+          s.viewport,
+          materialSide,
         );
-      });
-      const nav: { glyph: string; aria: string; command: Command }[] = [];
-      if (current.parent)
-        nav.push({ glyph: "↑", aria: "返回上一级", command: { type: "up" } });
-      if (s.history.length)
-        nav.push({
-          glyph: "↶",
-          aria: "返回上一状态",
-          command: { type: "back" },
-        });
-      nav.push({ glyph: "⊙", aria: "全域观察", command: { type: "overview" } });
-      const search = this.catalog.definitions.find(
-        (def) => def.kind === "search",
-      );
-      if (search && h.id !== search.id)
-        nav.push({
-          glyph: "⌕",
-          aria: "检索枢",
-          command: { type: "navigate", target: search.root },
-        });
-      const settings = this.catalog.definitions.find(
-        (def) => def.glyph === "⚙",
-      );
-      if (settings && h.id !== settings.id)
-        nav.push({
-          glyph: "⚙",
-          aria: "设置",
-          command: { type: "navigate", target: settings.root },
-        });
-      nav.push({
-        glyph: "◌",
-        aria: "播放 Loading V24 动效",
-        command: { type: "loading" },
-      });
-      current.refs.forEach((ref) =>
-        nav.push({
-          glyph: ref.glyph,
-          aria: `前往 ${ref.glyph}`,
-          command: { type: "navigate", target: ref.target },
-        }),
-      );
-      const navArcStep = s.viewport.width < 700 ? 44 : 50;
-      nav.forEach((item, i) =>
-        label(
-          `nav:${i}`,
-          item.glyph,
-          arcOffsetS(h, focus, (i - (nav.length - 1) / 2) * navArcStep),
-          -38,
-          "nav",
-          item.command,
-          item.aria,
-        ),
-      );
+        // Global operation labels do NOT animate or fade during hub-switching passage.
+        this.label(
+          owner,
+          attachment.id,
+          attachment.glyph,
+          point.position,
+          point.hinge,
+          attachment.visual,
+          point.degree,
+          attachment.command,
+          attachment.aria,
+          attachment.opacity,
+          null,
+          attachment,
+          s,
+        );
+      }
     }
     this.renderTexts(s);
-    const palettes = { light: "#f7f8f5", dark: "#101d22", obsidian: "#0c0e10" };
-    this.host.ownerDocument.documentElement.dataset.theme = s.theme;
+    this.labels.style.opacity = "";
+    this.labels.style.pointerEvents = s.passage ? "none" : "";
+    const visualTheme =
+      s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
+    this.host.ownerDocument.documentElement.dataset.theme = visualTheme;
+    const t = s.passage;
+    const bgMix = t ? ease(clamp((t.phase - 0.42) / 0.58, 0, 1)) : 1;
     requireElement(this.host, "#baseBg").setAttribute(
       "fill",
-      palettes[s.theme],
+      t
+        ? blendHex(PAPER[t.sourceTheme], PAPER[t.theme], bgMix)
+        : PAPER[s.theme],
     );
-    const portal = requireElement(this.host, "#portalViewport"),
-      stroke = requireElement<SVGPathElement>(this.host, "#portalStroke");
-    if (s.passage) {
-      const t = s.passage,
-        h = s.hubs[t.phase < 0.5 ? t.source : t.target],
-        geometry = evaluateHubGeometry(h, s.camera, s.viewport);
+    const portal = requireElement<SVGGElement>(this.host, "#portalViewport"),
+      stroke = requireElement<SVGPathElement>(this.host, "#portalStroke"),
+      echo = requireElement<SVGPathElement>(this.host, "#portalEchoStroke");
+    if (t) {
+      const geometry = passageGeometry(t, s.camera, s.viewport);
       portal.setAttribute("visibility", "visible");
+      this.host.dataset.transition = "passage";
+      this.host.dataset.transitionKind = t.kind;
+      this.host.dataset.direction = t.direction;
+      const portalAlpha =
+        ease(clamp(t.phase / 0.12, 0, 1)) *
+        ease(clamp((1 - t.phase) / 0.12, 0, 1));
+      portal.style.opacity = String(portalAlpha);
       requireElement(this.host, "#portalBoundaryPath").setAttribute(
         "d",
         geometry.sweptClipD,
       );
       requireElement(this.host, "#portalBg").setAttribute(
         "fill",
-        t.theme === s.theme
-          ? s.theme === "light"
-            ? "#e4eee8"
-            : "#1a313a"
-          : palettes[t.theme],
+        t.theme === t.sourceTheme ? SWEPT[t.theme] : PAPER[t.theme],
       );
       stroke.setAttribute("d", geometry.strokeD);
-      stroke.setAttribute(
-        "stroke",
-        t.theme === "light" ? "#44796f" : "#9cc4e5",
-      );
-      stroke.style.opacity = String(Math.sin(t.phase * Math.PI) * 0.8);
+      stroke.setAttribute("stroke", BOUNDARY[t.theme]);
+      stroke.style.opacity = String(Math.sin(t.phase * Math.PI) * 0.82);
+      if (t.kind === "remote" || t.kind === "axis") {
+        const delayed = remotePortalGeometry(
+          clamp(t.phase - 0.055, 0, 1),
+          s.camera,
+          s.viewport,
+        );
+        echo.setAttribute("d", delayed.strokeD);
+        echo.setAttribute("stroke", BOUNDARY[t.sourceTheme]);
+        echo.style.opacity = String(Math.sin(t.phase * Math.PI) * 0.26);
+      } else {
+        echo.style.opacity = "0";
+      }
     } else {
+      delete this.host.dataset.transition;
+      delete this.host.dataset.transitionKind;
+      delete this.host.dataset.direction;
       portal.setAttribute("visibility", "hidden");
       stroke.style.opacity = "0";
+      echo.style.opacity = "0";
     }
     requireElement<HTMLElement>(this.host, "#descBar").textContent =
       s.description;
+  }
+  private createInlineIconSvg(token: IconToken, hubMorph = 0): SVGSVGElement {
+    const ns = "http://www.w3.org/2000/svg";
+    const svgEl = document.createElementNS(ns, "svg");
+    svgEl.setAttribute("class", "inline-svg-icon");
+    svgEl.setAttribute("viewBox", token.viewBox);
+    svgEl.setAttribute("width", "15");
+    svgEl.setAttribute("height", "15");
+    svgEl.setAttribute("aria-hidden", "true");
+    const g = document.createElementNS(ns, "g");
+    const symKind = resolveSymbolKind(token.glyph);
+    if (symKind) {
+      renderSymbolGeometryToGroup(
+        g,
+        evaluateSymbol(symKind, clamp(1 - hubMorph, 0, 1), 0),
+      );
+    } else {
+      populateIconGlyph(g, token);
+    }
+    svgEl.append(g);
+    return svgEl;
+  }
+  private buildIconShowcase(hub: Hub): HTMLElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "symbol-morph-showcase";
+    const symMorph = symbolMorphFromHub(hub);
+    const grid = document.createElement("div");
+    grid.className = "icon-showcase-grid";
+
+    for (const kind of SYMBOL_KINDS) {
+      const liveGeom = evaluateSymbol(kind, symMorph, 0);
+      const token = liveGeom.optical;
+      const card = document.createElement("div");
+      card.className = "icon-showcase-card is-morph-card";
+      card.dataset.symbolKind = kind;
+
+      const stageRow = document.createElement("div");
+      stageRow.className = "icon-showcase-stages";
+      const ns = "http://www.w3.org/2000/svg";
+
+      for (const [label, mVal] of [
+        ["圆 m=1", 1],
+        ["中 m=.5", 0.5],
+        ["直 m=0", 0],
+      ] as const) {
+        const cell = document.createElement("div");
+        cell.className = "icon-stage-cell";
+        const svgEl = document.createElementNS(ns, "svg");
+        svgEl.setAttribute("class", "icon-showcase-svg");
+        svgEl.setAttribute("viewBox", "0 0 24 24");
+        svgEl.setAttribute("width", "22");
+        svgEl.setAttribute("height", "22");
+        const g = document.createElementNS(ns, "g");
+        renderSymbolGeometryToGroup(g, evaluateSymbol(kind, mVal, 0));
+        svgEl.append(g);
+        const cap = document.createElement("span");
+        cap.className = "icon-stage-cap";
+        cap.textContent = label;
+        cell.append(svgEl, cap);
+        stageRow.append(cell);
+      }
+
+      const meta = document.createElement("div");
+      meta.className = "icon-showcase-meta";
+      const title = document.createElement("span");
+      title.className = "icon-showcase-title";
+      title.textContent = `${token.glyph} ${token.label}`;
+      const spec = document.createElement("span");
+      spec.className = "icon-showcase-spec";
+      const stroke = (token.baseStrokeWidth + token.strokeCompensation).toFixed(
+        2,
+      );
+      spec.textContent = `当前 m=${symMorph.toFixed(2)} · ×${token.opticalScale.toFixed(2)} · ${stroke}px`;
+      meta.append(title, spec);
+
+      card.append(meta, stageRow);
+      grid.append(card);
+    }
+
+    wrapper.append(grid);
+    return wrapper;
   }
   private renderTexts(s: FieldState) {
     const hub = s.hubs[s.focus],
@@ -368,30 +946,29 @@ export class Scene {
       small = s.viewport.width < 700,
       morph = ease(clamp(hub.morph, 0, 1));
     const p = s.passage?.phase,
-      fold =
-        p === undefined
-          ? 1
-          : p < 0.5
-            ? 1 - ease(p / 0.44)
-            : ease((p - 0.52) / 0.48);
+      fold = p === undefined ? 1 : readingEnvelope(p),
+      contentTurn = s.contentTurn?.hub === hub.id ? s.contentTurn : null,
+      page = contentTurn
+        ? pageTurnPose(
+            contentTurn.phase,
+            s.settings.reducedMotion,
+            contentTurn.direction,
+          )
+        : null,
+      expressionOpacity = page ? page.opacity : morphReadingEnvelope(hub.morph);
     const visible = new Set<string>();
     if (!s.overview && !s.loading)
       nodes.forEach((node, i) => {
         const surface =
           ease(clamp(1 - Math.abs(i - hub.scroll) / s.settings.range, 0, 1)) *
-          fold;
+          fold *
+          expressionOpacity;
         if (surface < 0.015) return;
         const article = this.articles.get(node.id)!,
           depth = 1 - surface,
           presentation = morph > 0.5 ? "line" : "circle";
         if (article.dataset.presentation !== presentation)
-          fillArticle(
-            article,
-            node,
-            hub,
-            presentation,
-            this.catalog.searchRoot,
-          );
+          this.articleRenderer.fillArticle(article, node, hub, presentation);
         if (node.id === this.catalog.searchRoot) {
           const input = article.querySelector<HTMLInputElement>(
             "input.hub-search-input",
@@ -426,51 +1003,59 @@ export class Scene {
         }
         visible.add(node.id);
         if (article.hidden) article.hidden = false;
-        const inert = !!s.passage || surface < 0.55;
+        const inert = !!s.passage || !!page || surface < 0.55;
         if (Boolean(article.inert) !== inert) article.inert = inert;
         const ariaHidden = String(inert);
         if (article.getAttribute("aria-hidden") !== ariaHidden)
           article.setAttribute("aria-hidden", ariaHidden);
-        const position = nodeS(hub, i, nodes.length, s.camera, s.viewport),
-          distance =
-            mix(small ? 96 : 86, small ? 118 : 104, morph) - 26 * depth;
-        const point = worldToScreen(
-            material(hub, position, distance),
-            s.camera,
-            s.viewport,
-          ),
-          n = unit(
-            rot(
-              outwardNormal(hub, position),
-              (s.camera.rotation * Math.PI) / 180,
-            ),
-          );
+        const position = nodeS(hub, i, nodes.length, s.camera, s.viewport);
+        // Fixed outward normal attachment beyond the chapter label, without adaptive viewport flipping.
+        const anchorPt = hubToScreen(
+          hub,
+          material(hub, position, 76),
+          s.camera,
+          s.viewport,
+        );
         const isLong = article.classList.contains("is-long");
         const widthPx = small
-          ? Math.min(305, Math.max(200, s.viewport.width * 0.74))
+          ? Math.min(285, Math.max(185, s.viewport.width * 0.62))
           : isLong
             ? Math.min(435, Math.max(305, s.viewport.width * 0.34))
             : Math.min(355, Math.max(265, s.viewport.width * 0.29));
-        const widthStr = `${widthPx}px`;
+        const widthStr = `${widthPx.toFixed(1)}px`;
         if (article.style.width !== widthStr) article.style.width = widthStr;
-        const heightKey = JSON.stringify([
-          node.id,
-          presentation,
-          widthStr,
-          node.id === this.catalog.searchRoot && !!s.searchQuery.trim(),
-        ]);
+        const heightKey = JSON.stringify([node.id, presentation, widthStr]);
         let height = this.heights.get(heightKey);
         if (height === undefined) {
           height = article.offsetHeight || 160;
           this.heights.set(heightKey, height);
         }
-        const anchorY = isLong ? Math.min(height / 2, 130) : height / 2;
-        const originStr = isLong ? `0 ${anchorY}px` : "0 50%";
+        if (article.dataset.side !== "right") article.dataset.side = "right";
+
+        const floatable = isLong || height > 215;
+        const baseAnchor = 58;
+        const maxFloat = floatable ? Math.max(0, height - 108) : 0;
+        const maxFloatStr = String(Math.round(maxFloat));
+        if (article.dataset.maxFloat !== maxFloatStr)
+          article.dataset.maxFloat = maxFloatStr;
+        const activeFloat =
+          Math.abs(i - hub.scroll) < 0.6
+            ? clamp(hub.textOffset, 0, maxFloat)
+            : 0;
+        const anchorY = baseAnchor + activeFloat;
+        const anchorVarStr = `${anchorY.toFixed(1)}px`;
+        if (article.style.getPropertyValue("--anchor-y") !== anchorVarStr)
+          article.style.setProperty("--anchor-y", anchorVarStr);
+        const originStr = `0 ${anchorY.toFixed(1)}px`;
         if (article.style.transformOrigin !== originStr)
           article.style.transformOrigin = originStr;
-        const y = point.y - anchorY + 44 * depth,
-          angle = (Math.atan2(n.y, n.x) * 180) / Math.PI;
-        const transformStr = `translate3d(${point.x}px,${y}px,0) rotate(${angle}deg) scale(${0.72 + 0.28 * surface})`;
+
+        const targetLeft = anchorPt.x + 18 * depth;
+        const targetTop = anchorPt.y - anchorY + 32 * depth;
+
+        const turnY = page?.angle ?? 0;
+        // 1:1 constant scale: never scale text blocks with camera zoom or depth envelope.
+        const transformStr = `translate3d(${targetLeft.toFixed(2)}px,${targetTop.toFixed(2)}px,0) rotateY(${turnY.toFixed(2)}deg)`;
         if (article.style.transform !== transformStr)
           article.style.transform = transformStr;
         const blur = 8.5 * depth ** 1.12 * s.settings.blur;
@@ -497,6 +1082,7 @@ export class Scene {
     this.geometry.replaceChildren();
     this.labels.replaceChildren();
     this.reading.replaceChildren();
+    this.hudControls.remove();
     this.actions.clear();
   }
 }

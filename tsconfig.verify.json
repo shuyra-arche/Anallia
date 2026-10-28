@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": [], "skipLibCheck": true },
+  "include": [
+    "src/core/types.ts", "src/core/math.ts", "src/core/palette.ts",
+    "src/core/transitions.ts", "src/application/field.ts",
+    "src/geometry/field.ts", "src/rendering/scene.ts",
+    "src/platform/input.ts"
+  ],
+  "exclude": ["src/main.ts", "src/vite-env.d.ts"]
+}
