@@ -1,0 +1,126 @@
+[
+  {
+    "id": "A",
+    "glyph": "α",
+    "theme": "light",
+    "center": {
+      "x": -520,
+      "y": -60
+    },
+    "angle": -9,
+    "morph": 0,
+    "root": "a0"
+  },
+  {
+    "id": "B",
+    "glyph": "β",
+    "theme": "light",
+    "center": {
+      "x": 960,
+      "y": -120
+    },
+    "angle": 12,
+    "morph": 1,
+    "root": "b0"
+  },
+  {
+    "id": "C",
+    "glyph": "θ",
+    "theme": "parchment",
+    "center": {
+      "x": 1120,
+      "y": 820
+    },
+    "angle": -38,
+    "morph": 1,
+    "root": "c0",
+    "parentHub": "B"
+  },
+  {
+    "id": "D",
+    "glyph": "δ",
+    "theme": "dark",
+    "center": {
+      "x": -1520,
+      "y": -620
+    },
+    "angle": 42,
+    "morph": 0,
+    "root": "d0",
+    "parentHub": "A"
+  },
+  {
+    "id": "E",
+    "glyph": "ε",
+    "theme": "celadon",
+    "center": {
+      "x": 380,
+      "y": 820
+    },
+    "angle": -64,
+    "morph": 0,
+    "root": "e0"
+  },
+  {
+    "id": "L",
+    "glyph": "λ",
+    "theme": "obsidian",
+    "center": {
+      "x": 2040,
+      "y": -680
+    },
+    "angle": 28,
+    "morph": 0,
+    "root": "l0"
+  },
+  {
+    "id": "M",
+    "glyph": "μ",
+    "theme": "rosewood",
+    "center": {
+      "x": -1520,
+      "y": 520
+    },
+    "angle": -82,
+    "morph": 1,
+    "root": "m0",
+    "parentHub": "S"
+  },
+  {
+    "id": "S",
+    "glyph": "⚙",
+    "theme": "dark",
+    "center": {
+      "x": -420,
+      "y": 810
+    },
+    "angle": 16,
+    "morph": 0,
+    "root": "s0"
+  },
+  {
+    "id": "Q",
+    "kind": "search",
+    "layout": "anchored",
+    "recommendations": [
+      "a0",
+      "a4",
+      "b1",
+      "c0",
+      "d0",
+      "e0",
+      "l0",
+      "m0",
+      "s0"
+    ],
+    "glyph": "⌕",
+    "theme": "ivory",
+    "center": {
+      "x": 180,
+      "y": -560
+    },
+    "angle": 0,
+    "morph": 0,
+    "root": "q0"
+  }
+]
