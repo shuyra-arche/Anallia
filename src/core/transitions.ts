@@ -12,7 +12,6 @@ export const MOTION = {
   flight: 880,
   axis: 820,
   remote: 1120,
-  loading: 1180,
   resize: 250,
   scrollTimeConstant: 190,
   textTimeConstant: 110,
@@ -97,7 +96,7 @@ export function selectSpatialTransition(
   target: HubDefinition,
   camera: Camera,
   viewport: Viewport,
-): Exclude<TransitionKind, "loading"> {
+): TransitionKind {
   if (source.parentHub === target.id || target.parentHub === source.id) return "axis";
   const distance = Math.hypot(source.center.x - target.center.x, source.center.y - target.center.y);
   const relative = (distance * camera.z) / Math.hypot(viewport.width, viewport.height);

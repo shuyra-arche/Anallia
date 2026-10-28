@@ -97,6 +97,7 @@ function makeCatalog() {
   let line = documentOf([]);
   const catalog = {
     searchRoot: "q0",
+    chapters: new Map([["a0", {}]]),
     version: 0,
     document: (_id: string, presentation: "circle" | "line") =>
       presentation === "circle" ? circle : line,

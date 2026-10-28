@@ -136,21 +136,17 @@ test("up, siblings and repeated references retain semantic identity", () => {
   settle(f, 3200);
   assert.equal(f.selected().id, "a2");
 });
-test("settings and loading restore the theme of the reading position", () => {
+test("settings retain the reading theme without synthetic loading", () => {
   const f = create();
   f.dispatch({ type: "navigate", target: "s0" });
   settle(f);
-  assert.equal(f.state.theme, "dark");
   f.dispatch({ type: "navigate", target: "act:range12" });
   assert.equal(f.state.settings.range, 1.25);
-  f.dispatch({ type: "loading" });
-  settle(f, 1600);
-  assert.equal(f.state.loading, true);
-  assert.equal(f.state.theme, "obsidian");
-  f.dispatch({ type: "close-loading" });
+  assert.equal(f.state.loading, false);
   assert.equal(f.state.theme, "dark");
   assert.equal(f.selected().id, "s0");
 });
+
 test("zoom keeps the pointer anchored in world coordinates", () => {
   const f = create(),
     at = { x: 870, y: 391 },

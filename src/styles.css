@@ -1036,3 +1036,21 @@ article.note[data-side="left"].is-long::before {
   stroke-linejoin: round;
   transition: opacity 0.25s ease, fill 0.25s ease;
 }
+
+#scene[data-booting="true"] #reading { visibility: hidden; }
+#contentStatus {
+  position: fixed;
+  left: 28px;
+  bottom: 48px;
+  z-index: 8;
+  max-width: min(520px, 85vw);
+  color: var(--quiet);
+  font: 12px/1.6 var(--font-sans);
+}
+#contentStatus button { margin-left: 12px; color: var(--accent); }
+#contentStatus[hidden] { display: none; }
+
+#scene[data-shared-input="true"] #world { pointer-events: none; }
+
+#scene[data-renderer="webgl"] #world { opacity: 0; }
+#scene[data-shared-input="true"] #world * { pointer-events: none !important; }

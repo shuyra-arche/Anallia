@@ -1,5 +1,14 @@
 import type { Camera, Command, Vec } from "../core/types.ts";
+export interface InputHit {
+  id: string;
+  command: Command;
+  localScrollHub?: string;
+  grasp?: boolean;
+}
 interface InputPort {
+  hitTest?(point: Vec): InputHit | null;
+  hover?(hit: InputHit | null): void;
+  cancelLoading?(): boolean;
   dispatch(command: Command): void;
   pan(delta: Vec, start: Camera): void;
   zoom(factor: number, point: Vec): void;
@@ -48,6 +57,14 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
     x: e.clientX,
     y: e.clientY,
   });
+  const pick = (event: PointerEvent | MouseEvent | WheelEvent): InputHit | null => {
+    if (element(event.target)?.closest("article.note,button,input,textarea,select")) return null;
+    return port.hitTest?.({ x: event.clientX, y: event.clientY }) ?? null;
+  };
+  host.addEventListener("pointermove", (event) => {
+    if (!drag) port.hover?.(pick(event));
+  }, { signal });
+  host.addEventListener("pointerleave", () => port.hover?.(null), { signal });
   host.addEventListener(
     "compositionstart",
     (e) => {
@@ -118,8 +135,9 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
       }
       if (onInteractiveControl) return;
       const maxFloat = note ? Number(note.dataset.maxFloat || 0) : 0;
-      const localTag = !!target?.closest("[data-local-scroll]");
-      const grabHub = !!target?.closest<SVGElement>(
+      const hit = pick(e);
+      const localTag = hit ? Boolean(hit.localScrollHub) : !!target?.closest("[data-local-scroll]");
+      const grabHub = hit ? Boolean(hit.grasp) : !!target?.closest<SVGElement>(
         "path.hit[data-command], .tag-group.is-current",
       );
       const graspInfo =
@@ -274,10 +292,13 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
       }
       const key =
         target?.closest<SVGElement>("[data-command]")?.dataset.command;
-      if (key) {
+      if (key && (!port.hitTest || e.detail === 0 || !target?.closest("#world"))) {
         const command = port.resolve(key);
         if (command) port.dispatch(command);
+        return;
       }
+      const hit = pick(e);
+      if (hit) port.dispatch(hit.command);
     },
     { signal },
   );
@@ -298,7 +319,7 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
         port.zoom(Math.exp(-e.deltaY * 0.0015), point(e));
         return;
       }
-      if (element(e.target)?.closest("[data-local-scroll]")) {
+      if (pick(e)?.localScrollHub || element(e.target)?.closest("[data-local-scroll]")) {
         e.preventDefault();
         port.dispatch({
           type: "scroll-local",
@@ -339,6 +360,10 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
       const target = element(e.target);
       if (target?.closest("input,textarea,select,[contenteditable=true]")) {
         if (e.key === "Escape" && target instanceof HTMLElement) target.blur();
+        return;
+      }
+      if (e.key === "Escape" && port.cancelLoading?.()) {
+        e.preventDefault();
         return;
       }
       if (port.loading()) {

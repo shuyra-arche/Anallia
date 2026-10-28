@@ -91,7 +91,7 @@ test("flow background and original V24 kernel render finite paths through a full
     assert.doesNotMatch(path.getAttribute("d") ?? "", /NaN|Infinity/);
   window.close();
 });
-test("unchanged reading state performs no DOM writes and preserves navigation actions", () => {
+test("unchanged reading state performs no article DOM writes and preserves navigation actions", () => {
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
   window.document.write(
@@ -111,7 +111,7 @@ test("unchanged reading state performs no DOM writes and preserves navigation ac
   scene.render(field.state);
   const actions = [...scene.actions.entries()];
   const observer = new window.MutationObserver(() => {});
-  observer.observe(host, {
+  observer.observe(host.querySelector("#reading")!, {
     attributes: true,
     childList: true,
     characterData: true,
@@ -367,4 +367,34 @@ test("same-background travel clears a preceding color mask and reverse history u
     window.close();
     Object.assign(globalThis, { document: saved });
   }
+});
+
+test("articles mount on demand and keep an LRU of eight inactive entries with focus protection", () => {
+  const window = new Window();
+  Object.assign(globalThis, { document: window.document });
+  window.document.write(readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(/<script[^>]*>[\s\S]*?<\/script>/g, ""));
+  const host = window.document.querySelector<HTMLElement>("#scene")!;
+  const field = new Field(new Catalog(hubDefinitions, rawContent), { width: 1366, height: 820 });
+  field.state.settings.range = 0.1;
+  field.state.settings.background = "none";
+  const scene = new Scene(host, field.catalog, { renderer: "svg", background: false });
+  try {
+    assert.equal(host.querySelectorAll("article").length, 0);
+    scene.render(field.state);
+    const initial = host.querySelector<HTMLElement>("#text-a0")!;
+    const focused = initial.querySelector<HTMLButtonElement>("button")!;
+    focused.focus();
+    let time = 0;
+    const targets = [...field.catalog.chapters.values()].filter(node => node.hub !== "Q" && node.id !== "a0").slice(0, 14);
+    for (const node of targets) {
+      field.dispatch({ type: "navigate", target: node.id });
+      for (let step = 0; step < 100; step++) field.update(time += 20, 20);
+      scene.render(field.state);
+      assert.ok(host.querySelector(`#text-${node.id}`));
+      const visible = host.querySelectorAll("article:not([hidden])").length;
+      assert.ok(host.querySelectorAll("article").length <= visible + 8);
+    }
+    assert.ok(initial.isConnected);
+    assert.ok(window.document.activeElement === focused);
+  } finally { scene.destroy(); window.close(); }
 });

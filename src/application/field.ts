@@ -66,7 +66,6 @@ export class Field {
   private queuedCommand: Command | null = null;
   private now = 0;
   private systemReducedMotion: boolean;
-  private loadingTheme: FieldState["theme"] = "light";
   readonly catalog: Catalog;
   constructor(catalog: Catalog, viewport: Viewport, reducedMotion = false) {
     this.catalog = catalog;
@@ -255,6 +254,10 @@ export class Field {
             angle: h.angle,
             readingBearing: h.readingBearing,
             readingStart: h.readingStart,
+            textOffset: h.textOffset,
+            textOffsetTarget: h.textOffsetTarget,
+            localScroll: h.localScroll,
+            localScrollTarget: h.localScrollTarget,
           },
         ]),
       ),
@@ -276,14 +279,14 @@ export class Field {
         scrollTarget: h.target,
         targetMorph: h.morph,
         morph: h.morph,
-        textOffset: 0,
-        textOffsetTarget: 0,
+        textOffset: h.textOffset ?? 0,
+        textOffsetTarget: h.textOffsetTarget ?? h.textOffset ?? 0,
         anchorOffset: h.anchorOffset ?? 0,
         angle: h.angle ?? s.hubs[id].angle,
         readingBearing: h.readingBearing,
         readingStart: h.readingStart,
-        localScroll: 0,
-        localScrollTarget: 0,
+        localScroll: h.localScroll ?? 0,
+        localScrollTarget: h.localScrollTarget ?? h.localScroll ?? 0,
       });
   }
   pulse(center = this.hub.center, maxRadius = 380) {
@@ -400,14 +403,13 @@ export class Field {
     this.tween = null;
     this.pulse();
   }
+  private contentGate: ((command: Command) => boolean) | null = null;
+  setContentGate(gate: ((command: Command) => boolean) | null) {
+    this.contentGate = gate;
+  }
   dispatch(command: Command) {
+    if (this.contentGate?.(command)) return;
     const s = this.state;
-    if (command.type === "close-loading") {
-      s.loading = false;
-      s.theme = this.loadingTheme;
-      this.fly(this.frame());
-      return;
-    }
     if (command.type === "search") {
       const searchHub = this.catalog.searchHub;
       if (
@@ -696,18 +698,7 @@ export class Field {
         s.description =
           "全域视图 (⊙) · 9 个枢的几何关系与流场分布 · 点击任意枢进入阅读";
         return;
-      case "loading":
-        this.loadingTheme = s.theme;
-        this.passage(
-          s.focus,
-          "obsidian",
-          () => {
-            s.loading = true;
-          },
-          s.camera,
-          "loading",
-        );
-        return;
+
     }
   }
   private setting(action: string) {
@@ -760,7 +751,6 @@ export class Field {
       toggle_range: () => (settings.range = settings.range > 0.9 ? 0.62 : 1.25),
       toggle_motion: () => (settings.reducedMotion = !settings.reducedMotion),
       toggle_sound: () => (settings.sound = settings.sound === false ? true : false),
-      loading: () => this.dispatch({ type: "loading" }),
       pulse: () => {
         Object.values(this.state.hubs).forEach((h) =>
           this.pulse(h.center, 460),
@@ -1066,7 +1056,7 @@ export class Field {
         p = clamp((now - t.started) / t.duration, 0, 1);
       t.phase = p;
       if (
-        (t.kind === "remote" || t.kind === "loading") &&
+        t.kind === "remote" &&
         needsColorSweep(t.sourceTheme, t.theme)
       ) {
         const fold = p < 0.5 ? ease(2 * p) : ease(2 - 2 * p);

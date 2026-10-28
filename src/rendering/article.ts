@@ -275,10 +275,15 @@ function normalizeBlock(raw: ContentBlock, index: number): NormalizedBlock {
   };
 }
 
+const normalizedBlocks = new WeakMap<ContentBlock, NormalizedBlock>();
 function normalizeDocument(raw: ContentDocument): NormalizedDocument {
-  const blocks = raw.blocks.map((block, index) =>
-    normalizeBlock(block, index),
-  );
+  const blocks = raw.blocks.map((block, index) => {
+    const cached = normalizedBlocks.get(block);
+    if (cached) return cached;
+    const normalized = normalizeBlock(block, index);
+    normalizedBlocks.set(block, normalized);
+    return normalized;
+  });
   const sourceLength =
     raw.source.length ||
     blocks.reduce(
@@ -890,6 +895,9 @@ export class ArticleRenderer {
     inlines: NormalizedInline[],
     hubMorph = 0,
   ): InlineContainer {
+    inlines = inlines.map(inline => inline.kind === "reference" && !inline.target.startsWith("act:") && !this.catalog.chapters.has(inline.target)
+      ? { kind: "text" as const, text: `{${inline.text}|${inline.target}}`, start: inline.start, end: inline.end }
+      : inline);
     const state: InlineContainer = existing ?? { element: container, records: [] };
     let prefix = 0;
     while (

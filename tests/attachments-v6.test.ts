@@ -31,7 +31,7 @@ const fresh = () =>
 const close = (a: number, b: number, eps = 1e-5) =>
   assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
 
-test("globals have global semantic scope, include loading ◌, and use focused hub as host", () => {
+test("globals have global semantic scope and no synthetic loading action", () => {
   const f = fresh(),
     a = globalAttachments(f.state, f.catalog);
   assert.deepEqual(
@@ -40,7 +40,6 @@ test("globals have global semantic scope, include loading ◌, and use focused h
       "global:overview",
       "global:search",
       "global:settings",
-      "global:loading",
       "global:back",
     ],
   );
@@ -62,9 +61,7 @@ test("globals have global semantic scope, include loading ◌, and use focused h
     type: "navigate",
     target: "s0",
   });
-  assert.deepEqual(a.find((e) => e.id === "global:loading")?.command, {
-    type: "loading",
-  });
+  assert.equal(a.some((e) => e.id === "global:loading"), false);
   f.state.focus = "B";
   const switched = globalAttachments(f.state, f.catalog);
   assert.ok(switched.every((e) => e.anchor.hostHub === "B"));

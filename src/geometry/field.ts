@@ -347,7 +347,7 @@ export function passageGeometry(
   camera: Camera,
   viewport: Viewport,
 ): { strokeD: string; sweptClipD: string } {
-  if (passage.kind === "remote" || passage.kind === "loading") {
+  if (passage.kind === "remote") {
     const phase =
       passage.direction === "reverse" ? 1 - passage.phase : passage.phase;
     return remotePortalGeometry(phase, camera, viewport);

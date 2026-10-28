@@ -92,7 +92,8 @@ export type SceneLayerId =
   | "hubs"
   | "relations"
   | "labels"
-  | "reading";
+  | "reading"
+  | "loading";
 
 export interface SceneLayer {
   id: SceneLayerId;

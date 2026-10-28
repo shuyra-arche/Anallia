@@ -96,10 +96,14 @@ export interface Snapshot {
       angle: number;
       readingBearing?: number;
       readingStart?: number;
+      textOffset?: number;
+      textOffsetTarget?: number;
+      localScroll?: number;
+      localScrollTarget?: number;
     }
   >;
 }
-export type TransitionKind = "near" | "flight" | "remote" | "axis" | "loading";
+export type TransitionKind = "near" | "flight" | "remote" | "axis";
 export interface PortalAnchor {
   center: Vec;
   angle: number;
@@ -170,4 +174,4 @@ export type Command =
   | { type: "scroll-local"; delta: number }
   | { type: "float-text"; delta: number; maxOffset?: number }
   | { type: "search"; query: string }
-  | { type: "up" | "back" | "overview" | "loading" | "close-loading" };
+  | { type: "up" | "back" | "overview" };

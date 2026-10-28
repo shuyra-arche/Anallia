@@ -1,0 +1,217 @@
+import type { Command } from "../core/types.ts";
+import type { ContentChange, ContentRequest, Presentation } from "../core/content.ts";
+import { ContentStore } from "../content/store.ts";
+import { LoadController } from "../core/loading.ts";
+import type { LoadingSnapshot } from "../core/loading.ts";
+import { Field } from "./field.ts";
+
+interface ReadingJob {
+  key: string;
+  id: string;
+  presentation: Presentation;
+  request: ContentRequest;
+  taskId: string | null;
+  command?: Command;
+  prepared: boolean;
+  readable: boolean;
+  terminal: boolean;
+}
+
+/** Owns source subscriptions; the host clock owns flush, layout and presentation. */
+export class ReadingSession {
+  readonly loading = new LoadController();
+  private jobs = new Map<string, ReadingJob>();
+  private foreground: ReadingJob | null = null;
+  private bypassGate = false;
+  private serial = 0;
+  private now = 0;
+  private backendReady = false;
+  private booted = false;
+  private settleBoot!: () => void;
+  readonly ready = new Promise<void>((resolve) => { this.settleBoot = resolve; });
+  error: { chapterId: string; message: string } | null = null;
+
+  readonly field: Field;
+  readonly store: ContentStore;
+
+  constructor(field: Field, store: ContentStore) {
+    this.field = field;
+    this.store = store;
+    field.setContentGate((command) => this.gate(command));
+  }
+
+  startup(id: string, backend: Promise<void>, now = 0): void {
+    this.now = now;
+    this.open(id, this.presentation(id), "initial");
+    void backend.then(() => { this.backendReady = true; }, () => { this.backendReady = true; });
+  }
+
+  get bootReady(): boolean { return this.booted; }
+  get activeTask(): LoadingSnapshot | null {
+    return this.loading.update(this.now, this.field.state.settings.reducedMotion);
+  }
+
+  private sourceId(id: string): string {
+    return id.startsWith("q_hit_") ? id.slice("q_hit_".length) : id;
+  }
+
+  private presentation(id: string): Presentation {
+    const chapter = this.field.catalog.get(id);
+    return this.field.state.hubs[chapter.hub].targetMorph > 0.5 ? "line" : "circle";
+  }
+
+  private key(id: string, presentation: Presentation): string {
+    return `${this.sourceId(id)}:${presentation}`;
+  }
+
+  private dispatch(command: Command): void {
+    this.bypassGate = true;
+    try { this.field.dispatch(command); }
+    finally { this.bypassGate = false; }
+  }
+
+  private gate(command: Command): boolean {
+    if (this.bypassGate) return false;
+    if (command.type === "navigate" && command.target === "act:retry_content") {
+      if (this.error) this.open(this.error.chapterId, this.presentation(this.error.chapterId), "navigation", { type: "navigate", target: this.error.chapterId }, true);
+      return true;
+    }
+    if (command.type === "navigate" && command.target === "act:refresh_content") {
+      this.refresh();
+      return true;
+    }
+    if (command.type === "back" || command.type === "overview") this.cancel();
+    let id: string;
+    let presentation: Presentation;
+    if (command.type === "navigate" && !command.target.startsWith("act:")) {
+      if (!this.field.catalog.chapters.has(command.target)) return false;
+      id = command.target;
+      presentation = this.presentation(id);
+    } else if (command.type === "morph") {
+      id = this.field.selected().id;
+      presentation = this.field.hub.targetMorph > 0.5 ? "circle" : "line";
+    } else {
+      return false;
+    }
+    const sourceId = this.sourceId(id);
+    const snapshot = this.store.get(sourceId, presentation);
+    const existing = this.jobs.get(this.key(id, presentation));
+    if (this.foreground && this.foreground.key !== this.key(id, presentation)) this.cancel();
+    if (snapshot.complete) return false;
+    if (snapshot.text.length > 0 && existing && !existing.terminal) {
+      existing.id = id;
+      existing.readable = false;
+      if (!existing.taskId || this.foreground !== existing) this.promote(existing, "navigation");
+      return false;
+    }
+    this.open(id, presentation, "navigation", command);
+    return true;
+  }
+
+  private open(id: string, presentation: Presentation, scope: string, command?: Command, force = false): ReadingJob {
+    const key = this.key(id, presentation);
+    const previous = this.jobs.get(key);
+    if (previous && !force && !previous.terminal) {
+      if (scope !== "prefetch") previous.id = id;
+      if (command) previous.command = command;
+      if (!previous.taskId && scope !== "prefetch") this.promote(previous, scope);
+      return previous;
+    }
+    if (scope !== "prefetch") this.cancel();
+    previous?.request.cancel();
+    const request = this.store.start(this.sourceId(id), presentation);
+    const job: ReadingJob = { key, id, presentation, request, taskId: null, command, prepared: false, readable: false, terminal: false };
+    this.jobs.set(key, job);
+    if (scope !== "prefetch") this.promote(job, scope);
+    void request.done.catch(() => undefined);
+    return job;
+  }
+
+  private promote(job: ReadingJob, scope: string): void {
+    job.taskId = `content-${++this.serial}`;
+    this.foreground = job;
+    this.error = null;
+    this.loading.start({ id: job.taskId, scope, hubId: this.field.catalog.get(job.id).hub, chapterId: job.id, cancellable: scope !== "initial" }, this.now);
+  }
+
+  refresh(): void {
+    const id = this.field.selected().id;
+    this.open(id, this.presentation(id), "refresh", undefined, true);
+  }
+
+  cancel(): boolean {
+    const job = this.foreground;
+    if (!job || job.terminal || (!this.booted && !job.command)) return false;
+    job.request.cancel();
+    if (job.taskId) this.loading.cancel(job.taskId, this.now);
+    this.jobs.delete(job.key);
+    this.foreground = null;
+    return true;
+  }
+
+  flush(now: number): readonly ContentChange[] {
+    this.now = now;
+    const changes = this.store.flush();
+    for (const change of changes) {
+      const job = this.jobs.get(this.key(change.id, change.presentation));
+      const emptyFailure = !change.text && !change.complete && !job?.prepared &&
+        (change.status === "error" || change.status === "cancelled");
+      if (!emptyFailure) this.field.catalog.updateExpression(change.id, change.presentation, change.text, change.complete);
+      if (job?.readable && job.taskId && !change.complete) this.loading.readable(job.taskId, now);
+    }
+    for (const job of this.jobs.values()) {
+      const snapshot = this.store.get(this.sourceId(job.id), job.presentation);
+      if (snapshot.status === "error") {
+        if (!job.terminal && job.taskId) {
+          this.loading.fail(job.taskId, snapshot.error, now);
+          this.error = { chapterId: job.id, message: snapshot.error?.message ?? "内容暂时无法打开" };
+        }
+        job.terminal = true;
+        continue;
+      }
+      if (!job.prepared && (snapshot.text.length > 0 || snapshot.complete)) {
+        job.prepared = true;
+        if (job.command) { this.dispatch(job.command); job.command = undefined; }
+      }
+    }
+    return changes;
+  }
+
+  /** Called after the matching DOM content has been laid out in the host frame. */
+  afterRender(isReadable: (id: string, presentation: Presentation) => boolean): void {
+    for (const job of this.jobs.values()) {
+      const snapshot = this.store.get(this.sourceId(job.id), job.presentation);
+      if (!job.prepared || job.terminal) continue;
+      if (!job.readable && isReadable(job.id, job.presentation)) {
+        job.readable = true;
+        if (job.taskId) this.loading.readable(job.taskId, this.now);
+      }
+      if (job.readable && snapshot.complete && (this.booted || this.backendReady)) {
+        job.terminal = true;
+        if (job.taskId) this.loading.complete(job.taskId, this.now);
+      }
+    }
+    if (!this.booted && this.backendReady && this.foreground?.readable) {
+      this.booted = true;
+      this.settleBoot();
+    }
+    const selected = this.field.selected();
+    if (this.booted && !this.field.state.overview) {
+      const siblings = this.field.siblings();
+      const index = siblings.findIndex((chapter) => chapter.id === selected.id);
+      for (let i = Math.max(0, index - 1); i <= Math.min(siblings.length - 1, index + 1); i++) {
+        for (const presentation of ["circle", "line"] as const) {
+          const id = siblings[i].id;
+          if (this.store.get(this.sourceId(id), presentation).status === "idle") this.open(id, presentation, "prefetch");
+        }
+      }
+    }
+  }
+
+  destroy(): void {
+    for (const job of this.jobs.values()) job.request.cancel();
+    this.jobs.clear();
+    this.foreground = null;
+    this.field.setContentGate(null);
+  }
+}

@@ -3,3 +3,6 @@ dist/
 preview/
 demo.html
 *.tsbuildinfo
+
+test-results/
+playwright-report/

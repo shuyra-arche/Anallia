@@ -61,7 +61,7 @@ export function computeSoundFrame(
   if (state.contentTurn) {
     const edgeOcclusion = Math.abs(Math.cos(state.contentTurn.phase * Math.PI));
     filterCutoffHz *= 0.42 + 0.58 * edgeOcclusion;
-  } else if (state.passage && (state.passage.kind === "remote" || state.passage.kind === "loading")) {
+  } else if (state.passage && state.passage.kind === "remote") {
     const singularity = Math.sin(state.passage.phase * Math.PI);
     filterCutoffHz = mix(filterCutoffHz, 2600, singularity * 0.6);
   }

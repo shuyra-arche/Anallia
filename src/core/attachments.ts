@@ -53,8 +53,6 @@ export const GLOBAL_OPERATIONS: readonly GlobalOperation[] = [
     action: { kind: "hub-glyph", glyph: "⌕" } },
   { id: "settings", glyph: "⚙", aria: "设置枢", arc: 0, symbolKind: "settings",
     action: { kind: "hub-glyph", glyph: "⚙" } },
-  { id: "loading", glyph: "◌", aria: "播放 Loading V24 动效", arc: 48,
-    action: { kind: "command", command: { type: "loading" } } },
   { id: "back", glyph: "↶", aria: "历史返回", arc: 96, symbolKind: "history",
     action: { kind: "command", command: { type: "back" } } },
 ];

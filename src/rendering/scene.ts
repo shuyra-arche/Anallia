@@ -1,3 +1,6 @@
+import type { LoadingGeometry } from "../geometry/loading.ts";
+import { loadingShapes } from "../geometry/loading.ts";
+import { renderLoadingGeometry, loadingToneColor } from "./loading.ts";
 import { ArticleRenderer } from "./article.ts";
 import { LocalLabelTurns } from "./local-labels.ts";
 import {
@@ -306,8 +309,36 @@ export class Scene {
   private currentFrame: SceneFrame;
   private backgroundCacheKey = "";
   private backgroundCache: BackgroundFrame | null = null;
+  private loadingGeometry: LoadingGeometry | null = null;
+  private loadingRoot: SVGGElement;
+  private contentRevision = 0;
 
-  invalidateLayout() {
+  setLoadingGeometry(geometry: LoadingGeometry | null): void { this.loadingGeometry = geometry; }
+
+  invalidateContent(ids: readonly string[]): void {
+    this.contentRevision++;
+    const targets = new Set([...ids, ...ids.map((id) => `q_hit_${id}`)]);
+    for (const key of this.heights.keys()) {
+      if (targets.has(JSON.parse(key)[0])) this.heights.delete(key);
+    }
+  }
+
+  private appendLoadingFrame(): void {
+    const geometry = this.loadingGeometry;
+    this.loadingRoot.style.display = geometry && !this.gpu ? "" : "none";
+    if (!geometry) { this.loadingRoot.replaceChildren(); return; }
+    if (!this.gpu) renderLoadingGeometry(this.loadingRoot, geometry);
+    const primitives: import("../core/graphics.ts").ScenePrimitive[] = loadingShapes(geometry).map((shape) => {
+      const style = { stroke: loadingToneColor(geometry.theme, shape.tone), strokeWidth: shape.weight, opacity: shape.opacity };
+      if (shape.kind === "circle") return { type: "circle", cx: shape.cx, cy: shape.cy, radius: shape.r, ...style };
+      if (shape.kind === "arc") return { type: "arc", cx: shape.cx, cy: shape.cy, radius: shape.r, startAngle: shape.startAngle, endAngle: shape.endAngle, anticlockwise: !shape.clockwise, ...style };
+      return { type: "polyline", points: shape.points, closed: shape.closed, ...style };
+    });
+    this.currentFrame.layers.push(sceneLayer("loading", 70, primitives));
+  }
+
+  invalidateLayout(fontsChanged = false) {
+    if (fontsChanged) this.articleRenderer.invalidateFonts();
     this.heights.clear();
     this.lastRenderKey = "";
     this.gpu?.invalidateGlyphs("font");
@@ -417,6 +448,7 @@ export class Scene {
       "light",
     );
     this.root = requireElement(host, "#world");
+    this.loadingRoot = svg("g", this.root, { id: "gLoading", "aria-hidden": "true" });
     this.geometry = requireElement(host, "#gGeometry");
     this.labels = requireElement(host, "#gLabels");
     this.reading = requireElement(host, "#reading");
@@ -462,14 +494,6 @@ export class Scene {
         }),
         labels: new Map(),
       });
-    for (const node of catalog.chapters.values()) {
-      const article = document.createElement("article");
-      article.className = "note";
-      article.id = `text-${node.id}`;
-      article.hidden = true;
-      this.reading.append(article);
-      this.articles.set(node.id, article);
-    }
     this.bindSymbolFeedbackListeners();
     if (
       this.options.renderer !== "svg" &&
@@ -1232,6 +1256,8 @@ export class Scene {
     const key = JSON.stringify([
       s.camera,
       s.viewport,
+      this.contentRevision,
+      this.loadingGeometry,
       s.focus,
       s.overview,
       s.loading,
@@ -1265,10 +1291,10 @@ export class Scene {
       ]),
     ]);
     if (key === this.lastRenderKey) {
-      if (this.resolvedKind === "webgl" && this.gpu) {
-        this.refreshBackgroundFrame(s);
-        this.gpu.render(this.currentFrame);
-      }
+      this.refreshBackgroundFrame(s);
+      if (this.gpu) this.gpu.render(this.currentFrame);
+      else if (this.currentFrame.background && s.settings.background !== "none" && !s.settings.reducedMotion)
+        this.renderSvgBackground(this.currentFrame.background);
       return;
     }
     this.lastRenderKey = key;
@@ -1717,6 +1743,7 @@ export class Scene {
       sceneLayer("labels", 50),
       sceneLayer("reading", 60),
     );
+    this.appendLoadingFrame();
     this.currentFrame.layers.sort((a, b) => a.order - b.order);
     this.refreshBackgroundFrame(s);
     if (this.resolvedKind === "svg" && this.currentFrame.background)
@@ -1832,30 +1859,34 @@ export class Scene {
     }
     return grid;
   }
-  private syncArticle(
-    article: HTMLElement,
-    node: Chapter,
-    hub: Hub,
-    presentation: "circle" | "line",
-  ) {
-    const renderer = this.articleRenderer as unknown as {
-      syncArticle?: (
-        article: HTMLElement,
-        node: Chapter,
-        hub: Hub,
-        presentation: "circle" | "line",
-      ) => void;
-      fillArticle: (
-        article: HTMLElement,
-        node: Chapter,
-        hub: Hub,
-        presentation: "circle" | "line",
-      ) => void;
-    };
-    if (typeof renderer.syncArticle === "function") {
-      renderer.syncArticle(article, node, hub, presentation);
-    } else if (article.dataset.presentation !== presentation) {
-      renderer.fillArticle(article, node, hub, presentation);
+  private articleFor(id: string): HTMLElement {
+    let article = this.articles.get(id);
+    if (!article) {
+      article = this.host.ownerDocument.createElement("article");
+      article.className = "note";
+      article.id = `text-${id}`;
+      article.hidden = true;
+      this.reading.append(article);
+    }
+    this.articles.delete(id);
+    this.articles.set(id, article);
+    return article;
+  }
+
+  private trimArticles(visible: Set<string>): void {
+    const inactive = [...this.articles].filter(([id]) => !visible.has(id));
+    let excess = inactive.length - 8;
+    const selection = this.host.ownerDocument.getSelection?.();
+    const focused = this.host.ownerDocument.activeElement;
+    for (const [id, article] of inactive) {
+      if (excess <= 0) break;
+      if ((focused && article.contains(focused)) ||
+          (selection?.anchorNode && article.contains(selection.anchorNode)) ||
+          (selection?.focusNode && article.contains(selection.focusNode))) continue;
+      this.articleRenderer.releaseArticle(article);
+      article.remove();
+      this.articles.delete(id);
+      excess--;
     }
   }
 
@@ -1883,10 +1914,10 @@ export class Scene {
           fold *
           expressionOpacity;
         if (surface < 0.015) return;
-        const article = this.articles.get(node.id)!,
+        const article = this.articleFor(node.id),
           depth = 1 - surface,
           presentation = morph > 0.5 ? "line" : "circle";
-        this.syncArticle(article, node, hub, presentation);
+        this.articleRenderer.syncArticle(article, node, hub, presentation);
         if (node.id === this.catalog.searchRoot) {
           const input = article.querySelector<HTMLInputElement>(
             "input.hub-search-input",
@@ -1948,7 +1979,7 @@ export class Scene {
         if (height === undefined) {
           height =
             article.querySelector<HTMLElement>(".note-content")!.offsetHeight ||
-            160;
+            this.articleRenderer.estimateArticleHeight(article, node, presentation, widthPx);
           this.heights.set(heightKey, height);
         }
         const panelHeight = Math.min(
@@ -2080,6 +2111,7 @@ export class Scene {
         if (article.getAttribute("aria-hidden") !== "true")
           article.setAttribute("aria-hidden", "true");
       }
+    this.trimArticles(visible);
   }
   destroy() {
     this.destroyed = true;
@@ -2089,12 +2121,15 @@ export class Scene {
     this.geometry.replaceChildren();
     this.labels.replaceChildren();
     this.backgroundRoot.replaceChildren();
+    this.loadingRoot.remove();
     this.flowPaths = [];
     this.flowMarkers = [];
     this.starPoints = [];
     this.starTrails = [];
     this.meteorPaths = [];
     this.meteorHeads = [];
+    for (const article of this.articles.values()) this.articleRenderer.releaseArticle(article);
+    this.articles.clear();
     this.reading.replaceChildren();
     this.hudControls.remove();
     this.actions.clear();

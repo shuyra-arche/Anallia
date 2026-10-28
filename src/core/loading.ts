@@ -16,6 +16,7 @@ export interface LoadingTask {
   id: string;
   scope: string;
   hubId: string;
+  chapterId?: string;
   cancellable: boolean;
 }
 
@@ -23,6 +24,7 @@ export interface LoadingSnapshot {
   id: string;
   scope: string;
   hubId: string;
+  chapterId?: string;
   cancellable: boolean;
   phase: LoadingPhase;
   outcome: LoadingOutcome;
@@ -177,6 +179,7 @@ export class LoadController {
       id: state.task.id,
       scope: state.task.scope,
       hubId: state.task.hubId,
+      chapterId: state.task.chapterId,
       cancellable: state.task.cancellable,
       phase:
         readableCount === 0
