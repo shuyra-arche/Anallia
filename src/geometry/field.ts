@@ -1,4 +1,5 @@
 import type { Camera, Hub, Passage, Vec, Viewport } from "../core/types.ts";
+import { readingWidth } from "../core/layout.ts";
 import {
   V,
   add,
@@ -22,30 +23,13 @@ export function worldToScreen(p: Vec, camera: Camera, viewport: Viewport): Vec {
     viewport.height / 2 + q.y * camera.z,
   );
 }
-/**
- * Section 1.3 — Camera is only an observer:
- * Hub centers project with `camera.z`, while each Hub's own screen drawing size,
- * label offsets, and attachment distances remain constant in screen space (`z: 1`).
- */
-export function hubScreenCamera(
-  hub: Hub,
-  camera: Camera,
-  _viewport: Viewport,
-): Camera {
-  return {
-    x: hub.center.x - (hub.center.x - camera.x) * camera.z,
-    y: hub.center.y - (hub.center.y - camera.y) * camera.z,
-    z: 1,
-    rotation: camera.rotation,
-  };
-}
 export function hubToScreen(
-  hub: Hub,
+  _hub: Hub,
   p: Vec,
   camera: Camera,
   viewport: Viewport,
 ): Vec {
-  return worldToScreen(p, hubScreenCamera(hub, camera, viewport), viewport);
+  return worldToScreen(p, camera, viewport);
 }
 /** Solve the camera translation exactly: a world material point remains pinned to
  * the same screen pixel while rotation and geometry change independently. */
@@ -71,26 +55,14 @@ export function cameraPinnedToPoint(
 /** Pin one semantic material point on a Hub in screen coordinates (`hubToScreen`)
  * while the camera rotates and the hub morphs; preserves exact `camera.z`. */
 export function cameraPinnedToHubPoint(
-  hub: Hub,
+  _hub: Hub,
   point: Vec,
   target: Vec,
   camera: Camera,
   viewport: Viewport,
   rotation: number,
 ): Camera {
-  const relative = V(
-    target.x - viewport.width / 2,
-    target.y - viewport.height / 2,
-  );
-  const unrotated = rot(relative, (-rotation * Math.PI) / 180);
-  const localOffset = sub(point, hub.center);
-  const centerDelta = mul(sub(unrotated, localOffset), 1 / camera.z);
-  return {
-    x: hub.center.x - centerDelta.x,
-    y: hub.center.y - centerDelta.y,
-    z: camera.z,
-    rotation,
-  };
+  return cameraPinnedToPoint(point, target, camera, viewport, rotation);
 }
 export function screenToWorld(p: Vec, camera: Camera, viewport: Viewport): Vec {
   return add(
@@ -238,7 +210,7 @@ export function evaluateHubGeometry(
   viewport: Viewport,
   u = shapeU(hub),
 ): { strokeD: string; sweptClipD: string } {
-  const cam = hubScreenCamera(hub, camera, viewport);
+  const cam = camera;
   const d = 1 - u,
     rad = Math.abs(d) < 1e-5 ? 1e7 : R / Math.abs(d),
     screenRad = rad * cam.z,
@@ -295,23 +267,24 @@ export function frameFor(
   camera: Camera,
   viewport: Viewport,
 ): Camera {
-  const { width: w, height: h } = viewport,
-    small = w < 700;
-  const base = small
-    ? clamp(w / 620, 0.5, 0.74)
-    : clamp(Math.min(w / 1220, h / 820), 0.72, 1.02);
-  const z = small ? base : base * 0.82;
+  const { width: w, height: h } = viewport;
+  const margin = w < 700 ? 16 : 24;
+  const width = readingWidth(viewport, true);
+  const z = Math.min(1.12, Math.max(1, w - 2 * margin) / width);
   const s = nodeS({ ...hub, scroll }, scroll, count, camera, viewport),
     u = ease(clamp(hub.targetMorph, 0, 1));
   const p = material(hub, s, 0, u),
     n = outwardNormal(hub, s, u),
     angle = (Math.atan2(n.y, n.x) * 180) / Math.PI;
-  const lead = small ? (Math.min(140, Math.max(95, w * 0.28)) / z) * 0.62 : 205;
-  return {
-    ...add(p, mul(n, lead)),
-    z,
-    rotation: -angle,
-  };
+  const left = clamp(w * 0.45, margin, w - margin - width * z);
+  const top = Math.min(180, Math.max(72, h * 0.2));
+  return cameraPinnedToPoint(
+    p,
+    V(left - 76 * z, top + 58 * z),
+    { ...camera, z },
+    viewport,
+    -angle,
+  );
 }
 export const overviewCamera = (v: Viewport): Camera => ({
   x: 180,

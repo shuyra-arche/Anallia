@@ -8,6 +8,7 @@ import { Field } from "../src/application/field.ts";
 import { Scene } from "../src/rendering/scene.ts";
 import { Ambient } from "../src/effects/ambient.ts";
 import { createLoading } from "../src/effects/loading.js";
+import { LOCAL_LABEL_TURN_MS } from "../src/rendering/local-labels.ts";
 test("scene switches circle/line expressions and renders links as real buttons", () => {
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
@@ -105,6 +106,8 @@ test("unchanged reading state performs no DOM writes and preserves navigation ac
       height: 1016,
     });
   const scene = new Scene(host as unknown as HTMLElement, field.catalog);
+  scene.render(field.state);
+  field.state.elapsed += LOCAL_LABEL_TURN_MS;
   scene.render(field.state);
   const actions = [...scene.actions.entries()];
   const observer = new window.MutationObserver(() => {});

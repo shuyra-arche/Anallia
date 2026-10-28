@@ -1,5 +1,4 @@
 import type { Camera, Vec, Viewport } from "../core/types.ts";
-import { rot } from "../core/math.ts";
 import { worldToScreen } from "../geometry/field.ts";
 import { svg } from "../rendering/dom.ts";
 import { sampleFlow, type WaveImpulse } from "./flow-field.ts";
@@ -35,7 +34,6 @@ export class Ambient {
         class: "flow-line",
         fill: "none",
         "stroke-width": 1.05,
-        "vector-effect": "non-scaling-stroke",
       }),
       marker: svg("circle", root, { class: "flow-marker", r: 1.7 }),
     }));
@@ -46,12 +44,10 @@ export class Ambient {
     camera: Camera,
     viewport: Viewport,
   ) {
-    const anchor = worldToScreen(line.seed, camera, viewport);
-    const rad = (camera.rotation * Math.PI) / 180;
-    line.screenPoints = line.points.map((p) => {
-      const local = rot({ x: p.x - line.seed.x, y: p.y - line.seed.y }, rad);
-      return { x: anchor.x + local.x, y: anchor.y + local.y };
-    });
+    line.screenPoints = line.points.map((p) =>
+      worldToScreen(p, camera, viewport),
+    );
+    line.path.setAttribute("stroke-width", String(1.05 * camera.z));
     line.path.setAttribute(
       "d",
       line.screenPoints
@@ -139,7 +135,7 @@ export class Ambient {
         f = cursor % 1;
       line.marker.setAttribute("cx", (a.x + (b.x - a.x) * f).toFixed(2));
       line.marker.setAttribute("cy", (a.y + (b.y - a.y) * f).toFixed(2));
-      line.marker.setAttribute("r", "1.7");
+      line.marker.setAttribute("r", String(1.7 * camera.z));
     });
   }
 }

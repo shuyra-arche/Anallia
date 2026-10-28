@@ -169,7 +169,11 @@ const stopClock = startClock(
           ),
     );
   },
-  () => frameRateLimit(field.state.settings.frameRate, field.isAnimating),
+  () =>
+    frameRateLimit(
+      field.state.settings.frameRate,
+      field.isAnimating || scene.isAnimating,
+    ),
 );
 document.fonts?.ready.then(() => scene.invalidateLayout());
 if (import.meta.hot)

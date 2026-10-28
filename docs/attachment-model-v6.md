@@ -9,8 +9,8 @@ It does **not** redesign transitions, user content, or the 2.5D camera.
 
 - **Hub** (`core/types.ts`): world identity, parent relation, material geometry (circle/line/Möbius), focused path, local scroll state.
 - **SemanticAnchor** (`core/attachments.ts`): stable ID, host hub, material parameter; never stores screen coordinates. Its ID remains stable during Morph and host switch; the material projection is recalculated each frame.
-- **FieldAttachment** (`core/attachments.ts`): independent element identity, semantic scope (`global | hub | chapter`), role (`operation | local | ordinary | background`), anchor, presentation side (`content | opposite`), pixel distance, action, and opacity.
-- **Presentation / Projection** (`core/layout.ts`, `geometry/attachments.ts`): screen-space layout chooses an orientation, then projects a material anchor and its local normal. Camera zoom affects hub positions, not local normal offset, label size, or hit size.
+- **FieldAttachment** (`core/attachments.ts`): independent element identity, semantic scope (`global | hub | chapter`), role (`operation | local | ordinary | background`), anchor, presentation side (`content | opposite`), world-unit distance, action, and opacity.
+- **Presentation / Projection** (`core/layout.ts`, `geometry/attachments.ts`): screen-space layout chooses an orientation, then projects a material anchor and its local normal. Camera zoom scales hub positions, normal offsets, labels, icons, typography, strokes, backgrounds, and hit targets together. This user-requested rule supersedes the original fixed-screen-size projection.
 
 The element identity and scope do not change when its host hub changes:
 
@@ -27,7 +27,7 @@ focused-hub:beta  / operation:settings
 ### Placement grammar
 
 `ordinary` and `local` use the same `content` side of the focused hub.
-Local items appear immediately before or after the ordinary focused tag, following the same generalized-circle arc-length ordering and bounded scrolling band. Their visible count widens neighboring ordinary-label gaps; the focused material anchor stays fixed.
+Local items appear immediately before or after the ordinary focused tag, following the same generalized-circle arc-length ordering and bounded scrolling band. When ordinary-label scrolling changes focus, the outgoing local group folds closed around its material hinges before the new group unfolds. Retired leaves retain their old glyphs and commands until removed; turning leaves are not interactive. Rapid scrolling drops unopened intermediate groups, and reduced motion settles the current group immediately. Their visible count widens neighboring ordinary-label gaps; the focused material anchor stays fixed.
 
 In focused reading at camera zoom 0.45 or above, global operations `⊙ ⌕ ⚙ ◌ ↶` attach to material points on the opposite side of the host hub. During cross-hub passages they use the destination host immediately. The attachment planner also defines an overview refocus action; the renderer uses a fixed toolbar in overview and below zoom 0.45, including `⌖`. Global scope describes the operation's meaning independently of either presentation.
 

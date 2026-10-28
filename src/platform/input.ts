@@ -174,7 +174,10 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
       if (drag.mode === "local") {
         const dy = e.clientY - drag.lastY;
         drag.lastY = e.clientY;
-        port.dispatch({ type: "scroll-local", delta: -dy / 45 });
+        port.dispatch({
+          type: "scroll-local",
+          delta: -dy / (45 * port.camera().z),
+        });
         return;
       }
       if (drag.mode === "grasp" && drag.graspInfo) {
@@ -203,7 +206,7 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
         if (drag.maxFloat > 0) {
           port.dispatch({
             type: "float-text",
-            delta: -dy * 1.15,
+            delta: (-dy * 1.15) / port.camera().z,
             maxOffset: drag.maxFloat,
           });
         } else if (
@@ -270,7 +273,10 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
       }
       if (element(e.target)?.closest("[data-local-scroll]")) {
         e.preventDefault();
-        port.dispatch({ type: "scroll-local", delta: e.deltaY / 45 });
+        port.dispatch({
+          type: "scroll-local",
+          delta: e.deltaY / (45 * port.camera().z),
+        });
         return;
       }
       const note = element(e.target)?.closest<HTMLElement>("article.note");
@@ -280,7 +286,7 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
           e.preventDefault();
           port.dispatch({
             type: "float-text",
-            delta: e.deltaY * 0.72,
+            delta: (e.deltaY * 0.72) / port.camera().z,
             maxOffset: maxFloat,
           });
           return;

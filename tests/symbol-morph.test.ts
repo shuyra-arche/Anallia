@@ -12,11 +12,17 @@ import { Field } from "../src/application/field.ts";
 import { Catalog } from "../src/content/catalog.ts";
 import { hubDefinitions, rawContent } from "../src/content/field.ts";
 import { globalAttachments } from "../src/application/attachments.ts";
-import { projectAttachment, contentMaterialSide } from "../src/geometry/attachments.ts";
+import {
+  projectAttachment,
+  contentMaterialSide,
+} from "../src/geometry/attachments.ts";
 import { nodeS } from "../src/geometry/field.ts";
 
 const makeField = () =>
-  new Field(new Catalog(hubDefinitions, rawContent), { width: 1366, height: 820 });
+  new Field(new Catalog(hubDefinitions, rawContent), {
+    width: 1366,
+    height: 820,
+  });
 
 function parsePathPoints(d: string): { x: number; y: number }[] {
   const pts: { x: number; y: number }[] = [];
@@ -31,8 +37,16 @@ test("Symbol Morph Geometric Continuity: endpoints m=0, m=1 and intermediate sta
   for (const kind of SYMBOL_KINDS) {
     const g0 = evaluateSymbol(kind, 0);
     const g1 = evaluateSymbol(kind, 1);
-    assert.equal(g0.paths.length, g1.paths.length, `${kind} path count must stay invariant`);
-    assert.equal(g0.points.length, g1.points.length, `${kind} point count must stay invariant`);
+    assert.equal(
+      g0.paths.length,
+      g1.paths.length,
+      `${kind} path count must stay invariant`,
+    );
+    assert.equal(
+      g0.points.length,
+      g1.points.length,
+      `${kind} point count must stay invariant`,
+    );
     assert.deepEqual(
       g0.paths.map((p) => p.id),
       g1.paths.map((p) => p.id),
@@ -49,13 +63,27 @@ test("Symbol Morph Geometric Continuity: endpoints m=0, m=1 and intermediate sta
       assert.equal(g.morph, m);
       for (const p of g.paths) {
         assert.ok(p.d.length > 4, `${kind} at m=${m} path ${p.id} non-empty`);
-        assert.doesNotMatch(p.d, /NaN|Infinity|undefined/, `${kind} at m=${m} path ${p.id} finite`);
+        assert.doesNotMatch(
+          p.d,
+          /NaN|Infinity|undefined/,
+          `${kind} at m=${m} path ${p.id} finite`,
+        );
         // Never use opacity cross-fading to fake a morph
-        assert.equal(p.opacity ?? 1, 1, `${kind} path ${p.id} must not cross-fade`);
+        assert.equal(
+          p.opacity ?? 1,
+          1,
+          `${kind} path ${p.id} must not cross-fade`,
+        );
       }
       for (const pt of g.points) {
-        assert.ok(Number.isFinite(pt.x + pt.y + pt.r), `${kind} at m=${m} point ${pt.id} finite`);
-        assert.ok(pt.r > 0.5, `${kind} at m=${m} point ${pt.id} positive radius`);
+        assert.ok(
+          Number.isFinite(pt.x + pt.y + pt.r),
+          `${kind} at m=${m} point ${pt.id} finite`,
+        );
+        assert.ok(
+          pt.r > 0.5,
+          `${kind} at m=${m} point ${pt.id} positive radius`,
+        );
       }
     }
 
@@ -70,16 +98,37 @@ test("Symbol Morph Geometric Continuity: endpoints m=0, m=1 and intermediate sta
       assert.equal(pts49.length, pts50.length);
       assert.equal(pts50.length, pts51.length);
       for (let j = 0; j < pts50.length; j++) {
-        const stepA = Math.hypot(pts50[j].x - pts49[j].x, pts50[j].y - pts49[j].y);
-        const stepB = Math.hypot(pts51[j].x - pts50[j].x, pts51[j].y - pts50[j].y);
-        assert.ok(stepA < 0.35, `${kind} path ${g50.paths[i].id} smooth across 0.49->0.50 (${stepA})`);
-        assert.ok(stepB < 0.35, `${kind} path ${g50.paths[i].id} smooth across 0.50->0.51 (${stepB})`);
+        const stepA = Math.hypot(
+          pts50[j].x - pts49[j].x,
+          pts50[j].y - pts49[j].y,
+        );
+        const stepB = Math.hypot(
+          pts51[j].x - pts50[j].x,
+          pts51[j].y - pts50[j].y,
+        );
+        assert.ok(
+          stepA < 0.35,
+          `${kind} path ${g50.paths[i].id} smooth across 0.49->0.50 (${stepA})`,
+        );
+        assert.ok(
+          stepB < 0.35,
+          `${kind} path ${g50.paths[i].id} smooth across 0.50->0.51 (${stepB})`,
+        );
       }
     }
     for (let i = 0; i < g50.points.length; i++) {
-      const dA = Math.hypot(g50.points[i].x - g49.points[i].x, g50.points[i].y - g49.points[i].y);
-      const dB = Math.hypot(g51.points[i].x - g50.points[i].x, g51.points[i].y - g50.points[i].y);
-      assert.ok(dA < 0.25 && dB < 0.25, `${kind} point ${g50.points[i].id} smooth across 0.50`);
+      const dA = Math.hypot(
+        g50.points[i].x - g49.points[i].x,
+        g50.points[i].y - g49.points[i].y,
+      );
+      const dB = Math.hypot(
+        g51.points[i].x - g50.points[i].x,
+        g51.points[i].y - g50.points[i].y,
+      );
+      assert.ok(
+        dA < 0.25 && dB < 0.25,
+        `${kind} point ${g50.points[i].id} smooth across 0.50`,
+      );
     }
   }
 });
@@ -90,7 +139,11 @@ test("Symbol Morph Reversibility: forward and reverse evaluations at any progres
   for (const kind of SYMBOL_KINDS) {
     const forward = forwardSteps.map((m) => evaluateSymbol(kind, m));
     const reverse = reverseSteps.map((m) => evaluateSymbol(kind, m)).reverse();
-    assert.deepEqual(forward, reverse, `${kind} reverse evaluation must match forward evaluation`);
+    assert.deepEqual(
+      forward,
+      reverse,
+      `${kind} reverse evaluation must match forward evaluation`,
+    );
   }
 });
 
@@ -115,7 +168,9 @@ test("Symbol Morph Synchronization: global symbols track host Hub morph in Circl
     globals = globalAttachments(f.state, f.catalog);
     for (const g of globals.filter((x) => x.symbolKind)) {
       assert.ok(Math.abs((g.symbolMorph ?? -1) - expectedSymbolMorph) < 1e-9);
-      assert.ok(Math.abs((g.symbolGeometry?.morph ?? -1) - expectedSymbolMorph) < 1e-9);
+      assert.ok(
+        Math.abs((g.symbolGeometry?.morph ?? -1) - expectedSymbolMorph) < 1e-9,
+      );
     }
   }
   assert.equal(f.hub.morph, 1);
@@ -132,43 +187,84 @@ test("Symbol Morph Synchronization: global symbols track host Hub morph in Circl
   // Switch focus to Hub D (Circle form, morph = 0) and Hub B (Line form, morph = 1)
   f.state.focus = "D";
   globals = globalAttachments(f.state, f.catalog);
-  assert.ok(globals.filter((x) => x.symbolKind).every((g) => g.anchor.hostHub === "D" && g.symbolMorph === 1));
+  assert.ok(
+    globals
+      .filter((x) => x.symbolKind)
+      .every((g) => g.anchor.hostHub === "D" && g.symbolMorph === 1),
+  );
 
   f.state.focus = "B";
   globals = globalAttachments(f.state, f.catalog);
-  assert.ok(globals.filter((x) => x.symbolKind).every((g) => g.anchor.hostHub === "B" && g.symbolMorph === 0));
+  assert.ok(
+    globals
+      .filter((x) => x.symbolKind)
+      .every((g) => g.anchor.hostHub === "B" && g.symbolMorph === 0),
+  );
 });
 
-test("Symbol Morph Visual Consistency: optical bounds, centroids, and camera zoom independence", () => {
+test("Symbol Morph Visual Consistency: optical bounds, centroids, and projected zoom", () => {
   for (const m of [0, 0.25, 0.5, 0.75, 1]) {
     const sizes: number[] = [];
     for (const kind of SYMBOL_KINDS) {
       const g = evaluateSymbol(kind, m);
       const b = measureSymbolBounds(g);
       // Visual footprint stays balanced inside the 24x24 grid without shrinking or exploding
-      assert.ok(b.width >= 11.5 && b.width <= 18.5, `${kind} m=${m} width=${b.width}`);
-      assert.ok(b.height >= 10.5 && b.height <= 18.5, `${kind} m=${m} height=${b.height}`);
+      assert.ok(
+        b.width >= 11.5 && b.width <= 18.5,
+        `${kind} m=${m} width=${b.width}`,
+      );
+      assert.ok(
+        b.height >= 10.5 && b.height <= 18.5,
+        `${kind} m=${m} height=${b.height}`,
+      );
       // Visual centroid stays near (12, 12) without large drift
-      assert.ok(Math.abs(b.centerX - 12) <= 2.2, `${kind} m=${m} centerX=${b.centerX}`);
-      assert.ok(Math.abs(b.centerY - 12) <= 2.2, `${kind} m=${m} centerY=${b.centerY}`);
+      assert.ok(
+        Math.abs(b.centerX - 12) <= 2.2,
+        `${kind} m=${m} centerX=${b.centerX}`,
+      );
+      assert.ok(
+        Math.abs(b.centerY - 12) <= 2.2,
+        `${kind} m=${m} centerY=${b.centerY}`,
+      );
       sizes.push((b.width + b.height) / 2);
     }
     const maxSpan = Math.max(...sizes);
     const minSpan = Math.min(...sizes);
-    assert.ok(maxSpan - minSpan < 3.6, `at m=${m}, 4 icons have balanced visual size (${minSpan}..${maxSpan})`);
+    assert.ok(
+      maxSpan - minSpan < 3.6,
+      `at m=${m}, 4 icons have balanced visual size (${minSpan}..${maxSpan})`,
+    );
   }
 
-  // Verify centralized optical tokens and camera zoom invariance
+  // Optical tokens stay in local coordinates; projection scales their attachments.
   const f = makeField();
   const h = f.hub;
-  const s0 = nodeS(h, h.scroll, f.siblings().length, f.state.camera, f.state.viewport);
+  const s0 = nodeS(
+    h,
+    h.scroll,
+    f.siblings().length,
+    f.state.camera,
+    f.state.viewport,
+  );
   const sign = contentMaterialSide(h, s0, f.state.camera, 1);
   const attach = globalAttachments(f.state, f.catalog)[0];
   for (const z of [0.28, 0.65, 1.0, 1.85]) {
     f.state.camera.z = z;
-    const proj = projectAttachment(h, attach, f.state.camera, f.state.viewport, sign);
-    const dist = Math.hypot(proj.position.x - proj.hinge.x, proj.position.y - proj.hinge.y);
-    assert.ok(Math.abs(dist - 52) < 1e-5, `normal offset stays 52px at zoom=${z}`);
+    const proj = projectAttachment(
+      h,
+      attach,
+      f.state.camera,
+      f.state.viewport,
+      sign,
+    );
+    const dist = Math.hypot(
+      proj.position.x - proj.hinge.x,
+      proj.position.y - proj.hinge.y,
+    );
+    assert.ok(
+      Math.abs(dist - 52 * z) < 1e-5,
+      `normal offset follows zoom=${z}`,
+    );
     assert.equal(SYMBOL_OPTICAL_TOKENS[attach.symbolKind!].sizePx, 20);
     assert.equal(SYMBOL_OPTICAL_TOKENS[attach.symbolKind!].hitSizePx, 44);
   }

@@ -19,7 +19,7 @@ import { clamp } from "../core/math.ts";
 import { Catalog } from "../content/catalog.ts";
 
 /**
- * Hierarchical radial normal distances (in constant screen pixels):
+ * Hierarchical radial normal distances (in local world units):
  * - Current focused ordinary chapter label: 48px (longest primary stem)
  * - Peer ordinary chapter labels: 34px (medium primary stem)
  * - Local extension labels (`↑` and `refs`): 22px (short secondary stem)

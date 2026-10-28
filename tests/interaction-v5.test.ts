@@ -1,13 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { planLocalBand, localVisible } from "../src/core/local-nav.ts";
-import { hubToScreen, worldToScreen, material, nodeS } from "../src/geometry/field.ts";
+import {
+  hubToScreen,
+  worldToScreen,
+  material,
+  nodeS,
+} from "../src/geometry/field.ts";
 import { chooseAdaptiveLayout } from "../src/core/layout.ts";
 import { Field } from "../src/application/field.ts";
 import { Catalog } from "../src/content/catalog.ts";
 import { hubDefinitions, rawContent } from "../src/content/field.ts";
-const fresh = () => new Field(new Catalog(hubDefinitions, rawContent), { width: 1200, height: 800 });
-const near = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-5, `${a} != ${b}`);
+const fresh = () =>
+  new Field(new Catalog(hubDefinitions, rawContent), {
+    width: 1200,
+    height: 800,
+  });
+const near = (a: number, b: number) =>
+  assert.ok(Math.abs(a - b) < 1e-5, `${a} != ${b}`);
 test("local labels are virtualized in a bounded part of ordinary-tag arc gap", () => {
   const band = planLocalBand(170, 160, 12);
   assert.equal(band.direction, -1);
@@ -33,8 +43,10 @@ test("layout leaves article full-width even if it extends past the viewport", ()
   assert.equal(layout.stacked, false);
   assert.ok(layout.left < 0);
 });
-test("hub local screen drawing size stays constant while hub center distance scales with camera zoom", () => {
-  const f = fresh(), h = f.hub, v = f.state.viewport;
+test("hub local geometry and hub center distances scale with camera zoom", () => {
+  const f = fresh(),
+    h = f.hub,
+    v = f.state.viewport;
   const a = nodeS(h, 0, f.siblings().length, f.state.camera, v),
     p = material(h, a),
     q = material(h, a, 52);
@@ -45,9 +57,13 @@ test("hub local screen drawing size stays constant while hub center distance sca
     return Math.hypot(pScreen.x - qScreen.x, pScreen.y - qScreen.y);
   };
   near(pixelDistance(1.0), 52);
-  near(pixelDistance(0.5), 52);
-  near(pixelDistance(1.8), 52);
-  const centerBefore = worldToScreen(h.center, { ...f.state.camera, z: 0.3 }, v);
+  near(pixelDistance(0.5), 26);
+  near(pixelDistance(1.8), 93.6);
+  const centerBefore = worldToScreen(
+    h.center,
+    { ...f.state.camera, z: 0.3 },
+    v,
+  );
   const centerAfter = worldToScreen(h.center, { ...f.state.camera, z: 1.2 }, v);
   assert.notDeepEqual(centerBefore, centerAfter);
 });

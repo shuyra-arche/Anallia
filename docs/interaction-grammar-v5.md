@@ -1,3 +1,5 @@
+> 当前镜头缩放规则：所有元素同比例缩放。本文中固定屏幕像素尺寸与缩放无关的描述已由用户要求替代；局部导航语义仍适用。
+
 # Shuyra Field · v5 Attachment & Navigation Grammar
 
 This document supersedes v4 wherever layout or scale constraints conflict.

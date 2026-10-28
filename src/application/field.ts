@@ -720,7 +720,7 @@ export class Field {
       mode: h.morph > 0.5 ? ("line" as const) : ("circle" as const),
       center: worldToScreen(h.center, s.camera, s.viewport),
       tangent: { x: -rotated.y, y: rotated.x },
-      stepPx: pitch(h, s.camera, s.viewport),
+      stepPx: pitch(h, s.camera, s.viewport) * s.camera.z,
       stepRad: (nodes.length > 6 ? 118 : 165) / 195,
     };
   }

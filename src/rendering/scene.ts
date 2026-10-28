@@ -1,4 +1,6 @@
 import { ArticleRenderer } from "./article.ts";
+import { LocalLabelTurns } from "./local-labels.ts";
+import { readingWidth } from "../core/layout.ts";
 import { frameRateFromAction } from "../core/frame-rate.ts";
 import type {
   Chapter,
@@ -229,11 +231,16 @@ export class Scene {
   private heights = new Map<string, number>();
   private measuredSettings = "";
   private readonly articleRenderer: ArticleRenderer;
+  private readonly localLabelTurns = new LocalLabelTurns();
   private symbolFeedback = new Map<string, SymbolInteractionState>();
 
   invalidateLayout() {
     this.heights.clear();
     this.lastRenderKey = "";
+  }
+
+  get isAnimating(): boolean {
+    return this.localLabelTurns.isAnimating;
   }
 
   private host: HTMLElement;
@@ -443,13 +450,17 @@ export class Scene {
     }
     const e = entry,
       id = `${hub.id}:${key}`;
-    this.actions.set(id, command);
+    const interactive = !page || page.interactive;
+    if (interactive) this.actions.set(id, command);
     e.group.style.display = "";
     e.group.style.opacity = alpha < 0.999 ? String(alpha) : "";
-    e.group.setAttribute("transform", `translate(${anchor.x} ${anchor.y})`);
+    const zoom = state?.camera.z ?? 1;
+    e.group.setAttribute(
+      "transform",
+      `translate(${anchor.x} ${anchor.y}) scale(${zoom})`,
+    );
     e.group.classList.toggle("turning", !!page);
     e.pin.style.opacity = page && kind === "current" ? "1" : "0";
-    const interactive = !page || page.interactive;
     e.hit.style.pointerEvents = interactive ? "" : "none";
     e.group.setAttribute("tabindex", interactive ? "0" : "-1");
     e.group.setAttribute("aria-hidden", interactive ? "false" : "true");
@@ -466,8 +477,8 @@ export class Scene {
     e.group.classList.toggle("is-current", kind === "current");
     e.group.setAttribute("aria-label", aria);
 
-    const deltaX = at.x - anchor.x,
-      deltaY = at.y - anchor.y;
+    const deltaX = (at.x - anchor.x) / zoom,
+      deltaY = (at.y - anchor.y) / zoom;
     const dist = Math.hypot(deltaX, deltaY);
     const stemTier =
       attachment?.role === "operation"
@@ -497,7 +508,7 @@ export class Scene {
     e.leaf.style.opacity = page ? String(page.opacity) : "";
     while (degree > 90) degree -= 180;
     while (degree < -90) degree += 180;
-    // Section 1.3 & 4.2: Label, icon, and hit-target sizes remain constant in screen space.
+    // Label geometry stays local; the parent scales typography, icons and hit targets together.
     const labelTransform = `translate(${deltaX} ${deltaY}) rotate(${degree})`;
     e.ring.setAttribute("cx", "0");
     e.ring.setAttribute("cy", "0");
@@ -619,6 +630,7 @@ export class Scene {
       entry.traceDot.style.display = "";
       entry.traceDot.setAttribute("cx", dotPt.x.toFixed(2));
       entry.traceDot.setAttribute("cy", dotPt.y.toFixed(2));
+      entry.traceDot.setAttribute("r", String(2.2 * s.camera.z));
     } else {
       entry.traceDot.style.display = "none";
     }
@@ -648,6 +660,26 @@ export class Scene {
 
   render(s: FieldState) {
     this.lastState = s;
+    const focusedHub = s.hubs[s.focus];
+    const focusedEntries =
+      s.overview || s.loading
+        ? []
+        : ordinaryAndLocalAttachments(
+            focusedHub,
+            this.selected(focusedHub),
+            this.catalog.siblings(
+              this.selected(focusedHub).id,
+              s.searchResults,
+            ),
+            s.camera,
+            s.viewport,
+          );
+    const locals = this.localLabelTurns.update(
+      `${s.focus}:${this.selected(focusedHub).id}`,
+      s.passage ? [] : focusedEntries.filter((entry) => entry.role === "local"),
+      s.elapsed,
+      s.settings.reducedMotion,
+    );
     const feedbackSig = [...this.symbolFeedback.entries()].map(([k, v]) => [
       k,
       v.hover,
@@ -671,6 +703,11 @@ export class Scene {
       s.morphTurn?.phase,
       s.contentTurn?.phase,
       feedbackSig,
+      locals.map((leaf) => [
+        leaf.attachment.anchor.id,
+        leaf.visibility,
+        leaf.phase,
+      ]),
       Object.values(s.hubs).map((h) => [
         h.id,
         h.morph,
@@ -683,6 +720,7 @@ export class Scene {
     ]);
     if (key === this.lastRenderKey) return;
     this.lastRenderKey = key;
+    this.host.style.setProperty("--camera-scale", String(s.camera.z));
     const settingsKey = JSON.stringify(s.settings);
     if (this.measuredSettings !== settingsKey) {
       this.heights.clear();
@@ -732,14 +770,8 @@ export class Scene {
       if (s.loading || !active) continue;
 
       const materialSide: 1 | -1 = 1;
-      const entries = ordinaryAndLocalAttachments(
-        h,
-        current,
-        nodes,
-        s.camera,
-        s.viewport,
-      );
-      for (const attachment of entries) {
+      for (const attachment of focusedEntries) {
+        if (attachment.role === "local") continue;
         const point = projectAttachment(
           h,
           attachment,
@@ -763,6 +795,31 @@ export class Scene {
           s,
         );
       }
+    }
+
+    for (const leaf of locals) {
+      const attachment = leaf.attachment;
+      const hub = s.hubs[attachment.anchor.hostHub];
+      const point = projectAttachment(hub, attachment, s.camera, s.viewport, 1);
+      this.label(
+        hub,
+        attachment.anchor.id,
+        attachment.glyph,
+        point.position,
+        point.hinge,
+        attachment.visual,
+        point.degree,
+        attachment.command,
+        attachment.aria,
+        attachment.opacity,
+        leaf.pose,
+        attachment,
+        s,
+      );
+      this.hubs
+        .get(hub.id)!
+        .labels.get(attachment.anchor.id)!.group.dataset.localPhase =
+        leaf.phase;
     }
 
     const useTraditionalHud =
@@ -943,7 +1000,6 @@ export class Scene {
   private renderTexts(s: FieldState) {
     const hub = s.hubs[s.focus],
       nodes = this.catalog.siblings(this.selected(hub).id, s.searchResults),
-      small = s.viewport.width < 700,
       morph = ease(clamp(hub.morph, 0, 1));
     const p = s.passage?.phase,
       fold = p === undefined ? 1 : readingEnvelope(p),
@@ -1017,11 +1073,7 @@ export class Scene {
           s.viewport,
         );
         const isLong = article.classList.contains("is-long");
-        const widthPx = small
-          ? Math.min(285, Math.max(185, s.viewport.width * 0.62))
-          : isLong
-            ? Math.min(435, Math.max(305, s.viewport.width * 0.34))
-            : Math.min(355, Math.max(265, s.viewport.width * 0.29));
+        const widthPx = readingWidth(s.viewport, isLong);
         const widthStr = `${widthPx.toFixed(1)}px`;
         if (article.style.width !== widthStr) article.style.width = widthStr;
         const heightKey = JSON.stringify([node.id, presentation, widthStr]);
@@ -1050,12 +1102,11 @@ export class Scene {
         if (article.style.transformOrigin !== originStr)
           article.style.transformOrigin = originStr;
 
-        const targetLeft = anchorPt.x + 18 * depth;
-        const targetTop = anchorPt.y - anchorY + 32 * depth;
+        const targetLeft = anchorPt.x + 18 * depth * s.camera.z;
+        const targetTop = anchorPt.y - anchorY + 32 * depth * s.camera.z;
 
         const turnY = page?.angle ?? 0;
-        // 1:1 constant scale: never scale text blocks with camera zoom or depth envelope.
-        const transformStr = `translate3d(${targetLeft.toFixed(2)}px,${targetTop.toFixed(2)}px,0) rotateY(${turnY.toFixed(2)}deg)`;
+        const transformStr = `translate3d(${targetLeft.toFixed(2)}px,${targetTop.toFixed(2)}px,0) scale(${s.camera.z}) rotateY(${turnY.toFixed(2)}deg)`;
         if (article.style.transform !== transformStr)
           article.style.transform = transformStr;
         const blur = 8.5 * depth ** 1.12 * s.settings.blur;
@@ -1079,6 +1130,7 @@ export class Scene {
       }
   }
   destroy() {
+    this.localLabelTurns.clear();
     this.geometry.replaceChildren();
     this.labels.replaceChildren();
     this.reading.replaceChildren();

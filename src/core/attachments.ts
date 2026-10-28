@@ -25,7 +25,7 @@ export interface FieldAttachment {
   role: AttachmentRole;
   anchor: SemanticAnchor;
   side: AttachmentSide;
-  /** Distance along the material normal, in screen-stable units. */
+  /** Distance along the material normal, in world units before camera projection. */
   distance: number;
   opacity: number;
   command: Command;

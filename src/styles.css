@@ -1,78 +1,59 @@
 :root {
-  --paper: #F5F6F2;
-  --paper-swept: #E5ECE7;
+  --paper: #f5f6f2;
+  --paper-swept: #e5ece7;
   --ink: #233532;
   --body-ink: #405651;
-  --quiet: #5E726C;
-  --line: #2D716B;
-  --low: #ABBCB5;
-  --decor: #B8C8C0;
-  --decor-strong: #7B9A90;
+  --quiet: #5e726c;
+  --line: #2d716b;
+  --low: #abbcb5;
+  --decor: #b8c8c0;
+  --decor-strong: #7b9a90;
   --amber: #986632;
-  --accent: #2D716B;
-  --stem: #8FA99E;
-  --stem-nav: #B69A79;
+  --accent: #2d716b;
+  --stem: #8fa99e;
+  --stem-nav: #b69a79;
   --loader-ink: #f2f3f1;
   --loader-arc: #949a9e;
   --loader-arc-light: #bcc0c1;
   --loader-shimmer: #ffffff;
   --font-sans:
-    "Inter",
-    -apple-system,
-    BlinkMacSystemFont,
-    "SF Pro Text",
-    "PingFang SC",
-    "Hiragino Sans GB",
-    "Noto Sans SC",
-    "Microsoft YaHei",
-    sans-serif;
+    "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   --font-symbol:
-    "STIX Two Math",
-    "Cambria Math",
-    "Latin Modern Math",
-    "Apple Symbols",
-    "Segoe UI Symbol",
-    "Inter",
-    "SF Pro Display",
-    "Noto Sans SC",
-    sans-serif;
+    "STIX Two Math", "Cambria Math", "Latin Modern Math", "Apple Symbols",
+    "Segoe UI Symbol", "Inter", "SF Pro Display", "Noto Sans SC", sans-serif;
   --font-mono:
-    "JetBrains Mono",
-    "SF Mono",
-    ui-monospace,
-    Menlo,
-    Consolas,
-    monospace;
+    "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 html[data-theme="dark"] {
-  --paper: #10191B;
-  --paper-swept: #1B302F;
-  --ink: #EBF0EA;
-  --body-ink: #BCCDC5;
-  --quiet: #93AAA1;
-  --line: #88CEC0;
-  --low: #344D4B;
-  --decor: #304A47;
-  --decor-strong: #5A7974;
-  --amber: #E7B879;
-  --accent: #88CEC0;
-  --stem: #5A7974;
-  --stem-nav: #B69A79;
+  --paper: #10191b;
+  --paper-swept: #1b302f;
+  --ink: #ebf0ea;
+  --body-ink: #bccdc5;
+  --quiet: #93aaa1;
+  --line: #88cec0;
+  --low: #344d4b;
+  --decor: #304a47;
+  --decor-strong: #5a7974;
+  --amber: #e7b879;
+  --accent: #88cec0;
+  --stem: #5a7974;
+  --stem-nav: #b69a79;
 }
 html[data-theme="obsidian"] {
-  --paper: #0C0E10;
-  --paper-swept: #181D1E;
-  --ink: #F2F3F1;
-  --body-ink: #B6BCB8;
-  --quiet: #9DA5A2;
-  --line: #949A9E;
-  --low: #3A4044;
-  --decor: #262B2E;
-  --decor-strong: #545C61;
-  --amber: #BCA789;
-  --accent: #E2E6E3;
-  --stem: #6C7377;
-  --stem-nav: #B89B72;
+  --paper: #0c0e10;
+  --paper-swept: #181d1e;
+  --ink: #f2f3f1;
+  --body-ink: #b6bcb8;
+  --quiet: #9da5a2;
+  --line: #949a9e;
+  --low: #3a4044;
+  --decor: #262b2e;
+  --decor-strong: #545c61;
+  --amber: #bca789;
+  --accent: #e2e6e3;
+  --stem: #6c7377;
+  --stem-nav: #b89b72;
 }
 * {
   box-sizing: border-box;
@@ -88,7 +69,11 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--font-sans);
-  font-feature-settings: "cv02" 1, "cv03" 1, "cv04" 1, "tnum" 1;
+  font-feature-settings:
+    "cv02" 1,
+    "cv03" 1,
+    "cv04" 1,
+    "tnum" 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: geometricPrecision;
@@ -149,7 +134,7 @@ button {
 .curve {
   fill: none;
   stroke: var(--low);
-  stroke-width: 1.25;
+  stroke-width: calc(1.25px * var(--camera-scale, 1));
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
@@ -157,12 +142,12 @@ button {
 }
 .curve.selected {
   stroke: var(--line);
-  stroke-width: 1.9;
+  stroke-width: calc(1.9px * var(--camera-scale, 1));
 }
 .hit {
   fill: none;
   stroke: transparent;
-  stroke-width: 32;
+  stroke-width: calc(32px * var(--camera-scale, 1));
   pointer-events: stroke;
   cursor: pointer;
 }
@@ -170,7 +155,6 @@ button {
   fill: none;
   stroke: var(--stem);
   stroke-width: 1.15;
-  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 .stem.nav {
@@ -188,7 +172,10 @@ button {
   line-height: 1;
   letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum" 1, "zero" 1, "cv02" 1;
+  font-feature-settings:
+    "tnum" 1,
+    "zero" 1,
+    "cv02" 1;
   pointer-events: none;
   paint-order: stroke;
   stroke: var(--paper);
@@ -226,8 +213,11 @@ button {
   pointer-events: none;
   overflow: visible;
   color: var(--accent);
-  filter: drop-shadow(0 0 2.5px var(--paper)) drop-shadow(0 0 1.5px var(--paper));
-  transition: color 0.2s ease, transform 0.2s ease;
+  filter: drop-shadow(0 0 2.5px var(--paper))
+    drop-shadow(0 0 1.5px var(--paper));
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
 }
 .label-icon.nav {
   color: var(--amber);
@@ -250,7 +240,6 @@ button {
   stroke: var(--amber);
   stroke-width: 1.25;
   stroke-dasharray: 3 3;
-  vector-effect: non-scaling-stroke;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -281,14 +270,15 @@ button {
 /* 线条扫过区域变色边界描边 */
 #portalStroke {
   fill: none;
-  stroke-width: 2.3;
+  stroke-width: calc(2.3px * var(--camera-scale, 1));
   pointer-events: none;
   opacity: 0;
 }
 #portalEchoStroke {
   fill: none;
-  stroke-width: 1.2;
-  stroke-dasharray: 4 4;
+  stroke-width: calc(1.2px * var(--camera-scale, 1));
+  stroke-dasharray: calc(4px * var(--camera-scale, 1))
+    calc(4px * var(--camera-scale, 1));
   pointer-events: none;
   opacity: 0;
 }
@@ -333,8 +323,7 @@ article.note[hidden] {
   pointer-events: none !important;
 }
 article.note .eyebrow {
-  font:
-    500 10px/1.5 var(--font-mono);
+  font: 500 10px/1.5 var(--font-mono);
   letter-spacing: 0.14em;
   font-variant-numeric: tabular-nums;
   color: var(--quiet);
@@ -362,8 +351,7 @@ article.note.is-long p {
   margin: 0 0 10px;
 }
 article.note .tail {
-  font:
-    500 9.5px/1.5 var(--font-mono);
+  font: 500 9.5px/1.5 var(--font-mono);
   letter-spacing: 0.13em;
   color: var(--quiet);
   padding-top: 4px;
@@ -622,8 +610,7 @@ article.note .inline-ref:focus-visible {
 }
 .search-status {
   margin-top: 5px;
-  font:
-    10px/1.45 var(--font-mono);
+  font: 10px/1.45 var(--font-mono);
   letter-spacing: 0.06em;
   color: var(--quiet);
 }
@@ -649,6 +636,8 @@ article.note .inline-ref:focus-visible {
   width: min(72vw, 320px);
   height: auto;
   overflow: visible;
+  transform: scale(var(--camera-scale, 1));
+  transform-origin: center;
 }
 #loadingFigure .core {
   stroke: url(#ink-gradient);
@@ -685,8 +674,7 @@ article.note .inline-ref:focus-visible {
   left: 28px;
   bottom: 22px;
   max-width: min(580px, 88vw);
-  font:
-    11px/1.75 var(--font-mono);
+  font: 11px/1.75 var(--font-mono);
   letter-spacing: 0.06em;
   color: var(--quiet);
   pointer-events: none;
@@ -751,16 +739,25 @@ article.note .inline-ref:focus-visible {
 .page-leaf {
   pointer-events: none;
 }
-.page-leaf .label-hit { pointer-events: all; }
-.tag-group.turning .page-leaf .label-hit { pointer-events: none; }
-#reading { perspective: 1400px; perspective-origin: 50% 50%; }
+.page-leaf .label-hit {
+  pointer-events: all;
+}
+.tag-group.turning .page-leaf .label-hit {
+  pointer-events: none;
+}
+#reading {
+  perspective: 1400px;
+  perspective-origin: 50% 50%;
+}
 article.note {
   transform-origin: 0 50%;
   transform-style: preserve-3d;
   backface-visibility: hidden;
 }
 @media (prefers-reduced-motion: reduce) {
-  #reading { perspective: none; }
+  #reading {
+    perspective: none;
+  }
 }
 
 /* v4: the semantic hinge is unchanged when reading content chooses the other
@@ -769,20 +766,31 @@ article.note[data-side="left"].is-long::before {
   left: calc(100% + 5px);
 }
 @media (max-width: 700px) {
-  article.note { font-size: 15px; line-height: 1.65; }
-  .label { font-size: 16.5px; }
-  .hit { stroke-width: 44px; }
+  article.note {
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .label {
+    font-size: 16.5px;
+  }
+  .hit {
+    stroke-width: calc(44px * var(--camera-scale, 1));
+  }
 }
 
 /* Preserve custom keyboard focus feedback without the browser's default SVG box. */
-.tag-group:focus { outline: none; }
-.tag-group:focus-visible .label-ring { opacity: 1; }
+.tag-group:focus {
+  outline: none;
+}
+.tag-group:focus-visible .label-ring {
+  opacity: 1;
+}
 
 /* 失去焦点枢的传统内部径向刻线与焦点圆点（不显示任何文字标签） */
 .inner-trace {
   fill: none;
   stroke: var(--decor-strong);
-  stroke-width: 1.05;
+  stroke-width: calc(1.05px * var(--camera-scale, 1));
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
@@ -834,27 +842,26 @@ article.note[data-side="left"].is-long::before {
 }
 .hud-btn {
   appearance: none;
-  border: 1px solid color-mix(in srgb, var(--low) 55%, transparent);
-  background: color-mix(in srgb, var(--paper) 86%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  border: 0;
+  background: transparent;
   color: var(--ink);
   font-family: var(--font-symbol);
   font-size: 13px;
   font-weight: 560;
   line-height: 1;
   padding: 8px 12px;
-  border-radius: 999px;
+  border-radius: 0;
   cursor: pointer;
-  transition:
-    color 0.18s ease,
-    border-color 0.18s ease,
-    background-color 0.18s ease;
+  transition: color 0.18s ease;
 }
 .hud-btn:hover:not(:disabled),
 .hud-btn[aria-pressed="true"] {
   color: var(--amber);
-  border-color: var(--amber);
+}
+.hud-btn:focus-visible {
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 .hud-btn:disabled {
   opacity: 0.36;
