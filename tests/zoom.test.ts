@@ -110,7 +110,7 @@ test("zoom preserves reading layout and text offset while scaling labels and art
       const anchorY = Number.parseFloat(
         article.style.transformOrigin.split(" ")[1],
       );
-      const translation = /translate3d\(([^,]+)px,([^,]+)px,0\)/.exec(
+      const translation = /translate3d\(([^,]+)px,\s*([^,]+)px,\s*0(?:px)?\)/.exec(
         article.style.transform,
       )!;
       const originX = Number.parseFloat(

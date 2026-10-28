@@ -3,6 +3,7 @@ interface InputPort {
   dispatch(command: Command): void;
   pan(delta: Vec, start: Camera): void;
   zoom(factor: number, point: Vec): void;
+  rotate?(deltaDeg: number, point?: Vec): void;
   camera(): Camera;
   grasp(delta: number | null): void;
   graspGeometry(): {
@@ -40,6 +41,7 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
   let compositionCommitted: string | null = null;
   const pointers = new Map<number, Vec>();
   let pinchDistance: number | null = null;
+  let pinchAngle: number | null = null;
   const element = (target: EventTarget | null) =>
     target instanceof Element ? target : null;
   const point = (e: PointerEvent | WheelEvent): Vec => ({
@@ -110,6 +112,7 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
         if (drag?.mode === "grasp") port.grasp(null);
         const [a, b] = [...pointers.values()];
         pinchDistance = Math.hypot(a.x - b.x, a.y - b.y);
+        pinchAngle = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
         drag = null;
         return;
       }
@@ -157,12 +160,25 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, point(e));
       if (pointers.size === 2 && pinchDistance !== null) {
         const [a, b] = [...pointers.values()],
-          distance = Math.hypot(a.x - b.x, a.y - b.y);
-        port.zoom(distance / Math.max(1, pinchDistance), {
-          x: (a.x + b.x) / 2,
-          y: (a.y + b.y) / 2,
-        });
+          distance = Math.hypot(a.x - b.x, a.y - b.y),
+          angle = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI,
+          midpoint = {
+            x: (a.x + b.x) / 2,
+            y: (a.y + b.y) / 2,
+          };
+        if (distance > 1 && pinchDistance > 1) {
+          port.zoom(distance / pinchDistance, midpoint);
+        }
+        if (pinchAngle !== null && port.rotate) {
+          let deltaAngle = angle - pinchAngle;
+          if (deltaAngle > 180) deltaAngle -= 360;
+          if (deltaAngle < -180) deltaAngle += 360;
+          if (Math.abs(deltaAngle) > 1e-4) {
+            port.rotate(deltaAngle, midpoint);
+          }
+        }
         pinchDistance = distance;
+        pinchAngle = angle;
         suppressClick = true;
         return;
       }
@@ -226,7 +242,10 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
   );
   const release = (e: PointerEvent) => {
     pointers.delete(e.pointerId);
-    if (pointers.size < 2) pinchDistance = null;
+    if (pointers.size < 2) {
+      pinchDistance = null;
+      pinchAngle = null;
+    }
     if (drag?.id === e.pointerId) {
       if (drag.mode === "grasp" && drag.moved) port.grasp(null);
       drag = null;
@@ -266,7 +285,14 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
     "wheel",
     (e) => {
       if (port.loading()) return;
-      if (e.altKey || e.ctrlKey || e.metaKey || port.overview()) {
+      if (e.altKey) {
+        e.preventDefault();
+        const rawDelta =
+          Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        port.rotate?.(rawDelta * 0.12);
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || port.overview()) {
         e.preventDefault();
         port.zoom(Math.exp(-e.deltaY * 0.0015), point(e));
         return;

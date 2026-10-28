@@ -79,14 +79,17 @@ export class ArticleRenderer {
         const valBox = document.createElement("div");
         valBox.className = "list-val";
         if (valText.includes(" | ")) {
+          valBox.classList.add("is-options");
           valBox.append(
             this.buildHorizontalList(valText.split(" | "), hubMorph),
           );
         } else {
+          valBox.classList.add("is-prose");
           this.appendFormattedText(valBox, valText, hubMorph);
         }
         li.append(keySpan, valBox);
       } else {
+        li.classList.add("is-plain-item");
         this.appendFormattedText(li, line, hubMorph);
       }
       ul.append(li);

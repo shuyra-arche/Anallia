@@ -5,13 +5,20 @@ import { Window } from "happy-dom";
 import { Field } from "../src/application/field.ts";
 import { Catalog } from "../src/content/catalog.ts";
 import { hubDefinitions, rawContent } from "../src/content/field.ts";
-import { placeReading } from "../src/core/layout.ts";
+import {
+  placeReading,
+  readingHeight,
+  readingWidth,
+  resolveReadingClip,
+} from "../src/core/layout.ts";
 import { Scene } from "../src/rendering/scene.ts";
+import { bindInput } from "../src/platform/input.ts";
 import {
   material,
   nodeS,
   outwardNormal,
   worldToScreen,
+  hubToScreen,
 } from "../src/geometry/field.ts";
 import { rot, unwrapAngle } from "../src/core/math.ts";
 
@@ -137,7 +144,7 @@ test("direct circle grasp retains the projected circle center instead of using t
   assert.equal(f.isAnimating, false);
 });
 
-test("measured long-text windows fit on small and large screens in all directions without overlapping geometry", () => {
+test("measured long-text windows fit on small and large screens in all directions with a single faded boundary", () => {
   for (const viewport of [
     { width: 320, height: 700 },
     { width: 708, height: 884 },
@@ -157,11 +164,14 @@ test("measured long-text windows fit on small and large screens in all direction
     const host = window.document.querySelector("#scene")!;
     const scene = new Scene(host as unknown as HTMLElement, f.catalog);
     scene.render(f.state);
-    const content = host.querySelector("#text-a0 .note-content")!;
+    const article = host.querySelector<HTMLElement>("#text-a0")!;
+    const windowEl = article.querySelector<HTMLElement>(".note-window")!;
+    const content = article.querySelector<HTMLElement>(".note-content")!;
     Object.defineProperty(content, "offsetHeight", { get: () => 1800 });
     try {
       for (const angle of [-180, -120, -90, -40, 0, 45, 90, 140, 180]) {
         f.hub.angle = f.hub.readingBearing = angle;
+        f.hub.textOffset = f.hub.textOffsetTarget = 0;
         f.resize(viewport);
         settle();
         scene.invalidateLayout();
@@ -200,9 +210,16 @@ test("measured long-text windows fit on small and large screens in all direction
               (x - anchor.x) * n.x + (y - anchor.y) * n.y >=
                 75 * f.state.camera.z,
             );
-        const max = Number(
-          host.querySelector<HTMLElement>("#text-a0")!.dataset.maxFloat,
-        );
+        const expectedEdge = n.y < 0 ? "bottom" : "top";
+        assert.equal(article.dataset.clipEdge, expectedEdge);
+        if (expectedEdge === "bottom") {
+          assert.equal(windowEl.dataset.clipFade, "bottom");
+          assert.match(windowEl.style.maskImage, /^linear-gradient\(to top/);
+        } else {
+          assert.equal(windowEl.dataset.clipFade, "none");
+          assert.equal(windowEl.style.maskImage, "none");
+        }
+        const max = Number(article.dataset.maxFloat);
         assert.ok(max > 0);
         f.dispatch({ type: "float-text", delta: 9000, maxOffset: max });
         settle();
@@ -214,12 +231,179 @@ test("measured long-text windows fit on small and large screens in all direction
           Math.abs(floatY + max) <= 0.51,
           "the end of the long article is reachable",
         );
+        if (expectedEdge === "top") {
+          assert.equal(windowEl.dataset.clipFade, "top");
+          assert.match(windowEl.style.maskImage, /^linear-gradient\((?:to bottom,\s*)?rgba\(0,\s*0,\s*0,\s*0\)/);
+        } else {
+          assert.equal(windowEl.dataset.clipFade, "none");
+          assert.equal(windowEl.style.maskImage, "none");
+        }
       }
     } finally {
       scene.destroy();
       window.close();
       Object.assign(globalThis, { document: saved });
     }
+  }
+});
+
+test("single truncation boundary and reading size strategy keep long lines and super-long texts balanced", () => {
+  for (const w of [320, 708, 1366, 1920]) {
+    const v = { width: w, height: 900 };
+    assert.ok(readingWidth(v, true) <= 364);
+    assert.ok(readingWidth(v, false) <= 316);
+    assert.ok(readingHeight(v, 0.25, 0) <= 430);
+    assert.ok(readingHeight(v, 1, 1) < readingHeight(v, 1, 0));
+  }
+  const topClip = resolveReadingClip({ x: 0, y: 1 }, 1600, 400, 120);
+  assert.equal(topClip.edge, "top");
+  assert.ok(topClip.fadePx > 0);
+  assert.equal(topClip.windowMarginTop, 0);
+  assert.equal(topClip.windowHeight, 1480);
+  const bottomClip = resolveReadingClip({ x: 0, y: -1 }, 1600, 400, 120);
+  assert.equal(bottomClip.edge, "bottom");
+  assert.ok(bottomClip.fadePx > 0);
+  assert.equal(bottomClip.windowMarginTop, -120);
+  assert.equal(bottomClip.windowPaddingTop, 120);
+  assert.equal(bottomClip.windowHeight, 520);
+});
+
+test("manual camera rotation via Alt+wheel and two-finger touch pins the reading anchor and preserves readingBearing", () => {
+  const window = new Window({ width: 1200, height: 800 });
+  const keys = [
+    "window",
+    "document",
+    "Element",
+    "HTMLElement",
+    "HTMLInputElement",
+    "AbortController",
+  ] as const;
+  const saved = Object.fromEntries(
+    keys.map((key) => [key, (globalThis as Record<string, unknown>)[key]]),
+  );
+  Object.assign(globalThis, {
+    window,
+    document: window.document,
+    Element: window.Element,
+    HTMLElement: window.HTMLElement,
+    HTMLInputElement: window.HTMLInputElement,
+    AbortController: window.AbortController,
+  });
+  window.document.write(
+    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+      /<script[^>]*>[\s\S]*?<\/script>/g,
+      "",
+    ),
+  );
+  const host = window.document.querySelector("#scene")! as unknown as HTMLElement;
+  const f = new Field(new Catalog(hubDefinitions, rawContent), {
+    width: 1200,
+    height: 800,
+  });
+  const settle = advance(f);
+  f.dispatch({ type: "navigate", target: "a1" });
+  settle();
+  const scene = new Scene(host, f.catalog);
+  const dispose = bindInput(host, {
+    dispatch: (command) => f.dispatch(command),
+    pan: (delta, start) => f.pan(delta, start),
+    zoom: (factor, point) => f.zoom(factor, point),
+    rotate: (deltaDeg, point) => f.rotate(deltaDeg, point),
+    camera: () => f.state.camera,
+    grasp: (delta) => f.grasp(delta),
+    graspGeometry: () => f.graspGeometry(),
+    overview: () => f.state.overview,
+    loading: () => f.state.loading,
+    exitLoading: () => {},
+    resolve: (key) => scene.actions.get(key),
+  });
+  try {
+    const readingAnchorScreen = () => {
+      const along = nodeS(
+        f.hub,
+        f.hub.scroll,
+        f.siblings().length,
+        f.state.camera,
+        f.state.viewport,
+      );
+      return hubToScreen(
+        f.hub,
+        material(f.hub, along, 76),
+        f.state.camera,
+        f.state.viewport,
+      );
+    };
+    const anchorBefore = readingAnchorScreen();
+    const rotBefore = f.state.camera.rotation;
+    const zBefore = f.state.camera.z;
+    host.dispatchEvent(
+      new window.WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        altKey: true,
+        deltaY: 250,
+      }),
+    );
+    const anchorAfter = readingAnchorScreen();
+    near(anchorAfter.x, anchorBefore.x);
+    near(anchorAfter.y, anchorBefore.y);
+    near(f.state.camera.z, zBefore);
+    near(f.state.camera.rotation, rotBefore + 30);
+    const manualBearing = f.hub.readingBearing!;
+    // Stepping to the next chapter in circle mode preserves the manually rotated bearing
+    f.dispatch({ type: "step", delta: 1 });
+    settle();
+    assert.equal(f.selected().id, "a2");
+    near(f.hub.readingBearing!, manualBearing);
+
+    // Two-finger pinch + twist simultaneously zooms and rotates around midpoint
+    const rotBeforeTouch = f.state.camera.rotation;
+    const zBeforeTouch = f.state.camera.z;
+    host.dispatchEvent(
+      new window.PointerEvent("pointerdown", {
+        bubbles: true,
+        pointerId: 1,
+        pointerType: "touch",
+        clientX: 400,
+        clientY: 400,
+      }),
+    );
+    host.dispatchEvent(
+      new window.PointerEvent("pointerdown", {
+        bubbles: true,
+        pointerId: 2,
+        pointerType: "touch",
+        clientX: 600,
+        clientY: 400,
+      }),
+    );
+    window.dispatchEvent(
+      new window.PointerEvent("pointermove", {
+        pointerId: 2,
+        pointerType: "touch",
+        clientX: 400,
+        clientY: 600,
+      }),
+    );
+    window.dispatchEvent(
+      new window.PointerEvent("pointerup", {
+        pointerId: 1,
+        pointerType: "touch",
+      }),
+    );
+    window.dispatchEvent(
+      new window.PointerEvent("pointerup", {
+        pointerId: 2,
+        pointerType: "touch",
+      }),
+    );
+    near(f.state.camera.rotation, rotBeforeTouch + 90);
+    near(f.state.camera.z, zBeforeTouch);
+  } finally {
+    dispose();
+    scene.destroy();
+    window.close();
+    Object.assign(globalThis, saved);
   }
 });
 

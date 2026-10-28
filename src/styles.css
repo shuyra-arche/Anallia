@@ -293,7 +293,7 @@ article.note {
   position: absolute;
   left: 0;
   top: 0;
-  width: 340px;
+  width: 320px;
   padding: 0;
   margin: 0;
   pointer-events: auto;
@@ -331,23 +331,28 @@ article.note .eyebrow {
 }
 article.note h2 {
   font-weight: 620;
-  font-size: clamp(20px, 1.95vw, 27px);
-  letter-spacing: -0.032em;
-  line-height: 1.3;
+  font-size: clamp(18.5px, 1.65vw, 23.5px);
+  letter-spacing: -0.028em;
+  line-height: 1.34;
   margin: 0 0 11px;
   color: var(--ink);
+  text-wrap: balance;
+  overflow-wrap: break-word;
 }
 article.note p {
   font-size: 13.8px;
   line-height: 1.84;
-  text-align: justify;
+  text-align: left;
+  text-wrap: pretty;
+  overflow-wrap: break-word;
+  word-break: break-word;
   letter-spacing: 0.008em;
   color: var(--body-ink);
   margin: 0 0 11px;
 }
 article.note.is-long p {
   font-size: 13.4px;
-  line-height: 1.78;
+  line-height: 1.82;
   margin: 0 0 10px;
 }
 article.note .tail {
@@ -527,6 +532,11 @@ article.note .inline-ref:focus-visible {
   line-height: 1.65;
   color: var(--body-ink);
 }
+.shuyra-list.is-vertical > .shuyra-list-item.is-plain-item {
+  display: block;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
 .shuyra-list.is-vertical > .shuyra-list-item:last-child {
   border-bottom: 0;
 }
@@ -538,15 +548,25 @@ article.note .inline-ref:focus-visible {
   flex-shrink: 0;
 }
 .shuyra-list .list-val {
-  flex: 1 1 auto;
+  flex: 1 1 170px;
+  font-size: 12.8px;
+  line-height: 1.68;
+  color: var(--body-ink);
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.shuyra-list .list-val.is-options {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: flex-end;
   gap: 4px 8px;
   text-align: right;
-  font-size: 12.8px;
-  color: var(--body-ink);
+}
+.shuyra-list .list-val.is-prose {
+  display: block;
+  text-align: left;
+  text-wrap: pretty;
 }
 .shuyra-list.is-horizontal {
   display: flex;
@@ -873,7 +893,7 @@ article.note[data-side="left"].is-long::before {
 .hud-btn .inline-svg-icon { vertical-align: -2px; }
 .tag-group.is-active-symbol .label-icon { color: var(--amber); }
 
-/* The finite reading window keeps the circular/linear geometry out of long text. */
+/* Single hub-facing reading boundary with smooth gradient fade transition. */
 .note-window {
   height: 100%;
   overflow: hidden;

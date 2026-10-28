@@ -113,6 +113,7 @@ const disposeInput = bindInput(host, {
   dispatch: (command) => field.dispatch(command),
   pan: (delta, start) => field.pan(delta, start),
   zoom: (factor, point) => field.zoom(factor, point),
+  rotate: (deltaDeg, point) => field.rotate(deltaDeg, point),
   camera: () => field.state.camera,
   grasp: (delta) => field.grasp(delta),
   graspGeometry: () => field.graspGeometry(),

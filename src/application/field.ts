@@ -869,6 +869,53 @@ export class Field {
     const after = screenToWorld(point, s.camera, s.viewport);
     Object.assign(s.camera, add(s.camera, sub(before, after)));
   }
+  /**
+   * Manually rotate the camera (via Alt+wheel around the focused reading anchor,
+   * or two-finger touch twist around the gesture midpoint) and preserve the new
+   * outward reading bearing when subsequently stepping through chapters.
+   */
+  rotate(deltaDeg: number, screenPoint?: Vec) {
+    if (
+      !Number.isFinite(deltaDeg) ||
+      Math.abs(deltaDeg) < 1e-6 ||
+      this.state.loading ||
+      this.state.passage ||
+      this.state.contentTurn ||
+      this.state.morphTurn
+    )
+      return;
+    this.tween = null;
+    this.follow = false;
+    this.autoFit = false;
+    const s = this.state;
+    const nextRotation = s.camera.rotation + deltaDeg;
+    if (screenPoint) {
+      const worldPivot = screenToWorld(screenPoint, s.camera, s.viewport);
+      Object.assign(s.camera, orbitCamera(s.camera, worldPivot, nextRotation));
+    } else if (s.overview) {
+      const center = { x: s.viewport.width / 2, y: s.viewport.height / 2 };
+      const worldPivot = screenToWorld(center, s.camera, s.viewport);
+      Object.assign(s.camera, orbitCamera(s.camera, worldPivot, nextRotation));
+    } else {
+      const hub = this.hub;
+      const count = this.siblings().length;
+      const along = nodeS(hub, hub.scroll, count, s.camera, s.viewport);
+      const readingAnchor = material(hub, along, 76);
+      Object.assign(
+        s.camera,
+        orbitCamera(s.camera, readingAnchor, nextRotation),
+      );
+    }
+    if (!s.overview) {
+      const hub = this.hub;
+      const count = this.siblings().length;
+      const along = nodeS(hub, hub.scroll, count, s.camera, s.viewport);
+      const n = outwardNormal(hub, along);
+      hub.readingStart = hub.scroll;
+      hub.readingBearing =
+        s.camera.rotation + (Math.atan2(n.y, n.x) * 180) / Math.PI;
+    }
+  }
   get isAnimating(): boolean {
     return !!(
       this.tween ||

@@ -1,6 +1,11 @@
 import { ArticleRenderer } from "./article.ts";
 import { LocalLabelTurns } from "./local-labels.ts";
-import { placeReading, readingHeight, readingWidth } from "../core/layout.ts";
+import {
+  placeReading,
+  readingHeight,
+  readingWidth,
+  resolveReadingClip,
+} from "../core/layout.ts";
 import { frameRateFromAction } from "../core/frame-rate.ts";
 import { backgroundFromAction } from "../core/background.ts";
 import type {
@@ -1022,6 +1027,10 @@ export class Scene {
           s.camera,
           s.viewport,
         );
+        const normal = rot(
+          outwardNormal(hub, position),
+          (s.camera.rotation * Math.PI) / 180,
+        );
         const isLong = article.classList.contains("is-long");
         const widthPx = readingWidth(s.viewport, isLong);
         const widthStr = `${widthPx.toFixed(1)}px`;
@@ -1036,7 +1045,7 @@ export class Scene {
         }
         const panelHeight = Math.min(
           height,
-          readingHeight(s.viewport, s.camera.z),
+          readingHeight(s.viewport, s.camera.z, normal.y),
         );
         const panelHeightStr = `${panelHeight.toFixed(1)}px`;
         if (article.style.height !== panelHeightStr)
@@ -1053,10 +1062,32 @@ export class Scene {
         const floatTransform = `translateY(${-activeFloat.toFixed(2)}px)`;
         if (content.style.transform !== floatTransform)
           content.style.transform = floatTransform;
-        const normal = rot(
-          outwardNormal(hub, position),
-          (s.camera.rotation * Math.PI) / 180,
+        const clip = resolveReadingClip(
+          normal,
+          height,
+          panelHeight,
+          activeFloat,
         );
+        const windowEl = article.querySelector<HTMLElement>(".note-window")!;
+        if (article.dataset.clipEdge !== clip.edge)
+          article.dataset.clipEdge = clip.edge;
+        const fadeState = clip.fadePx > 0.5 ? clip.edge : "none";
+        if (windowEl.dataset.clipFade !== fadeState)
+          windowEl.dataset.clipFade = fadeState;
+        const winMarginTop = `${clip.windowMarginTop.toFixed(1)}px`;
+        if (windowEl.style.marginTop !== winMarginTop)
+          windowEl.style.marginTop = winMarginTop;
+        const winPaddingTop = `${clip.windowPaddingTop.toFixed(1)}px`;
+        if (windowEl.style.paddingTop !== winPaddingTop)
+          windowEl.style.paddingTop = winPaddingTop;
+        const winHeight = `${clip.windowHeight.toFixed(1)}px`;
+        if (windowEl.style.height !== winHeight)
+          windowEl.style.height = winHeight;
+        if (windowEl.dataset.maskSpec !== clip.maskImage) {
+          windowEl.dataset.maskSpec = clip.maskImage;
+          windowEl.style.maskImage = clip.maskImage;
+          windowEl.style.webkitMaskImage = clip.maskImage;
+        }
         const placement = placeReading(
           anchorPt,
           normal,

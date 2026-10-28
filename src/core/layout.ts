@@ -3,10 +3,10 @@ import type { Vec, Viewport } from "./types.ts";
 export function readingWidth(viewport: Viewport, long: boolean): number {
   const width = viewport.width;
   return width < 700
-    ? Math.min(285, Math.max(185, width * 0.62))
+    ? Math.min(268, Math.max(185, width * 0.58))
     : long
-      ? Math.min(435, Math.max(305, width * 0.34))
-      : Math.min(355, Math.max(265, width * 0.29));
+      ? Math.min(364, Math.max(284, width * 0.27))
+      : Math.min(316, Math.max(244, width * 0.23));
 }
 
 export interface ReadingPlacement {
@@ -44,8 +44,96 @@ export function placeReading(
   };
 }
 
-export function readingHeight(viewport: Viewport, scale: number): number {
-  return Math.max(80, (viewport.height - 144) / scale);
+export function readingHeight(
+  viewport: Viewport,
+  scale = 1,
+  normalY = 0,
+): number {
+  const safeScale = Math.max(0.18, scale);
+  const verticalBias = Math.min(1, Math.abs(normalY));
+  const viewportCap = (viewport.height - 144) / safeScale;
+  const localCap = Math.max(
+    360,
+    Math.min(430 - 65 * verticalBias, viewport.height * 0.56),
+  );
+  return Math.max(80, Math.min(viewportCap, localCap));
+}
+
+export type ReadingClipEdge = "top" | "bottom";
+
+export interface ReadingClipState {
+  /** The single truncation boundary that prevents long text from overlapping the hub. */
+  edge: ReadingClipEdge;
+  /** Fade transition band depth in local article pixels (0 when no text crosses the boundary). */
+  fadePx: number;
+  /** CSS mask-image value for the single truncation boundary ("none" when inactive). */
+  maskImage: string;
+  /** Local window top margin adjustment (negative when extending open top upward). */
+  windowMarginTop: number;
+  /** Local window top padding adjustment (positive when extending open top upward). */
+  windowPaddingTop: number;
+  /** Local window height so only `edge` truncates while the opposite side stays open. */
+  windowHeight: number;
+}
+
+export const READING_CLIP_FADE_PX = 48;
+
+/**
+ * Dynamically determine the single truncation boundary (`top` vs `bottom`) from the
+ * outward tangent normal so long text never overlaps the hub while the opposite side
+ * remains open, with a smooth alpha gradient transition at the active boundary.
+ */
+export function resolveReadingClip(
+  normal: Vec,
+  contentHeight: number,
+  panelHeight: number,
+  activeFloat: number,
+): ReadingClipState {
+  const edge: ReadingClipEdge = normal.y < 0 ? "bottom" : "top";
+  if (edge === "top") {
+    const overflowPx = Math.max(0, activeFloat);
+    const fadePx =
+      overflowPx > 1
+        ? Math.min(READING_CLIP_FADE_PX, overflowPx * 1.25, panelHeight * 0.45)
+        : 0;
+    const maskImage =
+      fadePx > 0
+        ? `linear-gradient(to bottom, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0.38) ${(fadePx * 0.45).toFixed(1)}px, rgba(0, 0, 0, 1) ${fadePx.toFixed(1)}px)`
+        : "none";
+    return {
+      edge,
+      fadePx,
+      maskImage,
+      windowMarginTop: 0,
+      windowPaddingTop: 0,
+      windowHeight: Math.max(panelHeight, contentHeight - activeFloat),
+    };
+  }
+  const topExtend = Math.max(0, activeFloat);
+  const bottomOverflowPx = Math.max(
+    0,
+    contentHeight - panelHeight - activeFloat,
+  );
+  const fadePx =
+    bottomOverflowPx > 1
+      ? Math.min(
+          READING_CLIP_FADE_PX,
+          bottomOverflowPx * 1.25,
+          panelHeight * 0.45,
+        )
+      : 0;
+  const maskImage =
+    fadePx > 0
+      ? `linear-gradient(to top, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0.38) ${(fadePx * 0.45).toFixed(1)}px, rgba(0, 0, 0, 1) ${fadePx.toFixed(1)}px)`
+      : "none";
+  return {
+    edge,
+    fadePx,
+    maskImage,
+    windowMarginTop: -topExtend,
+    windowPaddingTop: topExtend,
+    windowHeight: panelHeight + topExtend,
+  };
 }
 
 export interface AdaptiveLayout {
