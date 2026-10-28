@@ -22,3 +22,17 @@
 回归测试覆盖静态零写入、背景路径更新预算、高刷新率帧率上限、后台暂停和动画完全收敛。实际 CPU 降幅和视觉流畅度仍需在用户浏览器中确认。
 
 设置枢的「帧率与显示」可选择省电自适应、30 / 60 / 90 / 120 FPS 或跟随屏幕刷新率。最高档不额外限制浏览器帧回调，波场仍独立限频采样；更高帧率会增加工作量。模拟 240Hz 回调的测试验证最高档会逐帧更新，这不是实际显示器帧率测量。
+
+## 2026-10-29 重构基线
+
+基线提交为 `79d7c5d`，Chromium 156、Linux、1366×820、DPR 1。自动化环境报告 ANGLE / SwiftShader Vulkan 软件 GPU，不能作为真实显卡性能验收。
+
+在 m3 阅读页面连续圆线变形 30 秒：rAF 间隔 P95 16.7ms、Field 更新 P95 0.1ms、Scene 更新 P95 1.2ms，未记录到长任务。rAF 间隔不等于完成绘制帧率；这些数值只用于同环境回归对照。
+
+原始数据与 a0/m3 截图保存在工作目录 `work/refactor-20261029/`。真实移动设备触控、第二设备局域网与真实 GPU 性能需要单独验收。
+
+## Test resource limits
+
+`npm test` runs files serially in an independent Linux user-systemd unit with a 1 GiB process-group memory cap, no swap, a 256 MiB JavaScript heap per process, a 15 second test timeout and a 120 second hard wall-clock limit. Core dumps are disabled. The runner refuses to start without the user systemd bus. A test failure involving DOM objects can make assertion formatting expensive; use boolean identity assertions for DOM identity checks. These limits protect the desktop while reporting a failed run; they do not replace fixing the cause.
+
+Browser checks use `npm run test:browser`: one worker, a 3 GiB process-group cap, no swap, 150% CPU quota and a 110 second hard limit. These checks establish behavior, not timing targets. GitHub Pages uses serial tests in its isolated job, with a 256 MiB JavaScript heap and a three minute step timeout, because that runner has no desktop user-systemd session.
