@@ -10,7 +10,7 @@ import type {
   Presentation,
   SearchIndexEntry,
 } from "../core/content.ts";
-import { parseContent } from "./parser.ts";
+import { parseContent, updateContent } from "./parser.ts";
 import {
   buildSearchEntry,
   buildSearchHaystack,
@@ -342,7 +342,7 @@ export class Catalog {
     state.text = text;
     state.complete = complete;
     state.version++;
-    state.document = undefined;
+    state.document = state.document ? updateContent(state.document, text, complete) : undefined;
     if (!complete) return;
     const entry = this.searchIndex.get(sourceId);
     if (entry) updateSearchEntry(entry, presentation, text);

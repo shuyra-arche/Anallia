@@ -1040,7 +1040,7 @@ export const contentManifest: ContentManifest = {
     "id": "s3",
     "name": "⚙₃",
     "parent": "s0",
-    "title": "Loading V24 动效与扫掠变色变体",
+    "title": "加载与持续接收",
     "hub": "S",
     "refs": [
       {

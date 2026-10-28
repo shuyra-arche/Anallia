@@ -128,3 +128,21 @@ test("list items preserve key, value, options and absolute ranges", () => {
           : inline.text,
       );
 });
+
+test("every UTF-16 chunk boundary has the same final parse and reuses stable prefix blocks", async () => {
+  const { updateContent } = await import("../src/content/parser.ts");
+  const text = "稳定第一段。\n\n中文 👩‍💻 e\u0301 {跨块引用|a1}\n\n[vlist]\n标题 :: {选项|b0} | 普通文字\n\n末段。";
+  const expected = parseContent(text);
+  for (let split = 0; split <= text.length; split++) {
+    const partial = parseContent(text.slice(0, split), false);
+    const result = updateContent(partial, text, true);
+    assert.deepEqual(result, expected, `split ${split}`);
+  }
+  let document = parseContent("", false);
+  for (let i = 1; i <= text.length; i++) document = updateContent(document, text.slice(0, i), false);
+  assert.deepEqual(updateContent(document, text, true), expected);
+  const first = parseContent("稳定段落\n\n流入末段", false);
+  const next = updateContent(first, "稳定段落\n\n流入末段继续", false);
+  assert.ok(first.blocks[0] === next.blocks[0]);
+  assert.ok(first.blocks[1] !== next.blocks[1]);
+});

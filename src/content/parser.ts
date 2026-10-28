@@ -291,6 +291,7 @@ function createBlock(
 export function parseContent(
   source: string,
   complete = true,
+  from = 0,
 ): ContentDocument {
   const candidates: {
     start: number;
@@ -298,10 +299,10 @@ export function parseContent(
     rawEnd: number;
     isTail: boolean;
   }[] = [];
-  let cursor = 0;
+  let cursor = from;
   const separator = /\n{2,}/g;
-  for (const match of source.matchAll(separator)) {
-    const rawEnd = match.index!;
+  for (const match of source.slice(from).matchAll(separator)) {
+    const rawEnd = from + match.index!;
     const range = trimRange(source, cursor, rawEnd);
     candidates.push({ ...range, rawEnd, isTail: false });
     cursor = rawEnd + match[0].length;
@@ -340,6 +341,22 @@ export function parseContent(
     source: { value: source, enumerable: false },
     complete: { value: complete, enumerable: false },
   });
+  return document;
+}
+
+/** Preserve stable blocks and reparse only the growing suffix on append. */
+export function updateContent(previous: ContentDocument, source: string, complete = true): ContentDocument {
+  if (!source.startsWith(previous.source) || previous.blocks.length < 2)
+    return parseContent(source, complete);
+  let count = 0;
+  while (count < previous.blocks.length - 1 && previous.blocks[count].stable) count++;
+  if (!count) return parseContent(source, complete);
+  const prefix = previous.blocks.slice(0, count);
+  const suffix = parseContent(source, complete, previous.blocks[count].sourceStart);
+  const blocks = [...prefix, ...suffix.blocks];
+  const references = [...prefix.flatMap(block => block.inline.filter((inline): inline is ReferenceInline => inline.type === "reference")), ...suffix.references];
+  const document = { blocks, references } as ContentDocument;
+  Object.defineProperties(document, { source: { value: source }, complete: { value: complete } });
   return document;
 }
 

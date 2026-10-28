@@ -10,7 +10,12 @@
     "build": "npm run check && vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort",
     "build:pages": "npm run build -- --base=/Anallia/",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "content:generate": "node tools/content-manifest.mjs",
+    "content:check": "node tools/content-manifest.mjs --check",
+    "predev": "npm run content:generate",
+    "precheck": "npm run content:check",
+    "pretest": "npm run content:check"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
