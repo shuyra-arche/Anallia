@@ -1,3 +1,5 @@
+import type { RenderSample } from "../../src/core/render-profile.ts";
+import { summarizeRenderProfiles } from "../helpers/render-profile.ts";
 import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 
@@ -25,6 +27,12 @@ for (const renderer of ["auto", "svg", "gpu"]) {
       const debug = gl?.getExtension("WEBGL_debug_renderer_info");
       const gpu = gl && debug ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : "unknown";
       const routeIntervals: number[] = [], routeRenders: number[] = [];
+      const routeProfiles: RenderSample[] = [], streamProfiles: RenderSample[] = [];
+      let profileSamples = routeProfiles, profileDropped = 0;
+      app.scene.setRenderProfiler((sample: RenderSample) => {
+        if (profileSamples.length < 10000) profileSamples.push(sample);
+        else profileDropped++;
+      });
       const originalRender = app.scene.render.bind(app.scene);
       app.scene.render = (state: any) => { const start = performance.now(); const result = originalRender(state); routeRenders.push(performance.now() - start); return result; };
       await new Promise<void>(resolve => {
@@ -38,6 +46,7 @@ for (const renderer of ["auto", "svg", "gpu"]) {
         requestAnimationFrame(frame);
       });
       app.scene.render = originalRender;
+      app.scene.setRenderProfiler(null);
       if (app.field.hub.targetMorph < 0.5) app.field.dispatch({ type: "morph" });
       while (app.field.isAnimating) await new Promise(requestAnimationFrame);
       app.field.pan({ x: 0, y: 0 }, app.field.state.camera);
@@ -86,6 +95,11 @@ for (const renderer of ["auto", "svg", "gpu"]) {
         if (bookmark && baseline !== null) maxDrift = Math.max(maxDrift, Math.abs(bookmark.getBoundingClientRect().top - baseline));
         return result;
       };
+      profileSamples = streamProfiles;
+      app.scene.setRenderProfiler((sample: RenderSample) => {
+        if (profileSamples.length < 10000) profileSamples.push(sample);
+        else profileDropped++;
+      });
       app.useContentSource({ async *open(id: string, presentation: string, signal: AbortSignal) {
         if (id !== "m3" || presentation !== "line") { yield { type: "replace", text: app.field.catalog.get(id).expressions[presentation] }; return; }
         signal.addEventListener("abort", () => push(null), { once: true });
@@ -114,6 +128,7 @@ for (const renderer of ["auto", "svg", "gpu"]) {
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
       active = false;
+      app.scene.setRenderProfiler(null);
       app.reading.flush = originalFlush;
       app.scene.articleRenderer.syncArticle = originalSync;
       app.scene.articleRenderer.estimateArticleHeight = originalEstimate;
@@ -124,17 +139,46 @@ for (const renderer of ["auto", "svg", "gpu"]) {
         softwareGpu: /SwiftShader|llvmpipe|softpipe|software/i.test(gpu),
         requestedRenderer: new URLSearchParams(location.search).get("renderer"), renderer: app.scene.rendererKind, viewport: { width: innerWidth, height: innerHeight }, dpr: devicePixelRatio,
         resourceEnvelope: "tools/browser-test.mjs", build: "Vite development", hanCharacters: 100000,
+        profileVersion: 1, profileDropped,
         route: { seconds: 30, samples: routeIntervals.length, intervalP95: percentile(routeIntervals, 0.95), renderP95: percentile(routeRenders, 0.95) },
         stream: { samples: commits.length, intervalP95: percentile(streamIntervals, 0.95), commitP95: percentile(commits, 0.95), maxDrift, stableNodeConnected: bookmarkNode?.isConnected, complete: app.store.get("m3", "line").complete, sourceLength: app.store.get("m3", "line").text.length },
-        raw: { routeIntervals, routeRenders, streamIntervals, commits },
+        raw: { routeIntervals, routeRenders, streamIntervals, commits, routeProfiles, streamProfiles },
       };
     });
+    const measured = {
+      ...result,
+      route: { ...result.route, profile: summarizeRenderProfiles(result.raw.routeProfiles) },
+      stream: { ...result.stream, profile: summarizeRenderProfiles(result.raw.streamProfiles) },
+    };
     const report = testInfo.outputPath(`performance-${renderer}.json`);
-    await writeFile(report, JSON.stringify(result, null, 2));
+    await writeFile(report, JSON.stringify(measured, null, 2));
     await testInfo.attach(`performance-${renderer}.json`, { path: report, contentType: "application/json" });
-    const { raw: _, ...summary } = result;
-    console.info(JSON.stringify(summary));
+    const { raw: _, ...summary } = measured;
+    const compact = (profile: ReturnType<typeof summarizeRenderProfiles>) => {
+      const { full, cached, slowFrames: _, ...overall } = profile;
+      return { ...overall, fullSamples: full.samples, cachedSamples: cached.samples };
+    };
+    console.info(JSON.stringify({
+      ...summary,
+      route: { ...summary.route, profile: compact(summary.route.profile) },
+      stream: { ...summary.stream, profile: compact(summary.stream.profile) },
+    }));
     expect(errors).toEqual([]);
+    expect(result.profileDropped).toBe(0);
+    for (const samples of [result.raw.routeProfiles, result.raw.streamProfiles]) {
+      expect(samples.length).toBeGreaterThan(20);
+      for (const sample of samples) {
+        const sum = Object.values(sample.stages).reduce((sum, ms) => sum + ms!, 0);
+        expect(Math.abs(sum - sample.total)).toBeLessThan(0.001);
+        expect(Object.values(sample.stages).every(ms => Number.isFinite(ms) && ms! >= 0)).toBe(true);
+      }
+    }
+    expect(measured.route.profile.stages["scene.geometry"]?.samples).toBeGreaterThan(0);
+    expect(measured.stream.profile.stages["scene.reading"]?.samples).toBeGreaterThan(0);
+    if (result.renderer === "webgl") {
+      expect(measured.route.profile.stages["gpu.submit"]?.samples).toBeGreaterThan(0);
+      expect(measured.route.profile.stages["gpu.labels"]?.samples).toBeGreaterThan(0);
+    } else expect(measured.route.profile.stages["svg.render"]?.samples).toBeGreaterThan(0);
     expect(result.stream.complete).toBe(true);
     expect(result.stream.sourceLength).toBe(100998);
     expect(result.stream.samples).toBeGreaterThan(20);

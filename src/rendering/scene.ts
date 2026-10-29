@@ -1,3 +1,5 @@
+import { RenderProfiler } from "../core/render-profile.ts";
+import type { RenderProfileSink } from "../core/render-profile.ts";
 import { HoverFeedback } from "../core/hover-feedback.ts";
 import type { HoverChannel } from "../core/hover-feedback.ts";
 import { buildSceneFrame, symbolActivity } from "../geometry/scene-frame.ts";
@@ -63,6 +65,7 @@ export class Scene {
   }
   readonly actions = new Map<string, Command>();
   private lastRenderKey = "";
+  private renderProfiler: RenderProfiler | null = null;
   private readonly localLabelTurns = new LocalLabelTurns();
   private disposeFeedback: () => void = () => {};
   private symbolFeedback = new Map<string, SymbolInteractionState>();
@@ -394,8 +397,14 @@ export class Scene {
       soundBtn.setAttribute("aria-pressed", String(s.settings.sound !== false));
   }
 
+  setRenderProfiler(collect: RenderProfileSink | null, now: () => number = () => performance.now()): void {
+    this.renderProfiler = !this.destroyed && collect ? new RenderProfiler(collect, now) : null;
+  }
+
   render(s: FieldState) {
     if (this.destroyed) return;
+    const profile = this.renderProfiler;
+    profile?.begin();
     const focusedHub = s.hubs[s.focus];
     const focusedEntries =
       s.overview || s.loading
@@ -460,11 +469,18 @@ export class Scene {
         h.path,
       ]),
     ]);
+    profile?.mark("scene.prepare");
     if (key === this.lastRenderKey && !this.readingLayer.isSettling) {
       this.refreshBackgroundFrame(s);
-      if (this.gpu) this.gpu.render(this.currentFrame);
-      else this.svgRenderer.render(this.currentFrame);
+      profile?.mark("scene.background");
+      if (this.gpu) this.gpu.render(this.currentFrame, profile ?? undefined);
+      else {
+        this.svgRenderer.render(this.currentFrame);
+        profile?.mark("svg.render");
+      }
       if (this.host.dataset.renderer !== this.resolvedKind) this.host.dataset.renderer = this.resolvedKind;
+      profile?.mark("scene.host");
+      profile?.finish(this.resolvedKind, "cached");
       return;
     }
     this.lastRenderKey = key;
@@ -478,6 +494,7 @@ export class Scene {
         .trim();
       this.amberColors.set(visualTheme, color || BOUNDARY[visualTheme]);
     }
+    profile?.mark("scene.host");
     const built = buildSceneFrame(s, this.catalog, {
       renderer: this.resolvedKind,
       revision: ++this.frameRevision,
@@ -487,6 +504,7 @@ export class Scene {
       feedback: this.symbolFeedback,
       hoveredTarget: this.hoveredTarget,
     });
+    profile?.mark("scene.geometry");
     this.currentFrame = built.frame;
     this.host.style.setProperty("--camera-scale", String(s.camera.z));
     this.root.setAttribute(
@@ -511,13 +529,18 @@ export class Scene {
     for (const hit of this.currentFrame.hitRegions)
       this.actions.set(hit.id, hit.command);
     this.updateHudControls(s, built.useTraditionalHud);
+    profile?.mark("scene.host");
     this.currentFrame.reading = this.readingLayer.render(s);
+    profile?.mark("scene.reading");
     this.semanticLabels.render(this.currentFrame.labels);
+    profile?.mark("scene.labels");
     this.labels.style.pointerEvents =
       this.resolvedKind === "webgl" || s.passage ? "none" : "";
     this.appendLoadingFrame();
     this.currentFrame.layers.sort((a, b) => a.order - b.order);
+    profile?.mark("scene.compose");
     this.refreshBackgroundFrame(s);
+    profile?.mark("scene.background");
 
     this.currentFrame.rendererKind = this.resolvedKind;
     if (this.gpu) {
@@ -527,11 +550,17 @@ export class Scene {
           ? window.devicePixelRatio
           : 1);
       this.gpu.resize(s.viewport.width, s.viewport.height, dpr);
-      this.gpu.render(this.currentFrame);
-    } else this.svgRenderer.render(this.currentFrame);
+      profile?.mark("backend.resize");
+      this.gpu.render(this.currentFrame, profile ?? undefined);
+    } else {
+      this.svgRenderer.render(this.currentFrame);
+      profile?.mark("svg.render");
+    }
     if (this.host.dataset.renderer !== this.resolvedKind) this.host.dataset.renderer = this.resolvedKind;
     requireElement<HTMLElement>(this.host, "#descBar").textContent =
       s.description;
+    profile?.mark("scene.host");
+    profile?.finish(this.resolvedKind, "full");
   }
 
   private refreshBackgroundFrame(s: FieldState): void {
@@ -640,6 +669,7 @@ export class Scene {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.renderProfiler = null;
     this.disposeFeedback();
     this.hoverFeedback.clear();
     this.svgRenderer.destroy();

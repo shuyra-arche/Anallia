@@ -1,3 +1,4 @@
+import type { RenderProfiler } from "../../core/render-profile.ts";
 import { arcPoints } from "../../geometry/arc-points.ts";
 import { readGraphicsDevice } from "./device.ts";
 import type { GraphicsDevice } from "./device.ts";
@@ -242,15 +243,22 @@ export class PixiGraphicsRenderer {
     );
   }
 
-  render(frame: SceneFrame): void {
+  render(frame: SceneFrame, profile?: RenderProfiler): void {
     if (this.destroyed || this.lost) return;
     if (this.lastFrame === frame && this.lastRevision === frame.revision) {
-      if (this.lastBackground === frame.background) return;
+      if (this.lastBackground === frame.background) {
+        profile?.mark("gpu.prepare");
+        return;
+      }
       this.graphicsCursors.clear();
+      profile?.mark("gpu.prepare");
       this.drawBackground(frame, false);
+      profile?.mark("gpu.background");
       this.lastBackground = frame.background;
       this.stage.sortChildren();
+      profile?.mark("gpu.finalize");
       this.renderer.render(this.stage);
+      profile?.mark("gpu.submit");
       return;
     }
     this.lastFrame = frame;
@@ -288,17 +296,24 @@ export class PixiGraphicsRenderer {
         else this.drawPrimitive(root, primitive, frame);
       }
     };
+    profile?.mark("gpu.prepare");
     for (const layer of ordered)
       if (layer.id === "base") addLayer(layer.id, layer.primitives);
     this.drawPortalFill(frame);
+    profile?.mark("gpu.geometry");
     this.drawBackground(frame);
+    profile?.mark("gpu.background");
     for (const layer of ordered)
       if (layer.id !== "base" && layer.id !== "labels" && layer.id !== "reading")
         addLayer(layer.id, layer.primitives);
     this.drawPortalStrokes(frame);
+    profile?.mark("gpu.geometry");
     this.drawLabels(frame);
+    profile?.mark("gpu.labels");
     this.stage.sortChildren();
+    profile?.mark("gpu.finalize");
     this.renderer.render(this.stage);
+    profile?.mark("gpu.submit");
   }
 
   destroy(): void {

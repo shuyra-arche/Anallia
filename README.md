@@ -87,10 +87,10 @@ node tools/build-single-html.mjs
 
 ## 验证边界
 
-本轮重构已完成本地集成，类型检查、253 项单元测试及 33 项浏览器行为检查通过，四种构建均已实际验证。默认模式在本机软件 GPU 环境使用 SVG，十万字流测试达到本机性能目标；强制软件 WebGL 帧间隔未达标。范围与证据见 [重构验收记录](docs/refactor-status.md) 和 [性能记录](docs/performance.md)。第二台局域网设备、真实移动端及硬件 GPU 仍待验收。
+重构集成检查点通过 253 项单元测试、33 项浏览器行为检查及四种构建。后续分段计时增强通过类型检查、256 项单元测试和 5 项浏览器定向检查，并在 RTX 5070 Ti 上完成 SVG／GPU 十万字性能对照；没有重跑全部导出验收。范围、统计口径及结果见 [重构验收记录](docs/refactor-status.md) 和 [性能记录](docs/performance.md)。第二台局域网设备、真实移动端、高 DPR 与大视口仍待验收。
 
 本机检查使用进程组内存和超时硬限制；`npm test` 为 1GiB / 120s、浏览器为 3GiB / 110s 且单工作者。需要 Linux 用户 systemd 会话，缺少限制能力时拒绝启动。CI 在独立运行器中串行执行有堆限制和逐项超时的测试。
 
-端口和 Host 行为可在构建后执行 `node tools/server-test.mjs` 检查，需要默认端口空闲；它只停止自己启动的服务器。性能记录需显式启用：`SHUYRA_PERF=1 npm run test:browser -- tests/browser/performance.spec.ts --grep="(auto|gpu)"` 检查默认与强制 GPU；单独运行 `--grep="performance \(svg\)"` 检查 SVG。每批最多两个后端，避免超过整组时限；原始 JSON 写入 test-results，下次浏览器检查前另存。功能断言通过不表示 P95 性能目标达标。
+端口和 Host 行为可在构建后执行 `node tools/server-test.mjs` 检查，需要默认端口空闲；它只停止自己启动的服务器。桌面显卡的分段对照使用 `SHUYRA_PERF=1 npm run test:browser -- tests/browser/performance.spec.ts --headed --grep="(svg|gpu)"`。性能记录需显式启用：`SHUYRA_PERF=1 npm run test:browser -- tests/browser/performance.spec.ts --grep="(auto|gpu)"` 检查默认与强制 GPU；单独运行 `--grep="performance \(svg\)"` 检查 SVG。每批最多两个后端，避免超过整组时限；原始 JSON 写入 test-results，下次浏览器检查前另存。功能断言通过不表示 P95 性能目标达标。
 
 `renderer=auto` 默认尝试 WebGL；识别到软件渲染器时保持 SVG，避免软件 GPU 的明显掉帧。`renderer=gpu` 可强制对照，`renderer=svg` 可固定回退。未知设备信息不触发软件判定。

@@ -62,3 +62,42 @@ SVG 路径在本次环境达到帧间隔 ≤20ms、流式提交 ≤4ms 的目标
 默认路径达到本次 ≤20ms / ≤4ms 目标；强制软件 WebGL 的帧间隔未达到目标。两项功能检查都完整接收 100000 个汉字加 998 个换行符，均提交 100 批、稳定文字节点仍连接、没有页面异常。统计方法与上述检查点相同，流式提交只计内容发布、文章同步、预排版及正文高度读取，rAF 间隔也不等于完成绘制帧率。
 
 原始 JSON、日志、浏览器身份及资源范围保存在 `/home/anreonyr/Documents/shuyra/work/refactor-20261029/final-75886f1/browser-performance/` 和同目录的 `browser-performance.log`、`manifest.json`。正式默认 auto 尝试 WebGL，明确识别软件设备后在本会话保持 SVG；初始化失败或上下文丢失同样回退。保留强制 GPU 参数用于对照。真实硬件 GPU、第二台局域网设备及真实手机仍待验收。
+
+## 2026-10-29 RTX 5070 Ti 分段观测
+
+在 `23b41ac` 上增加默认关闭的计时探针后，以可见 Chromium 156、ANGLE / NVIDIA GeForce RTX 5070 Ti Laptop GPU / OpenGL ES 3.2 实测，`softwareGpu=false`。1366×820、DPR 1、Vite 开发模式；仍采用 3GiB、无交换、CPU 150%、110 秒整组限制，一个工作者串行运行 SVG / GPU。来源快照、SHA-256、原始数据及日志保存在仓库外 `/home/anreonyr/Documents/shuyra/work/refactor-20261029/render-profiling-20261029/`。用户之前的硬件数据也已保存在 `before-render-profiling/`，没有覆盖。
+
+| 后端 | 路线 rAF 间隔 P95 | Scene 提交 P95 | 流式提交 P95 | 阅读漂移 |
+| --- | ---: | ---: | ---: | ---: |
+| SVG | 5.4ms | 3.3ms | 3.1ms | 0px |
+| 硬件 WebGL | 16.7ms | 8.8ms | 3.2ms | 0px |
+
+两条路径均达到本次 ≤20ms / ≤4ms 目标，十万字完整接收，稳定节点保留；流式提交均为 100 批。rAF 观察者记录 SVG / GPU 分别为 6820 / 2373 次，而实际 Scene 调用分别为 1801 / 1799 次（约 60 次/秒）。rAF 观察频率不等于应用更新或完成绘制的帧率。本次与用户此前的 16.7ms / 8.3ms 顺序不同，不能以单次 rAF 差异认定稳定两倍加速。
+
+以下占比按所有对应 Scene 调用的阶段耗时之和 / 场景总耗时之和计算；阶段 P95 只取执行该阶段的帧。不同阶段的 P95 不能相加。
+
+| GPU 测试阶段 | 同步耗时 P95 | 对应场景总耗时占比 |
+| --- | ---: | ---: |
+| 路线：`gpu.submit` | 6.0ms | 62.4% |
+| 路线：`scene.reading` | 1.2ms | 11.2% |
+| 路线：`gpu.geometry` | 0.9ms | 9.4% |
+| 流式：`scene.reading` | 3.0ms | 57.3% |
+| 流式：`gpu.submit` | 0.5ms | 11.8% |
+
+路线中的完整 Scene 更新 973 次、缓存帧 826 次；完整帧的 `gpu.submit` P95 为 6.1ms。它测量 `Pixi renderer.render(stage)` 的同步墙钟时间，包含 Pixi 在此调用中执行的变换、批处理、几何/纹理准备及可能的驱动等待，不是 GPU 着色器实际执行时间。最慢路线帧为 24.9ms，其中提交调用 21.9ms；下一步需在该调用内部做 CPU/驱动跟踪才能继续归因，不能把全部耗时直接归为显卡计算。
+
+### 使用计时报告
+
+```sh
+SHUYRA_PERF=1 npm run test:browser -- tests/browser/performance.spec.ts --headed --grep='(svg|gpu)'
+```
+
+测试自动启用并关闭 `scene.setRenderProfiler`，正常运行没有计时采样或记录数组。每阶段最多保留 10000 帧，超出会使测试失败；`test-results/` 的 JSON 包含 `profileVersion: 1`、`route.profile`、`stream.profile`、`raw.routeProfiles` 和 `raw.streamProfiles`，下次浏览器运行前需备份。
+
+- `profile.stages`：各阶段执行样本数、P95、均值和耗时占比；终端使用这份紧凑汇总。
+- `profile.full` / `profile.cached`：完整更新与缓存帧分别统计，避免把缓存跳过误当成更新加速。
+- `profile.slowFrames`：耗时最高的五帧及其分段；`raw` 保留全部采样。
+- `scene.prepare/geometry/host/reading/labels/compose/background`：缓存判断、数值场景、宿主 DOM、正文同步/测量、语义标签、加载组合和背景计算。
+- `gpu.prepare/geometry/background/labels/finalize/submit`：Pixi 池与样式准备、图元/过场/信标、背景、标签及文字缓存、图层排序、最终提交调用；`backend.resize` 计尺寸检查，`svg.render` 计 SVG 后端。
+
+每一帧的分段互不重叠，总和等于该帧采样总耗时；正文层内含同步、Pretext 和 DOM 尺寸读取，内容 flush 及阅读会话的帧后处理在 Scene 外，继续由原 `stream.commitP95` 按原范围统计。新探针有时间读取和记录开销，采样总时长不含收集回调。两项后端浏览器测试覆盖完整/缓存/仅背景更新，关闭后不再采样；256 项单元测试、3 项原交互定向回归及普通构建通过。此轮没有重新验收另外三种导出形式。
