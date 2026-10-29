@@ -180,6 +180,8 @@ export interface GraspReadingSnapshot {
   chapterId: string;
   camera: Camera;
   angle: number;
+  readingBearing?: number;
+  readingStart?: number;
   textOffset: number;
   textOffsetTarget: number;
   localScroll: number;

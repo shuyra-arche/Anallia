@@ -150,3 +150,13 @@ test("whole hub arcs reuse camera rotation while dashed and partial arcs keep th
   assert.equal(canReuseUnderCamera({ ...before, dash: [3 * first.camera.z, 2 * first.camera.z] }, { ...after, dash: [3 * second.camera.z, 2 * second.camera.z] }, matrix), false);
   assert.equal(canReuseUnderCamera({ ...before, endAngle: Math.PI }, { ...after, endAngle: Math.PI }, matrix), false);
 });
+
+test("explicit view transforms reproject a retained camera with exactly one screen transform", async () => {
+  const { cameraUnderTransform } = await import("../src/geometry/camera-reuse.ts");
+  const held = { ...first, camera: { x: -70, y: 80, z: 1.1, rotation: -30 } };
+  const matrix = cameraMatrix(first, second)!, result = cameraUnderTransform(held, matrix, second.viewport)!;
+  for (const point of [{ x: 0, y: 0 }, { x: 110, y: -60 }, { x: 1800, y: 900 }]) {
+    const before = worldToScreen(point, held.camera, held.viewport), after = worldToScreen(point, result, second.viewport);
+    assert.ok(Math.hypot(after.x - (matrix.a * before.x + matrix.c * before.y + matrix.tx), after.y - (matrix.b * before.x + matrix.d * before.y + matrix.ty)) < 1e-9);
+  }
+});

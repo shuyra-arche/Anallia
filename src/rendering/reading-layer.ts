@@ -174,7 +174,7 @@ export class ReadingLayer {
       const node = this.catalog.get(this.retained.chapterId);
       if (node.hub === s.focus) {
         const index = this.catalog.siblings(node.id, s.searchResults).findIndex(chapter => chapter.id === node.id);
-        const hub = { ...s.hubs[s.focus], angle: this.retained.angle, path: this.catalog.chain(node.id), scroll: Math.max(0, index), scrollTarget: Math.max(0, index) };
+        const hub = { ...s.hubs[s.focus], angle: this.retained.angle, readingBearing: this.retained.readingBearing, readingStart: this.retained.readingStart, path: this.catalog.chain(node.id), scroll: Math.max(0, index), scrollTarget: Math.max(0, index) };
         s = { ...s, camera: this.retained.camera, hubs: { ...s.hubs, [s.focus]: hub } };
       }
     }

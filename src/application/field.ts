@@ -838,10 +838,13 @@ export class Field {
     this.hub.angle = this.hub.targetMorph < 0.99 ? snapshot.angle + snapshot.camera.rotation - this.state.camera.rotation : snapshot.angle;
     this.hub.path = this.catalog.chain(node.id);
     this.hub.scroll = this.hub.scrollTarget = index;
+    this.hub.readingBearing = snapshot.readingBearing;
+    this.hub.readingStart = snapshot.readingStart;
     this.hub.textOffset = snapshot.textOffset;
     this.hub.textOffsetTarget = snapshot.textOffsetTarget;
     this.hub.localScroll = snapshot.localScroll;
     this.hub.localScrollTarget = snapshot.localScrollTarget;
+    this.state.description = `${this.hub.glyph} · ${node.name} · 已恢复阅读`;
     return true;
   }
   graspGeometry() {

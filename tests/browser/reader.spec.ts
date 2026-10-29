@@ -672,3 +672,41 @@ test("a prepared stable prefix is readable while an unfinished empty list marker
   expect(await page.evaluate(() => (window as any).__shuyra.store.get("a0", "circle").complete)).toBe(false);
   await page.evaluate(() => (window as any).__finishMarkerStream());
 });
+
+test("manual zoom still scales the retained readable article during an uncached grasp", async ({ page }) => {
+  await prepareUncachedGrasp(page);
+  await page.evaluate(() => { const app = (window as any).__shuyra; app.reading.grasp(3); app.reading.grasp(null); });
+  await page.waitForFunction(() => (window as any).__shuyra.reading.retainedChapterId === "a1");
+  const before = await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    return { zoom: app.field.state.camera.z, scale: app.scene.frame.reading.find((value: any) => value.chapterId === "a1").scale };
+  });
+  await page.mouse.move(1240, 760);
+  await page.keyboard.down("Control"); await page.mouse.wheel(0, -100); await page.keyboard.up("Control");
+  await page.waitForFunction(zoom => {
+    const app = (window as any).__shuyra;
+    return app.field.state.camera.z > zoom * 1.05 && app.scene.frame.camera.z === app.field.state.camera.z;
+  }, before.zoom);
+  const after = await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    return { zoom: app.field.state.camera.z, scale: app.scene.frame.reading.find((value: any) => value.chapterId === "a1").scale };
+  });
+  expect(after.scale / before.scale).toBeCloseTo(after.zoom / before.zoom, 5);
+  await expect(page.locator("#text-a1")).toBeVisible();
+  await page.waitForFunction(() => !(window as any).__shuyra.scene.isAnimating);
+  const beforeCancel = await page.evaluate(() => {
+    const text = document.querySelector("#text-a1 p")!.firstChild!;
+    const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 1);
+    (window as any).__heldZoomRange = range;
+    const rect = range.getBoundingClientRect();
+    return { x: rect.left, y: rect.top, camera: { ...(window as any).__shuyra.field.state.camera } };
+  });
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "a1" && !(window as any).__shuyra.scene.isAnimating);
+  const restored = await page.evaluate(() => {
+    const rect = (window as any).__heldZoomRange.getBoundingClientRect();
+    return { x: rect.left, y: rect.top, camera: { ...(window as any).__shuyra.field.state.camera } };
+  });
+  expect(restored.camera).toEqual(beforeCancel.camera);
+  expect(Math.hypot(restored.x - beforeCancel.x, restored.y - beforeCancel.y)).toBeLessThanOrEqual(2);
+});

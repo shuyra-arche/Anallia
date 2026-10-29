@@ -79,9 +79,9 @@ let hovered: InputHit | null = null;
 host.dataset.sharedInput = "true";
 const disposeInput = bindInput(host, {
   dispatch: (command) => field.dispatch(command),
-  pan: (delta, start) => field.pan(delta, start),
-  zoom: (factor, point) => field.zoom(factor, point),
-  rotate: (delta, point) => field.rotate(delta, point),
+  pan: (delta, start) => reading.view(() => field.pan(delta, start)),
+  zoom: (factor, point) => reading.view(() => field.zoom(factor, point)),
+  rotate: (delta, point) => reading.view(() => field.rotate(delta, point)),
   camera: () => field.state.camera,
   grasp: (delta) => reading.grasp(delta),
   graspGeometry: () => field.graspGeometry(),

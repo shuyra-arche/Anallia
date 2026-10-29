@@ -1,3 +1,4 @@
+import { cameraMatrix, cameraUnderTransform } from "../geometry/camera-reuse.ts";
 import type { Command, GraspReadingSnapshot, Snapshot } from "../core/types.ts";
 import type { ContentChange, ContentRequest, Presentation } from "../core/content.ts";
 import { ContentStore } from "../content/store.ts";
@@ -216,12 +217,27 @@ export class ReadingSession {
     } else this.field.restoreReadingOffset(id, presentation, offset);
   }
 
+  view(action: () => void): void {
+    const retained = this.graspReturn;
+    if (!retained) { action(); return; }
+    const before = { camera: { ...this.field.state.camera }, viewport: { ...this.field.state.viewport } };
+    action();
+    if (this.graspReturn !== retained) return;
+    const matrix = cameraMatrix(before, this.field.state);
+    if (!matrix) return;
+    const next = cameraUnderTransform({ camera: retained.reading.camera, viewport: before.viewport }, matrix, this.field.state.viewport);
+    if (!next) return;
+    const rotation = next.rotation - retained.reading.camera.rotation;
+    if (Math.abs(rotation) > 1e-9) retained.reading.readingBearing = (retained.reading.readingBearing ?? retained.reading.angle) + rotation;
+    retained.reading.camera = next;
+  }
+
   grasp(delta: number | null): void {
     if (!this.booted) return;
     if (this.foreground?.command) this.cancelRequest();
     const before = this.field.selected().id;
     const hub = this.field.hub;
-    const saved: GraspReadingSnapshot = { chapterId: before, camera: { ...this.field.state.camera }, angle: hub.angle, textOffset: hub.textOffset, textOffsetTarget: hub.textOffsetTarget,
+    const saved: GraspReadingSnapshot = { chapterId: before, camera: { ...this.field.state.camera }, angle: hub.angle, readingBearing: hub.readingBearing, readingStart: hub.readingStart, textOffset: hub.textOffset, textOffsetTarget: hub.textOffsetTarget,
       localScroll: hub.localScroll, localScrollTarget: hub.localScrollTarget };
     const historyLength = this.field.state.history.length;
     this.field.grasp(delta);

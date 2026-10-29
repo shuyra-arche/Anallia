@@ -438,3 +438,26 @@ test("tasks opened while hidden start their full wait gate only when the host re
   await frame(650); assert.equal(reading.activeTask?.phase, "waiting");
   reading.destroy();
 });
+
+test("explicit view input updates held reading without accepting the pending target", async () => {
+  const { source, field, reading, frame } = setup();
+  reading.startup("a0", Promise.resolve()); await frame(20);
+  source.held.add("a4:circle"); field.state.hubs.A.morph = field.state.hubs.A.targetMorph = 0;
+  field.dispatch({ type: "navigate", target: "a1" }); await frame(1000);
+  reading.grasp(3); reading.grasp(null);
+  const before = { ...reading.retainedReadingView!.camera };
+  const camera = { ...field.state.camera };
+  reading.view(() => field.zoom(1.2, { x: 800, y: 400 }));
+  assert.ok(Math.abs(reading.retainedReadingView!.camera.z / before.z - field.state.camera.z / camera.z) < 1e-9);
+  assert.equal(reading.retainedChapterId, "a1");
+  reading.view(() => field.rotate(15, { x: 640, y: 410 }));
+  reading.view(() => field.pan({ x: 25, y: -10 }, { ...field.state.camera }));
+  const bearing = reading.retainedReadingView!.readingBearing;
+  const after = { ...field.state.camera };
+  reading.cancel();
+  assert.deepEqual(field.state.camera, after);
+  assert.equal(field.selected().id, "a1");
+  assert.equal(field.hub.readingBearing, bearing);
+  assert.ok(field.state.description.includes(field.selected().name));
+  reading.destroy();
+});

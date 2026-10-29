@@ -1,3 +1,4 @@
+import { worldToScreen } from "./field.ts";
 import type { Camera, Vec, Viewport } from "../core/types.ts";
 import type { ScenePrimitive, TextPrimitive } from "../core/graphics.ts";
 
@@ -123,4 +124,18 @@ export function canReuseUnderCamera(
       before.points.every((point, i) => pointMatches(point, after.points[i], m))
     );
   return false;
+}
+
+/** Apply an explicit screen-space view change to a separately retained camera. */
+export function cameraUnderTransform(view: CameraView, matrix: CameraMatrix, viewport: Viewport = view.viewport): Camera | null {
+  const z = view.camera.z * matrix.scale;
+  const rotation = view.camera.rotation + matrix.angle * 180 / Math.PI;
+  if (!(z > 0) || !Number.isFinite(z) || !Number.isFinite(rotation)) return null;
+  const origin = worldToScreen({ x: 0, y: 0 }, view.camera, view.viewport);
+  const x = matrix.a * origin.x + matrix.c * origin.y + matrix.tx;
+  const y = matrix.b * origin.x + matrix.d * origin.y + matrix.ty;
+  const dx = (viewport.width / 2 - x) / z, dy = (viewport.height / 2 - y) / z;
+  const angle = rotation * Math.PI / 180;
+  const camera = { x: dx * Math.cos(angle) + dy * Math.sin(angle), y: -dx * Math.sin(angle) + dy * Math.cos(angle), z, rotation };
+  return Object.values(camera).every(Number.isFinite) ? camera : null;
 }
