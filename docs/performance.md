@@ -101,3 +101,31 @@ SHUYRA_PERF=1 npm run test:browser -- tests/browser/performance.spec.ts --headed
 - `gpu.prepare/geometry/background/labels/finalize/submit`：Pixi 池与样式准备、图元/过场/信标、背景、标签及文字缓存、图层排序、最终提交调用；`backend.resize` 计尺寸检查，`svg.render` 计 SVG 后端。
 
 每一帧的分段互不重叠，总和等于该帧采样总耗时；正文层内含同步、Pretext 和 DOM 尺寸读取，内容 flush 及阅读会话的帧后处理在 Scene 外，继续由原 `stream.commitP95` 按原范围统计。新探针有时间读取和记录开销，采样总时长不含收集回调。两项后端浏览器测试覆盖完整/缓存/仅背景更新，关闭后不再采样；256 项单元测试、3 项原交互定向回归及普通构建通过。此轮没有重新验收另外三种导出形式。
+
+## 2026-10-29 默认 SVG 与屏外虚线优化
+
+以 `55b3d51` 为基线继续检查 Pixi 提交。CPU 采样指向 `buildContextBatches → buildLine → round`；逐图元诊断发现，关联虚线单条最高约 1.6 万顶点，大量圆头和圆角网格位于屏幕外。GPU 现在按源路径完整弧长推进虚线相位，只生成扩展视口内的子路径。描边外扩保留边缘，跨顶点的可见虚线保持连接；裁切网格不使用旧相机仿射复用，视口改变时也重新构建。
+
+本轮保持正常界面与 Scene API 默认 SVG；`renderer=gpu` 和 `renderer=auto` 是显式选择。下列 RTX 5070 Ti 对照仍使用相同 Vite 路线、1366×820、DPR 1、可见 Chromium 156、3GiB / CPU 150% / 110s 限制，不启用 CPU 采样。旧 GPU 数值来自前一节 `55b3d51` 的同环境测量；这是一次本机阶段对照，不是所有硬件上的固定收益。
+
+| 指标 | 原 GPU | 优化后 GPU | 同期 SVG |
+| --- | ---: | ---: | ---: |
+| 路线 Scene 提交 P95 | 8.8ms | 5.0ms | 3.4ms |
+| 路线 GPU 最终提交调用 P95 | 6.0ms | 1.8ms | — |
+| 路线 rAF 间隔 P95 | 16.7ms | 4.3ms | 4.3ms |
+| 流式提交 P95 | 3.2ms | 3.7ms | 2.9ms |
+| 阅读漂移 | 0px | 0px | 0px |
+
+GPU 自身的 Scene 同步耗时约下降 43%，提交调用约下降 70%；本次仍高于 SVG，不能称为已经快于 SVG。优化后的两个后端实际 Scene 调用约 60 次/秒。流式阶段 GPU / SVG 分别合并为 27 / 25 次正文提交，原 GPU 为 100 次；由于每次提交的内容量不同，不能用这些流式 P95 推断相同包大小下的加速或退化。两组都完成 100000 个汉字和 998 个换行，稳定节点保留、漂移 0px。
+
+独立 CPU 诊断在相同 1ms 采样间隔下复核：`buildContextBatches` 包含时间合计约 3.40s → 1.12s，`buildLine` 约 1.99s → 0.40s，`round` 约 1.34s → 0.16s。函数之间嵌套，不能相加；这些是约 33 秒测试内的采样归因，含测量开销，不替代上述无 CPU 采样的性能对照。逐图元诊断的关联线最大顶点数降为 4270；冷启动诊断不作为帧时间验收。
+
+CPU 诊断命令仅运行一组 GPU，默认关闭：
+
+```sh
+SHUYRA_PERF=1 SHUYRA_CPU_PROFILE=1 npm run test:browser -- tests/browser/performance.spec.ts --headed --grep='performance \(gpu\)'
+```
+
+它从页面就绪后开始采样，结束时写出 `cpu-gpu.cpuprofile`；JSON 的 `cpuSampling` 标记区分诊断与普通对照。原始 CPU 文件、前后性能 JSON、网格诊断、源码快照、日志和四种产物备份在 `/home/anreonyr/Documents/shuyra/work/refactor-20261029/gpu-submit-optimization-20261029/`。
+
+最终源码通过类型检查和 260 项单元测试；可见浏览器 33 项开发回归与 4 项当前发布产物检查全部通过。新增用例把裁切路径与完整路径直接做 GPU 像素比较，同时检查网格减少、平移后不复用过期裁切、视口扩大时重新构建。普通、Pages、模块预览及离线单文件均已重建并实际打开；原局域网/HMR和触控模拟仍通过，实体第二设备与移动端未验收。

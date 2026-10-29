@@ -16,6 +16,7 @@ export type GraphicsRendererKind = "auto" | "webgl" | "svg";
 export type ResolvedRendererKind = "webgl" | "svg";
 
 export interface GraphicsOptions {
+  /** Defaults to SVG; auto and WebGL are explicit opt-ins. */
   renderer?: GraphicsRendererKind;
   /** Device pixel ratio override; defaults to the host document's devicePixelRatio. */
   dpr?: number;

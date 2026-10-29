@@ -253,7 +253,7 @@ export class Scene {
     this.host = host;
     this.catalog = catalog;
     this.options = {
-      renderer: options.renderer ?? "auto",
+      renderer: options.renderer ?? "svg",
       background: options.background ?? true,
       dpr: options.dpr,
     };

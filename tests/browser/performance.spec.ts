@@ -2,6 +2,23 @@ import type { RenderSample } from "../../src/core/render-profile.ts";
 import { summarizeRenderProfiles } from "../helpers/render-profile.ts";
 import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
+import type { Page, TestInfo } from "@playwright/test";
+
+async function startCpuSampling(page: Page, info: TestInfo, renderer: string): Promise<() => Promise<void>> {
+  if (process.env.SHUYRA_CPU_PROFILE !== "1") return async () => {};
+  const session = await page.context().newCDPSession(page);
+  await session.send("Profiler.enable");
+  await session.send("Profiler.setSamplingInterval", { interval: 1000 });
+  await session.send("Profiler.start");
+  return async () => {
+    try {
+      const { profile } = await session.send("Profiler.stop");
+      const path = info.outputPath(`cpu-${renderer}.cpuprofile`);
+      await writeFile(path, JSON.stringify(profile));
+      await info.attach(`cpu-${renderer}.cpuprofile`, { path, contentType: "application/json" });
+    } finally { await session.detach(); }
+  };
+}
 
 for (const renderer of ["auto", "svg", "gpu"]) {
   test(`100000-character stream and route performance (${renderer})`, async ({ page }, testInfo) => {
@@ -13,6 +30,7 @@ for (const renderer of ["auto", "svg", "gpu"]) {
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
     await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating);
+    const stopCpuSampling = await startCpuSampling(page, testInfo, renderer);
     const result = await page.evaluate(async () => {
       const app = (window as any).__shuyra;
       await document.fonts.ready;
@@ -144,9 +162,10 @@ for (const renderer of ["auto", "svg", "gpu"]) {
         stream: { samples: commits.length, intervalP95: percentile(streamIntervals, 0.95), commitP95: percentile(commits, 0.95), maxDrift, stableNodeConnected: bookmarkNode?.isConnected, complete: app.store.get("m3", "line").complete, sourceLength: app.store.get("m3", "line").text.length },
         raw: { routeIntervals, routeRenders, streamIntervals, commits, routeProfiles, streamProfiles },
       };
-    });
+    }).finally(stopCpuSampling);
     const measured = {
       ...result,
+      cpuSampling: process.env.SHUYRA_CPU_PROFILE === "1",
       route: { ...result.route, profile: summarizeRenderProfiles(result.raw.routeProfiles) },
       stream: { ...result.stream, profile: summarizeRenderProfiles(result.raw.streamProfiles) },
     };

@@ -86,13 +86,13 @@ test("hub geometry is extracted as exact circles or finite point lists without p
   assert.ok(filament.length > 2);
 });
 
-test("SceneFrame carries layers, labels, masks, reading placement and CPU hit regions", async () => {
+test("default SVG SceneFrame carries layers, labels, masks, reading placement and CPU hit regions", async () => {
   const d = dom();
   const field = new Field(new Catalog(hubDefinitions, rawContent), {
     width: 1896,
     height: 1016,
   });
-  const scene = new Scene(d.host, field.catalog, { renderer: "svg" });
+  const scene = new Scene(d.host, field.catalog);
   try {
     await scene.initialize();
     assert.equal(scene.rendererKind, "svg");

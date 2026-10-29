@@ -1,3 +1,5 @@
+import { clippedDashes } from "../../geometry/clipped-dashes.ts";
+import type { StrokeClip } from "../../geometry/clipped-dashes.ts";
 import type { RenderProfiler } from "../../core/render-profile.ts";
 import { arcPoints } from "../../geometry/arc-points.ts";
 import { readGraphicsDevice } from "./device.ts";
@@ -13,7 +15,7 @@ import type {
   ScenePrimitive,
   TextPrimitive,
 } from "../../core/graphics.ts";
-import type { Theme, Vec } from "../../core/types.ts";
+import type { Theme, Vec, Viewport } from "../../core/types.ts";
 import { GpuGlyphCache, IconGeometryCache, textRasterScale } from "./glyph-cache.ts";
 
 type PixiModule = typeof import("pixi.js");
@@ -130,7 +132,7 @@ export class PixiGraphicsRenderer {
   private lastBackground: SceneFrame["background"] = null;
   private renderWidth = 0;
   private renderHeight = 0;
-  private readonly primitiveRecords = new WeakMap<PixiGraphics, { signature: string; shape: Exclude<ScenePrimitive, TextPrimitive>; view: CameraView }>();
+  private readonly primitiveRecords = new WeakMap<PixiGraphics, { signature: string; shape: Exclude<ScenePrimitive, TextPrimitive>; view: CameraView; clipped: boolean }>();
   readonly geometryStats = { builds: 0, cameraReuses: 0 };
   private readonly icons = new IconGeometryCache();
   private fontFamily: string;
@@ -599,11 +601,13 @@ export class PixiGraphicsRenderer {
     const g = this.graphics(parent, false);
     const signature = JSON.stringify(primitive);
     const previous = this.primitiveRecords.get(g);
-    if (previous?.signature === signature) {
+    const clip = primitive.type === "polyline" ? this.dashClip(primitive, frame.viewport) : null;
+    const sameViewport = previous?.view.viewport.width === frame.viewport.width && previous?.view.viewport.height === frame.viewport.height;
+    if (previous?.signature === signature && (!(previous.clipped || clip) || sameViewport)) {
       g.setFromMatrix(new this.pixi.Matrix());
       return;
     }
-    if (previous) {
+    if (previous && !previous.clipped && !clip) {
       const matrix = cameraMatrix(previous.view, frame);
       if (matrix && canReuseUnderCamera(previous.shape, primitive, matrix)) {
         g.setFromMatrix(new this.pixi.Matrix(matrix.a, matrix.b, matrix.c, matrix.d, matrix.tx, matrix.ty));
@@ -612,7 +616,7 @@ export class PixiGraphicsRenderer {
       }
     }
     g.setFromMatrix(new this.pixi.Matrix());
-    this.primitiveRecords.set(g, { signature, shape: primitive, view: { camera: { ...frame.camera }, viewport: { ...frame.viewport } } });
+    this.primitiveRecords.set(g, { signature, shape: primitive, view: { camera: { ...frame.camera }, viewport: { ...frame.viewport } }, clipped: clip !== null });
     this.geometryStats.builds++;
     g.clear();
     switch (primitive.type) {
@@ -623,7 +627,7 @@ export class PixiGraphicsRenderer {
         this.drawArc(g, primitive);
         break;
       case "polyline":
-        this.drawPolylinePrimitive(g, primitive);
+        this.drawPolylinePrimitive(g, primitive, clip);
         break;
       case "rect":
         this.drawRect(g, primitive);
@@ -660,13 +664,28 @@ export class PixiGraphicsRenderer {
     this.paint(g, p.fill, p.stroke, p.strokeWidth, p.opacity);
   }
 
+  private dashClip(p: PolylinePrimitive, viewport: Viewport): StrokeClip | null {
+    if (!p.dash?.length || !p.stroke || p.fill) return null;
+    const margin = Math.max(2, 5 * Math.max(0.25, p.strokeWidth ?? 1));
+    const clip = { left: -margin, top: -margin, right: viewport.width + margin, bottom: viewport.height + margin };
+    return p.points.some(point => point.x < clip.left || point.x > clip.right || point.y < clip.top || point.y > clip.bottom) ? clip : null;
+  }
+
   private drawPolylinePrimitive(
     g: PixiGraphics,
     p: PolylinePrimitive,
+    clip: StrokeClip | null,
   ): void {
     if (!p.points.length) return;
     if (p.dash?.length && p.stroke && !p.fill) {
-      this.polyline(g, p.closed ? [...p.points, p.points[0]] : p.points, p.stroke, p.strokeWidth ?? 1, p.opacity ?? 1, p.dash);
+      const points = p.closed ? [...p.points, p.points[0]] : p.points;
+      if (clip && p.dash.some(value => Number.isFinite(value) && value > 0)) {
+        for (const path of clippedDashes(points, p.dash, clip)) {
+          g.moveTo(path[0].x, path[0].y);
+          for (let i = 1; i < path.length; i++) g.lineTo(path[i].x, path[i].y);
+        }
+        g.stroke({ color: p.stroke, width: Math.max(0.25, p.strokeWidth ?? 1), alpha: p.opacity ?? 1, cap: p.lineCap ?? "round", join: p.lineJoin ?? "miter" });
+      } else this.polyline(g, points, p.stroke, p.strokeWidth ?? 1, p.opacity ?? 1, p.dash);
       return;
     }
     if (p.closed)
