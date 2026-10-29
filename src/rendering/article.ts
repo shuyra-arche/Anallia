@@ -365,6 +365,7 @@ export class ArticleRenderer {
   private readonly layouts = new TextLayoutCache();
   private readonly states = new WeakMap<HTMLElement, ArticleState>();
   private readonly sources = new WeakMap<HTMLElement, string>();
+  private readonly contentIdentities = new WeakMap<HTMLElement, object>();
   private readonly blocksByKey = new WeakMap<RenderedBlock, NormalizedBlock>();
 
   constructor(catalog: Catalog, visuals: ArticleVisuals) {
@@ -392,6 +393,7 @@ export class ArticleRenderer {
     presentation: ArticlePresentation,
   ) {
     const catalog = this.catalog as Catalog & ExtendedCatalog;
+    const contentIdentity = catalog.contentIdentity ?? catalog;
     let state = this.states.get(article);
     const versionHint =
       typeof catalog.expressionVersion === "function"
@@ -399,6 +401,7 @@ export class ArticleRenderer {
         : undefined;
     if (
       state?.ready &&
+      this.contentIdentities.get(article) === contentIdentity &&
       state.nodeId === node.id &&
       state.presentation === presentation &&
       state.windowElement.parentNode === article &&
@@ -410,6 +413,7 @@ export class ArticleRenderer {
 
     if (
       state?.ready &&
+      this.contentIdentities.get(article) === contentIdentity &&
       state.nodeId === node.id &&
       state.presentation === presentation &&
       state.windowElement.parentNode === article &&
@@ -436,13 +440,14 @@ export class ArticleRenderer {
           : "document:empty"),
     );
 
-    const sameExpression = state?.nodeId === node.id && state.presentation === presentation;
+    const sameExpression = this.contentIdentities.get(article) === contentIdentity && state?.nodeId === node.id && state.presentation === presentation;
     const previousSource = this.sources.get(article);
     const source = rawDocument?.source ?? "";
     const continuation = Boolean(sameExpression && previousSource && source.startsWith(previousSource));
     state = this.ensureShell(article, node, presentation, state);
     this.states.set(article, state);
     this.sources.set(article, source);
+    this.contentIdentities.set(article, contentIdentity);
     state.nodeId = node.id;
     state.presentation = presentation;
     state.version = version;
@@ -1017,6 +1022,7 @@ export class ArticleRenderer {
     if (state) this.layouts.evict(`${state.nodeId}:`);
     this.states.delete(article);
     this.sources.delete(article);
+    this.contentIdentities.delete(article);
     clearIndexedRanges(article);
   }
 

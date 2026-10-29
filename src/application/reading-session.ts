@@ -38,6 +38,7 @@ export class ReadingSession {
   constructor(field: Field, store: ContentStore, prepare?: (id: string, presentation: Presentation) => boolean) {
     this.field = field;
     this.store = store;
+    field.catalog.bindContentStore(store);
     this.prepare = prepare;
     field.setContentGate((command) => this.gate(command));
   }
@@ -168,10 +169,9 @@ export class ReadingSession {
     this.now = now;
     const changes = this.store.flush();
     for (const change of changes) {
+      if (change.status === "cancelled" || (!change.text && !change.complete)) continue;
       const job = this.jobs.get(this.key(change.id, change.presentation));
-      const emptyFailure = !change.text && !change.complete && !job?.prepared &&
-        (change.status === "error" || change.status === "cancelled");
-      if (!emptyFailure) this.field.catalog.updateExpression(change.id, change.presentation, change.text, change.complete);
+      this.field.catalog.updateExpression(change.id, change.presentation, change.text, change.complete);
       if (job?.readable && job.taskId && !change.complete) this.loading.readable(job.taskId, now);
     }
     for (const job of this.jobs.values()) {

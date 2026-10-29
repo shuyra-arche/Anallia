@@ -38,7 +38,12 @@ export class ReadingPositions {
       return offset;
     }
     const located = rangeAtSource(article, saved.value.source);
-    if (!located) { this.pending.delete(key); return offset; }
+    if (!located) {
+      saved.value = { ...saved.value, source: 0, offset: 0 };
+      saved.signature = "";
+      this.pending.delete(key);
+      return 0;
+    }
     const top = article.getBoundingClientRect().top + saved.value.offset * scale;
     const delta = (sourceRangeRect(located.range).top - top) / scale;
     const next = clamp(offset + delta, 0, maxOffset);

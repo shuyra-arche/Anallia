@@ -399,4 +399,10 @@ test("source anchors survive typography and viewport changes at a nonzero readin
   expect(afterReplace.height).toBeGreaterThan(0);
   expect(afterReplace.camera).toEqual(replacementAnchor.camera);
   expect(Math.abs(afterReplace.offset - replacementAnchor.offset)).toBeLessThanOrEqual(2);
+  await page.evaluate(() => (window as any).__shuyra.useContentSource({ async *open() {} }));
+  await expect(page.locator("#text-a0 p")).toHaveCount(0);
+  await page.waitForFunction(() => !(window as any).__shuyra.scene.isAnimating);
+  const empty = await page.evaluate(() => ({ position: (window as any).__shuyra.scene.readingPositions.get("a0", "circle"), offset: (window as any).__shuyra.field.hub.textOffset }));
+  expect(empty.position.source).toBe(0);
+  expect(empty.offset).toBe(0);
 });

@@ -6,6 +6,7 @@ import type {
   TextPatch,
 } from "../src/core/content.ts";
 import { ContentStore } from "../src/content/store.ts";
+import { createContentRuntime } from "../src/content/runtime.ts";
 
 class Channel {
   private readonly queue: TextPatch[] = [];
@@ -182,6 +183,111 @@ test("source rejection rejects done without an unhandled rejection", async () =>
   }
 });
 
+test("start does not erase published text and a request has its own network version", async () => {
+  const source = new ChannelSource();
+  const store = new ContentStore(source);
+  assert.deepEqual(store.expression("a4", "circle"), {
+    text: "",
+    version: 0,
+    complete: false,
+  });
+  assert.equal(store.publish("a4", "circle", "published", true), true);
+  assert.equal(store.publish("a4", "circle", "published", true), false);
+  const published = { text: "published", version: 1, complete: true };
+  assert.deepEqual({ ...store.expression("a4", "circle") }, published);
+
+  const request = store.start("a4", "circle");
+  assert.deepEqual(store.expression("a4", "circle"), published);
+  assert.deepEqual(store.get("a4", "circle"), {
+    text: "",
+    version: 0,
+    complete: false,
+    status: "loading",
+    error: null,
+  });
+  await tick();
+  source.channels[0].push({ type: "append", text: "net" });
+  await request.ready;
+  assert.deepEqual(store.expression("a4", "circle"), published);
+  assert.equal(store.get("a4", "circle").version, 1);
+  assert.equal(store.flush()[0].version, 1);
+  assert.deepEqual(store.expression("a4", "circle"), published);
+
+  store.publish("a4", "circle", "published!", false);
+  assert.deepEqual(store.expression("a4", "circle"), {
+    text: "published!",
+    version: 2,
+    complete: false,
+  });
+  source.channels[0].finish();
+  await request.done;
+  // The new stream's late changes are visible, not cleared by the request.
+  assert.equal(store.get("a4", "circle").version, 2);
+  assert.equal(store.expression("a4", "circle").version, 2);
+});
+
+test("publish keeps stable paragraph objects across incremental updates", () => {
+  const store = new ContentStore();
+  const first = "第一段 {标签|b0}\n\n第二段开始";
+  assert.equal(store.publish("p0", "line", first, false), true);
+  const document = store.document("p0", "line");
+  assert.equal(store.document("p0", "line"), document);
+  assert.equal(document.blocks.length, 2);
+
+  let next = first;
+  for (let step = 0; step < 4; step++) {
+    next += `，第${step}次补充`;
+    assert.equal(store.publish("p0", "line", next, false), true);
+  }
+  const grown = store.document("p0", "line");
+  assert.notEqual(grown, document);
+  assert.equal(grown.blocks[0], document.blocks[0]);
+  assert.equal(grown.blocks[0].inline, document.blocks[0].inline);
+  assert.equal(grown.blocks[1].sourceEnd, next.length);
+  assert.equal(store.expression("p0", "line").version, 5);
+  assert.equal(store.publish("p0", "line", next, false), false);
+  assert.equal(store.expression("p0", "line").version, 5);
+
+  assert.equal(store.publish("p0", "line", next, true), true);
+  const complete = store.document("p0", "line");
+  assert.equal(complete.complete, true);
+  assert.ok(complete.blocks.every(block => block.stable), "EOF must stabilize the last block even when no new characters arrive");
+  assert.equal(complete.blocks[0], document.blocks[0]);
+  assert.ok(complete.blocks[1].inline.every((item) => item.type !== "reference"));
+  assert.equal(store.expression("p0", "line").version, 6);
+
+  assert.equal(store.publish("p0", "line", `${next}\n\n收尾`, true), true);
+  const finished = store.document("p0", "line");
+  assert.equal(finished.blocks[0], document.blocks[0]);
+  assert.equal(finished.blocks[1].stable, true);
+  assert.equal(finished.blocks.length, 3);
+  assert.ok(finished.blocks.every((block) => block.stable));
+});
+
+test("seed only initializes missing published text", () => {
+  const store = new ContentStore();
+  assert.deepEqual(store.document("s0", "circle"), store.document("s0", "circle"));
+  store.publish("s0", "circle", "owned", true);
+  store.seed("s0", "circle", "authored", true);
+  store.seed("s0", "line", "authored", true);
+  assert.deepEqual(store.expression("s0", "circle"), {
+    text: "owned",
+    version: 1,
+    complete: true,
+  });
+  assert.deepEqual(store.expression("s0", "line"), {
+    text: "authored",
+    version: 1,
+    complete: true,
+  });
+  store.seed("s1", "circle", "", false);
+  assert.deepEqual(store.expression("s1", "circle"), {
+    text: "",
+    version: 0,
+    complete: false,
+  });
+});
+
 test("unknown requests report idle and flush stays empty", () => {
   const store = new ContentStore(new ChannelSource());
   assert.deepEqual(store.get("missing", "circle"), {
@@ -192,4 +298,23 @@ test("unknown requests report idle and flush stays empty", () => {
     error: null,
   });
   assert.equal(store.flush().length, 0);
+});
+
+
+test("runtime never publishes a chunk cancelled before its host flush", async () => {
+  const runtime = createContentRuntime();
+  runtime.catalog.updateExpression("a0", "circle", "保留的正文", true);
+  runtime.source.open = async function* () {
+    yield { type: "replace", text: "取消的正文" };
+    await new Promise<void>(() => {});
+  };
+  const request = runtime.start("a0", "circle");
+  await request.ready;
+  request.cancel();
+  await request.done;
+  assert.equal(runtime.store.get("a0", "circle").status, "cancelled");
+  assert.equal(runtime.store.get("a0", "circle").complete, false);
+  runtime.flush();
+  assert.equal(runtime.catalog.get("a0").expressions.circle, "保留的正文");
+  assert.equal(runtime.store.expression("a0", "circle").text, "保留的正文");
 });

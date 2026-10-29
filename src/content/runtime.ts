@@ -22,7 +22,7 @@ export class ContentRuntime {
   constructor() {
     this.source = createLocalContentSource();
     this.store = new ContentStore(this.source);
-    this.catalog = new Catalog(contentManifest.definitions, contentManifest);
+    this.catalog = new Catalog(contentManifest.definitions, contentManifest, this.store);
   }
 
   start(id: string, presentation: Presentation): ContentRequest {
@@ -37,6 +37,7 @@ export class ContentRuntime {
   }
 
   private apply(change: ContentChange) {
+    if (change.status === "cancelled" || (!change.text && !change.complete)) return;
     this.catalog.updateExpression(
       change.id,
       change.presentation,

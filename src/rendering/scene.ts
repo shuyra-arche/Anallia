@@ -1959,8 +1959,9 @@ export class Scene {
             content.style.transform = `translateY(${-activeFloat.toFixed(2)}px)`;
             clip = resolveReadingClip(normal, height, panelHeight, activeFloat, clearancePx);
             applyReadingClip(article, clip);
-            this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: activeFloat });
           }
+          if (Math.abs(activeFloat - hub.textOffset) > 0.01)
+            this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: activeFloat });
           this.readingSettling = this.readingPositions.isSettling(node.id, presentation);
           this.readingPositions.capture(article, node.id, presentation, s.camera.z,
             JSON.stringify([widthStr, panelHeight, activeFloat, this.articleRenderer.fontVersion]));

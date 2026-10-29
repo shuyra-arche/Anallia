@@ -1,5 +1,6 @@
 import type {
   ContentChange,
+  ContentDocument,
   ContentFlush,
   ContentRequest,
   ContentSnapshot,
@@ -8,11 +9,22 @@ import type {
   Presentation,
   TextPatch,
 } from "../core/content.ts";
+import { parseContent, updateContent } from "./parser.ts";
 
 interface Entry extends ContentSnapshot {
   pendingText: string | null;
   pendingComplete: boolean | null;
   pendingStatus: ContentStatus | null;
+}
+
+export interface ExpressionState {
+  text: string;
+  version: number;
+  complete: boolean;
+}
+
+interface PublishedEntry extends ExpressionState {
+  document?: ContentDocument;
 }
 
 interface RequestControl {
@@ -29,17 +41,111 @@ function asError(error: unknown) {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+/** A source with nothing to stream, used when no network source is bound. */
+const emptySource: ContentSource = {
+  open: () => ({
+    [Symbol.asyncIterator]: () => ({
+      next: () => Promise.resolve({ done: true as const, value: undefined }),
+    }),
+  }),
+};
+
 export class ContentStore {
   private readonly source: ContentSource;
   private readonly entries = new Map<string, Entry>();
+  private readonly published = new Map<string, PublishedEntry>();
+  private readonly publicationListeners = new Set<(id: string, presentation: Presentation, state: Readonly<ExpressionState>) => void>();
   private readonly generations = new Map<string, number>();
   private readonly controllers = new Map<string, AbortController>();
   private readonly active = new Map<string, ContentRequest>();
   private readonly touched = new Set<string>();
   private readonly flushedVersion = new Map<string, number>();
 
-  constructor(source: ContentSource) {
+  constructor(source: ContentSource = emptySource) {
     this.source = source;
+  }
+
+  subscribePublished(listener: (id: string, presentation: Presentation, state: Readonly<ExpressionState>) => void): () => void {
+    this.publicationListeners.add(listener);
+    return () => { this.publicationListeners.delete(listener); };
+  }
+
+  private notifyPublished(id: string, presentation: Presentation): void {
+    const state = this.expression(id, presentation);
+    for (const listener of this.publicationListeners) listener(id, presentation, state);
+  }
+
+  /** Text committed for rendering; survives later `start` calls. */
+  expression(id: string, presentation: Presentation): Readonly<ExpressionState> {
+    const entry = this.published.get(keyOf(id, presentation));
+    if (!entry) return { text: "", version: 0, complete: false };
+    return { text: entry.text, version: entry.version, complete: entry.complete };
+  }
+
+  /** Parsed published text; parsed on demand and shared between callers. */
+  document(id: string, presentation: Presentation): ContentDocument {
+    const key = keyOf(id, presentation);
+    if (!this.published.has(key))
+      this.published.set(key, {
+        text: "",
+        version: 0,
+        complete: false,
+        document: parseContent("", false),
+      });
+    const entry = this.published.get(key)!;
+    if (!entry.document)
+      entry.document = parseContent(entry.text, entry.complete);
+    return entry.document;
+  }
+
+  /** Initialize published text only when none has been published yet. */
+  seed(
+    id: string,
+    presentation: Presentation,
+    text: string,
+    complete: boolean,
+  ): void {
+    const key = keyOf(id, presentation);
+    if (this.published.has(key)) return;
+    this.published.set(key, {
+      text,
+      version: text ? 1 : 0,
+      complete,
+      document: undefined,
+    });
+  }
+
+  /**
+   * Replace published text. Returns false when nothing changed. An existing
+   * parse is updated incrementally so stable blocks keep their identity.
+   */
+  publish(
+    id: string,
+    presentation: Presentation,
+    text: string,
+    complete: boolean,
+  ): boolean {
+    const key = keyOf(id, presentation);
+    const entry = this.published.get(key);
+    if (entry && entry.text === text && entry.complete === complete)
+      return false;
+    if (!entry) {
+      this.published.set(key, {
+        text,
+        version: text || complete ? 1 : 0,
+        complete,
+        document: undefined,
+      });
+      this.notifyPublished(id, presentation);
+      return true;
+    }
+    const previous = entry.document;
+    entry.text = text;
+    entry.complete = complete;
+    entry.version++;
+    entry.document = previous ? updateContent(previous, text, complete) : undefined;
+    this.notifyPublished(id, presentation);
+    return true;
   }
 
   start(id: string, presentation: Presentation): ContentRequest {

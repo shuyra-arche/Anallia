@@ -535,3 +535,25 @@ test("replacing blocks retains source indexes for newly constructed detached par
     assert.equal(location.range.startOffset, 2);
   } finally { dom.close(); }
 });
+
+
+test("binding another store invalidates an equal-numbered article version", async () => {
+  const [{ Catalog: RealCatalog }, { ContentStore }, { hubDefinitions, rawContent }] = await Promise.all([
+    import("../src/content/catalog.ts"), import("../src/content/store.ts"), import("../src/content/field.ts"),
+  ]);
+  const dom = setup();
+  try {
+    const catalog = new RealCatalog(hubDefinitions, rawContent);
+    const renderer = makeRenderer(catalog);
+    const article = document.createElement("article");
+    document.body.append(article);
+    renderer.syncArticle(article, catalog.get("a0"), hub, "circle");
+    const version = catalog.expressionVersion("a0", "circle");
+    const target = new ContentStore();
+    target.publish("a0", "circle", "绑定后正文", true);
+    catalog.bindContentStore(target);
+    assert.equal(catalog.expressionVersion("a0", "circle"), version);
+    renderer.syncArticle(article, catalog.get("a0"), hub, "circle");
+    assert.equal(article.querySelector("p")!.textContent, "绑定后正文");
+  } finally { dom.close(); }
+});

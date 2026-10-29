@@ -5,6 +5,7 @@ import { Catalog } from "../src/content/catalog.ts";
 import { rawContent, hubDefinitions } from "../src/content/field.ts";
 import { contentManifest } from "../src/content/generated/manifest.ts";
 import { initialSearchIndex } from "../src/content/generated/search-index.ts";
+import { ContentStore } from "../src/content/store.ts";
 import {
   buildSearchEntry,
   createLocalContentSource,
@@ -12,6 +13,8 @@ import {
 } from "../src/content/index.ts";
 
 const root = new URL("../", import.meta.url);
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test("generated manifest and search index are produced from the author data", () => {
   const authorHubs = JSON.parse(
@@ -110,6 +113,94 @@ test("updateExpression versions documents and only updates search when complete"
   assert.equal(catalog.search("临时unique").length, 0);
 });
 
+test("catalog binds an external store and shares documents with it", async () => {
+  const runtime = createContentRuntime();
+  const store = new ContentStore(runtime.source);
+  runtime.catalog.bindContentStore(store);
+  const commit = () => {
+    for (const change of store.flush())
+      runtime.catalog.updateExpression(
+        change.id,
+        change.presentation,
+        change.text,
+        change.complete,
+      );
+  };
+  const request = store.start("m3", "circle");
+  await request.ready;
+  commit();
+  await request.done;
+  commit();
+  const expected = rawContent.M.find((row) => row[0] === "m3")![4];
+  assert.equal(store.expression("m3", "circle").text, expected);
+  assert.equal(runtime.catalog.get("m3").expressions.circle, expected);
+  assert.equal(
+    runtime.catalog.document("m3", "circle"),
+    store.document("m3", "circle"),
+  );
+  assert.equal(
+    runtime.catalog.document("q_hit_m3", "circle"),
+    store.document("m3", "circle"),
+  );
+  assert.equal(runtime.catalog.expressionVersion("m3", "circle"), 2);
+
+  const version = runtime.catalog.expressionVersion("m3", "circle");
+  store.publish("m3", "circle", "外部 {标签|b0}", true);
+  assert.equal(runtime.catalog.expressionVersion("m3", "circle"), version + 1);
+  assert.equal(runtime.catalog.get("m3").expressions.circle, "外部 {标签|b0}");
+  assert.equal(
+    runtime.catalog.document("q_hit_m3", "circle"),
+    store.document("m3", "circle"),
+  );
+  runtime.catalog.updateExpression("m3", "circle", "外部unique", false);
+  assert.equal(store.expression("m3", "circle").complete, false);
+  assert.equal(runtime.catalog.get("m3").expressions.circle, "外部unique");
+});
+
+test("a store bound at construction holds only published text, not requests", () => {
+  const store = new ContentStore();
+  const catalog = new Catalog(hubDefinitions, contentManifest, store);
+  assert.deepEqual(store.expression("a0", "circle"), {
+    text: "",
+    version: 0,
+    complete: false,
+  });
+  assert.equal(catalog.get("a0").expressions.circle, "");
+  assert.equal(catalog.document("a0", "circle").blocks.length, 0);
+  store.publish("a0", "circle", "自定义 {标签|b0}", true);
+  assert.equal(catalog.get("a0").expressions.circle, "自定义 {标签|b0}");
+  assert.equal(
+    catalog.document("q_hit_a0", "circle"),
+    store.document("a0", "circle"),
+  );
+  const hit = catalog.search("自定义")[0];
+  assert.ok(hit);
+  assert.equal(hit.expressions.circle.endsWith("自定义 {标签|b0}"), true);
+  catalog.bindContentStore(store);
+  assert.equal(catalog.get("a0").expressions.circle, "自定义 {标签|b0}");
+});
+
+test("rebinding keeps text the target store already published", () => {
+  const target = new ContentStore();
+  target.publish("a0", "circle", "目标unique", true);
+  const catalog = new Catalog(hubDefinitions, rawContent);
+  catalog.bindContentStore(target);
+  assert.equal(catalog.get("a0").expressions.circle, "目标unique");
+  assert.equal(target.expression("a0", "circle").text, "目标unique");
+  assert.equal(
+    target.expression("b0", "circle").text,
+    rawContent.B.find((row) => row[0] === "b0")![4],
+  );
+  assert.equal(
+    catalog.document("q_hit_b0", "circle"),
+    target.document("b0", "circle"),
+  );
+  catalog.bindContentStore(target);
+  target.publish("b0", "circle", "重新绑定unique", false);
+  assert.equal(catalog.get("b0").expressions.circle, "重新绑定unique");
+  assert.equal(catalog.search("重新绑定unique").length, 0);
+});
+
 test("local source loads one hub on demand and preserves every expression byte", async () => {
   const source = createLocalContentSource({ chunkSize: 7 });
   const controller = new AbortController();
@@ -146,4 +237,30 @@ test("runtime exposes initial search, then commits streamed text into the catalo
   assert.equal(runtime.catalog.get("m3").expressions.circle, expected);
   assert.ok(runtime.catalog.document("m3", "circle").references.length > 0);
   assert.ok(runtime.catalog.expressionVersion("m3", "circle") > 0);
+});
+
+
+test("rebinding transfers the latest published body and unsubscribes the previous store", () => {
+  const old = new ContentStore();
+  const catalog = new Catalog(hubDefinitions, contentManifest, old);
+  catalog.updateExpression("a0", "circle", "当前未完正文", false);
+  const target = new ContentStore();
+  catalog.bindContentStore(target);
+  assert.deepEqual(target.expression("a0", "circle"), { text: "当前未完正文", version: 1, complete: false });
+  old.publish("a0", "circle", "旧来源独有词", true);
+  assert.equal(catalog.search("旧来源独有词").length, 0);
+  target.publish("a0", "circle", "新来源独有词", true);
+  assert.equal(catalog.search("新来源独有词")[0].id, "q_hit_a0");
+  target.publish("a0", "circle", "新来源流中词", false);
+  assert.equal(catalog.search("新来源流中词").length, 0);
+  assert.equal(catalog.search("新来源独有词")[0].id, "q_hit_a0");
+});
+
+
+test("constructing a catalog with already published text refreshes the generated index", () => {
+  const store = new ContentStore();
+  store.publish("a0", "circle", "预载完成独有词", true);
+  const catalog = new Catalog(hubDefinitions, contentManifest, store);
+  assert.equal(catalog.search("预载完成独有词")[0].id, "q_hit_a0");
+  assert.equal(catalog.get("a0").expressions.circle, "预载完成独有词");
 });

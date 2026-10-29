@@ -10,7 +10,7 @@ import type {
   Presentation,
   SearchIndexEntry,
 } from "../core/content.ts";
-import { parseContent, updateContent } from "./parser.ts";
+import { ContentStore } from "./store.ts";
 import {
   buildSearchEntry,
   buildSearchHaystack,
@@ -21,13 +21,6 @@ import {
 export type CatalogRowsInput =
   | Record<string, ContentRow[]>
   | ContentManifest;
-
-interface ExpressionState {
-  text: string;
-  version: number;
-  complete: boolean;
-  document?: ContentDocument;
-}
 
 interface SearchItem {
   chapter: Chapter;
@@ -43,24 +36,17 @@ function isManifest(value: CatalogRowsInput): value is ContentManifest {
   );
 }
 
-function initialExpression(
-  text: string,
-  complete: boolean,
-): ExpressionState {
-  return { text, version: text ? 1 : 0, complete, document: undefined };
-}
-
 export class Catalog {
   readonly chapters = new Map<string, Chapter>();
   readonly definitions: readonly HubDefinition[];
   readonly manifest?: ContentManifest;
-  private readonly expressionStates = new Map<
-    string,
-    Record<Presentation, ExpressionState>
-  >();
+  private content: ContentStore;
+  private unsubscribeContent: (() => void) | null = null;
   private readonly mirrorSources = new Map<string, string>();
   private readonly searchPool: SearchItem[] = [];
   private readonly searchIndex = new Map<string, SearchIndexEntry>();
+
+  get contentIdentity(): object { return this.content; }
 
   get searchHub() {
     return this.definitions.find((hub) => hub.kind === "search");
@@ -69,8 +55,9 @@ export class Catalog {
     return this.searchHub?.root;
   }
 
-  constructor(definitions: HubDefinition[], rows: CatalogRowsInput) {
+  constructor(definitions: HubDefinition[], rows: CatalogRowsInput, store?: ContentStore) {
     this.definitions = definitions;
+    this.content = store ?? new ContentStore();
     const hubs = new Set(definitions.map((h) => h.id));
     if (hubs.size !== definitions.length) throw new Error("Duplicate hub");
     const manifest = isManifest(rows) ? rows : undefined;
@@ -110,14 +97,12 @@ export class Catalog {
         parent.children.push(node.id);
       }
       for (const ref of node.refs) this.get(ref.target);
-      const states = this.expressionStates.get(node.id);
       if (manifest) {
         for (const target of this.manifestChapter(node.id)?.inlineTargets ?? [])
           if (!target.startsWith("act:")) this.get(target);
-      } else if (states) {
+      } else {
         for (const presentation of ["circle", "line"] as const) {
-          const state = states[presentation];
-          for (const ref of parseContent(state.text, true).references)
+          for (const ref of this.content.document(node.id, presentation).references)
             if (!ref.target.startsWith("act:")) this.get(ref.target);
         }
       }
@@ -135,7 +120,15 @@ export class Catalog {
     }
 
     this.buildSearchIndex(manifest);
+    if (manifest && store) {
+      for (const id of this.chapters.keys()) for (const presentation of ["circle", "line"] as const) {
+        const state = store.expression(id, presentation);
+        const entry = this.searchIndex.get(id);
+        if (entry && state.complete) updateSearchEntry(entry, presentation, state.text);
+      }
+    }
     this.buildSearchMirrors();
+    this.observeContent();
   }
 
   private manifestChapter(id: string): ManifestChapter | undefined {
@@ -164,26 +157,42 @@ export class Catalog {
       configurable: true,
       get: () => this.expressionsFor(meta.id),
     });
-    this.expressionStates.set(meta.id, {
-      circle: initialExpression(expressions?.circle ?? "", complete),
-      line: initialExpression(expressions?.line ?? "", complete),
-    });
+    for (const presentation of ["circle", "line"] as const)
+      this.content.seed(meta.id, presentation, expressions?.[presentation] ?? "", complete);
     this.chapters.set(meta.id, chapter);
   }
 
   private expressionsFor(id: string): { circle: string; line: string } {
-    const states = this.expressionStates.get(id);
-    return {
-      circle: states?.circle.text ?? "",
-      line: states?.line.text ?? "",
-    };
+    return { circle: this.content.expression(id, "circle").text, line: this.content.expression(id, "line").text };
   }
 
   private expressionState(id: string, presentation: Presentation) {
-    const sourceId = this.mirrorSources.get(id) ?? id;
-    const states = this.expressionStates.get(sourceId);
-    if (!states) throw new Error(`Unknown chapter: ${id}`);
-    return states[presentation];
+    if (!this.chapters.has(id)) throw new Error(`Unknown chapter: ${id}`);
+    return this.content.expression(this.mirrorSources.get(id) ?? id, presentation);
+  }
+
+  private observeContent(): void {
+    this.unsubscribeContent?.();
+    this.unsubscribeContent = this.content.subscribePublished((id, presentation, state) => {
+      const entry = this.searchIndex.get(id);
+      if (entry && state.complete) updateSearchEntry(entry, presentation, state.text);
+    });
+  }
+
+  bindContentStore(store: ContentStore): void {
+    if (store === this.content) return;
+    for (const id of this.chapters.keys()) {
+      if (this.mirrorSources.has(id)) continue;
+      for (const presentation of ["circle", "line"] as const) {
+        const state = this.content.expression(id, presentation);
+        store.seed(id, presentation, state.text, state.complete);
+        const next = store.expression(id, presentation);
+        const entry = this.searchIndex.get(id);
+        if (entry && next.complete) updateSearchEntry(entry, presentation, next.text);
+      }
+    }
+    this.content = store;
+    this.observeContent();
   }
 
   private buildSearchIndex(manifest?: ContentManifest) {
@@ -192,7 +201,7 @@ export class Catalog {
         this.searchIndex.set(entry.sourceId, { ...entry });
       return;
     }
-    for (const [id, states] of this.expressionStates) {
+    for (const id of this.chapters.keys()) {
       const chapter = this.chapters.get(id);
       if (!chapter) continue;
       this.searchIndex.set(
@@ -201,8 +210,8 @@ export class Catalog {
           id,
           name: chapter.name,
           title: chapter.title,
-          circle: states.circle.text,
-          line: states.line.text,
+          circle: this.content.expression(id, "circle").text,
+          line: this.content.expression(id, "line").text,
         }),
       );
     }
@@ -319,11 +328,8 @@ export class Catalog {
   }
 
   document(id: string, presentation: Presentation): ContentDocument {
-    const sourceId = this.mirrorSources.get(id) ?? id;
-    const state = this.expressionState(sourceId, presentation);
-    if (!state.document)
-      state.document = parseContent(state.text, state.complete);
-    return state.document;
+    this.expressionState(id, presentation);
+    return this.content.document(this.mirrorSources.get(id) ?? id, presentation);
   }
 
   expressionVersion(id: string, presentation: Presentation): number {
@@ -336,15 +342,7 @@ export class Catalog {
     text: string,
     complete: boolean,
   ): void {
-    const sourceId = this.mirrorSources.get(id) ?? id;
-    const state = this.expressionState(sourceId, presentation);
-    if (state.text === text && state.complete === complete) return;
-    state.text = text;
-    state.complete = complete;
-    state.version++;
-    state.document = state.document ? updateContent(state.document, text, complete) : undefined;
-    if (!complete) return;
-    const entry = this.searchIndex.get(sourceId);
-    if (entry) updateSearchEntry(entry, presentation, text);
+    this.expressionState(id, presentation);
+    this.content.publish(this.mirrorSources.get(id) ?? id, presentation, text, complete);
   }
 }

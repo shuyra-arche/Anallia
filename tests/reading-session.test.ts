@@ -209,3 +209,45 @@ test("history return reopens a cancelled partial body without consuming history 
     assert.equal(field.catalog.get("a0").expressions.circle, "重新订阅的正文");
   } finally { reading.destroy(); }
 });
+
+
+test("cancelling before the next host frame never publishes a newly arrived chunk", async () => {
+  const { source, store, field, reading, frame } = setup();
+  reading.startup("a0", Promise.resolve());
+  await frame(20);
+  source.held.add("a0:circle");
+  try {
+    const old = field.catalog.get("a0").expressions.circle;
+    reading.refresh();
+    await tick();
+    source.latest("a0").push("不能在取消后提交", "replace");
+    await tick();
+    assert.equal(reading.cancel(), true);
+    await frame(200);
+    assert.equal(store.get("a0", "circle").status, "cancelled");
+    assert.equal(store.expression("a0", "circle").text, old);
+    assert.equal(field.catalog.get("a0").expressions.circle, old);
+  } finally { reading.destroy(); }
+});
+
+
+test("an empty intermediate replacement keeps readable text until empty EOF is committed", async () => {
+  const { source, store, field, reading, frame } = setup();
+  reading.startup("a0", Promise.resolve());
+  await frame(20);
+  source.held.add("a0:circle");
+  try {
+    const old = field.catalog.get("a0").expressions.circle;
+    reading.refresh();
+    await tick();
+    source.latest("a0").push("", "replace");
+    await frame(200);
+    assert.equal(field.catalog.get("a0").expressions.circle, old);
+    assert.equal(store.expression("a0", "circle").text, old);
+    source.latest("a0").finish();
+    await frame(220);
+    assert.equal(field.catalog.get("a0").expressions.circle, "");
+    assert.equal(store.expression("a0", "circle").complete, true);
+    assert.equal(reading.activeTask?.outcome, "complete");
+  } finally { reading.destroy(); }
+});
