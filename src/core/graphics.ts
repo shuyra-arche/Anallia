@@ -163,6 +163,7 @@ export interface LabelFrame {
   symbolGeometry?: SymbolGeometry;
   symbolActivity?: number;
   resonating?: boolean;
+  localPhase?: string;
   interaction?: {
     hover: boolean;
     focus: boolean;

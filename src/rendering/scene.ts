@@ -1,3 +1,5 @@
+import { evaluateLabel, labelHitRegion } from "../geometry/labels.ts";
+import { SemanticLabels } from "./semantic-labels.ts";
 import type { LoadingGeometry } from "../geometry/loading.ts";
 import { loadingShapes } from "../geometry/loading.ts";
 import { renderLoadingGeometry, loadingToneColor } from "./loading.ts";
@@ -28,7 +30,6 @@ import type { PagePose } from "../core/transitions.ts";
 import { PAPER, BOUNDARY, blendHex, needsColorSweep, isDarkTheme } from "../core/palette.ts";
 import {
   ICON_TOKENS,
-  classifyLabelContent,
   resolveIconToken,
 } from "../core/icons.ts";
 import type { IconToken } from "../core/icons.ts";
@@ -54,7 +55,6 @@ import type {
   BackgroundFrame,
   GraphicsOptions,
   HitRegion,
-  LabelFrame,
   PortalFrame,
   ResolvedRendererKind,
   SceneFrame,
@@ -84,21 +84,6 @@ import { SvgGraphicsRenderer } from "./graphics/svg-renderer.ts";
 /** Camera zoom threshold below which focused hub global tags yield to the traditional HUD bar. */
 export const TRADITIONAL_HUD_ZOOM_THRESHOLD = 0.45;
 
-interface Label {
-  group: SVGGElement;
-  leaf: SVGGElement;
-  pin: SVGCircleElement;
-  stem: SVGPathElement;
-  ring: SVGCircleElement;
-  icon: SVGSVGElement;
-  iconGlyph: SVGGElement;
-  text: SVGTextElement;
-  hit: SVGRectElement;
-  renderedIconId?: string;
-  renderedSymbolSignature?: string;
-  symbolPaths?: Map<string, SVGPathElement>;
-  symbolPoints?: Map<string, SVGCircleElement>;
-}
 
 
 export class Scene {
@@ -106,6 +91,7 @@ export class Scene {
   private geometry: SVGGElement;
   private relationFilaments: SVGPathElement;
   private labels: SVGGElement;
+  private readonly semanticLabels: SemanticLabels;
   private reading: HTMLElement;
   private hudControls: HTMLElement;
   private hubs = new Map<
@@ -117,7 +103,6 @@ export class Scene {
       hit: SVGPathElement;
       tracePath: SVGPathElement;
       traceDot: SVGCircleElement;
-      labels: Map<string, Label>;
     }
   >();
   private readonly readingLayer: ReadingLayer;
@@ -288,6 +273,7 @@ export class Scene {
     this.loadingRoot = svg("g", this.root, { id: "gLoading", "aria-hidden": "true" });
     this.geometry = requireElement(host, "#gGeometry");
     this.labels = requireElement(host, "#gLabels");
+    this.semanticLabels = new SemanticLabels(this.labels);
     this.reading = requireElement(host, "#reading");
     this.readingLayer = new ReadingLayer(host, catalog, {
       inlineIcon: (token, morph) => this.createInlineIconSvg(token, morph),
@@ -326,7 +312,6 @@ export class Scene {
           class: "hit",
           "data-command": `hub:${hub.id}`,
         }),
-        labels: new Map(),
       });
     this.svgRenderer = new SvgGraphicsRenderer(this.root);
     this.host.dataset.numericGraphics = "true";
@@ -449,228 +434,16 @@ export class Scene {
     attachment?: FieldAttachment,
     state?: FieldState,
   ) {
-    const pool = this.hubs.get(hub.id)!.labels;
-    let entry = pool.get(key);
-    if (!entry) {
-      const group = svg("g", this.labels, {
-        class: "tag-group",
-        tabindex: 0,
-        role: "button",
-      });
-      const pin = svg("circle", group, {
-        class: "page-pin",
-        cx: 0,
-        cy: 0,
-        r: 2.6,
-      });
-      const leaf = svg("g", group, { class: "page-leaf" });
-      const stem = svg("path", leaf);
-      const ring = svg("circle", leaf, { class: "label-ring", r: 16 });
-      const icon = svg("svg", leaf, {
-        class: "label-icon",
-        viewBox: "0 0 24 24",
-        width: 20,
-        height: 20,
-        x: -10,
-        y: -10,
-        overflow: "visible",
-      });
-      const iconGlyph = svg("g", icon, { class: "label-icon-glyph" });
-      const text = svg("text", leaf);
-      const hit = svg("rect", leaf, { class: "label-hit", height: 44, rx: 8 });
-      entry = {
-        group,
-        leaf,
-        pin,
-        stem,
-        ring,
-        icon,
-        iconGlyph,
-        text,
-        hit,
-        symbolPaths: new Map(),
-        symbolPoints: new Map(),
-      };
-      pool.set(key, entry);
-    }
-    const e = entry,
-      id = `${hub.id}:${key}`;
-    const interactive = !page || page.interactive;
-    if (interactive) this.actions.set(id, command);
-    e.group.style.display = "";
+    const id = `${hub.id}:${key}`;
     const feedback = this.symbolFeedback.get(id);
     if (alpha >= 0.999 && attachment?.role === "operation" && this.host.dataset.discoveryStage === "threshold" && !feedback?.hover && !feedback?.focus)
       alpha = 0.42;
-    e.group.style.opacity = alpha < 0.999 ? String(alpha) : "";
-    const zoom = state?.camera.z ?? 1;
-    e.group.setAttribute(
-      "transform",
-      `translate(${anchor.x} ${anchor.y}) scale(${zoom})`,
-    );
-    e.group.classList.toggle("turning", !!page);
-    e.pin.style.opacity = page && kind === "current" ? "1" : "0";
-    e.hit.style.pointerEvents = interactive ? "" : "none";
-    e.group.setAttribute("tabindex", interactive ? "0" : "-1");
-    e.group.setAttribute("aria-hidden", interactive ? "false" : "true");
-    e.group.dataset.command = id;
-    if (attachment) {
-      e.group.dataset.scope = attachment.scope;
-      e.group.dataset.role = attachment.role;
-      e.group.dataset.anchor = attachment.anchor.id;
-      e.group.dataset.hostHub = attachment.anchor.hostHub;
-      e.group.dataset.side = attachment.side;
-    }
-    if (key.startsWith("local:")) e.group.dataset.localScroll = hub.id;
-    else delete e.group.dataset.localScroll;
-    e.group.classList.toggle("is-current", kind === "current");
-    e.group.setAttribute("aria-label", aria);
-
-    const deltaX = (at.x - anchor.x) / zoom,
-      deltaY = (at.y - anchor.y) / zoom;
-    const dist = Math.hypot(deltaX, deltaY);
-    const stemTier =
-      attachment?.role === "operation"
-        ? "global"
-        : attachment?.role === "local"
-          ? "local"
-          : kind === "current"
-            ? "current"
-            : "ordinary";
-    const stemEnd = Math.max(4, dist - 14);
-    const sx = dist > 1e-4 ? (deltaX / dist) * stemEnd : deltaX;
-    const sy = dist > 1e-4 ? (deltaY / dist) * stemEnd : deltaY;
-    e.stem.setAttribute(
-      "class",
-      `stem stem-${stemTier}${kind === "nav" ? " nav" : ""}`,
-    );
-    e.stem.dataset.stemTier = stemTier;
-    e.stem.dataset.stemLength = stemEnd.toFixed(1);
-    e.stem.setAttribute("d", `M0 0L${sx.toFixed(2)} ${sy.toFixed(2)}`);
-
-    const stemAngle = (Math.atan2(deltaY, deltaX) * 180) / Math.PI;
-    const flip = page ? page.squash : 1;
-    e.leaf.setAttribute(
-      "transform",
-      `rotate(${stemAngle}) scale(${flip} 1) rotate(${-stemAngle})`,
-    );
-    e.leaf.style.opacity = page ? String(page.opacity) : "";
-    while (degree > 90) degree -= 180;
-    while (degree < -90) degree += 180;
-    // Label geometry stays local; the parent scales typography, icons and hit targets together.
-    const labelTransform = `translate(${deltaX} ${deltaY}) rotate(${degree})`;
-    e.ring.setAttribute("cx", "0");
-    e.ring.setAttribute("cy", "0");
-    e.ring.setAttribute("transform", labelTransform);
-
-    const symbolKind =
-      attachment?.symbolKind ??
-      (attachment?.scope === "global" ? resolveSymbolKind(name) : undefined);
-    const iconToken = attachment?.icon ?? resolveIconToken(name);
-    const contentKind =
-      attachment?.contentKind ??
-      (symbolKind || iconToken ? "icon" : classifyLabelContent(name));
-    e.group.dataset.contentKind = contentKind;
-    e.group.classList.toggle("has-icon", Boolean(symbolKind || iconToken));
-
-    if (iconToken) {
-      if (symbolKind) e.group.dataset.symbolKind = symbolKind;
-      else delete e.group.dataset.symbolKind;
-      const fb = this.symbolFeedback.get(id);
-      e.group.classList.toggle("is-hovered", Boolean(fb?.hover));
-      e.group.classList.toggle("is-pressed", Boolean(fb?.press));
-      e.group.classList.toggle("is-focused", Boolean(fb?.focus));
-      e.group.classList.toggle(
-        "is-active-symbol",
-        Boolean(
-          symbolKind && this.getSymbolActivity(id, symbolKind, state) >= 0.35,
-        ),
-      );
-      e.group.dataset.icon = iconToken.iconName;
-      e.icon.style.display = "";
-      e.icon.setAttribute("class", `label-icon ${kind}`);
-      e.icon.setAttribute("transform", labelTransform);
-      if (e.renderedIconId !== iconToken.id) {
-        populateIconGlyph(e.iconGlyph, iconToken);
-        e.renderedIconId = iconToken.id;
-      }
-      e.text.setAttribute("class", `label ${kind} is-sr-only`);
-      e.text.textContent = name;
-      e.text.setAttribute("transform", labelTransform);
-    } else {
-      delete e.group.dataset.symbolKind;
-      delete e.group.dataset.symbolMorph;
-      delete e.group.dataset.symbolActivity;
-      delete e.group.dataset.icon;
-      e.icon.style.display = "none";
-      const subClass = contentKind === "symbol" ? "is-symbol" : "is-text";
-      e.text.setAttribute("class", `label ${kind} ${subClass}`);
-      e.text.setAttribute("x", "0");
-      e.text.setAttribute("y", "0");
-      e.text.textContent = name;
-      e.text.setAttribute("transform", labelTransform);
-    }
-
-    const width =
-      symbolKind || iconToken ? 44 : Math.max(44, name.length * 14 + 20);
-    e.hit.setAttribute("x", String(-width / 2));
-    e.hit.setAttribute("y", "-22");
-    e.hit.setAttribute("width", String(width));
-    e.hit.setAttribute("transform", labelTransform);
-
-    const frameLabel: LabelFrame = {
-      id,
-      command,
-      aria,
-      hubId: hub.id,
-      attachment,
-      glyph: name,
-      visual: kind,
-      contentKind,
-      layout: {
-        hinge: anchor,
-        position: at,
-        offset: { x: deltaX, y: deltaY },
-        degree,
-        width,
-        height: 44,
-        scale: zoom,
-      },
-      opacity: alpha,
-      interactive,
-      localScrollHub: key.startsWith("local:") ? hub.id : undefined,
-      icon: iconToken,
-      symbolKind,
-      symbolGeometry: attachment?.symbolGeometry,
-      symbolActivity: symbolKind
-        ? this.getSymbolActivity(id, symbolKind, state)
-        : undefined,
-      interaction: this.symbolFeedback.get(id),
-      page,
-      linkTarget:
-        command.type === "navigate" ? command.target : undefined,
-    };
-    this.currentFrame.labels.push(frameLabel);
-    if (interactive) {
-      this.currentFrame.hitRegions.push({
-        id,
-        command,
-        aria,
-        hubId: hub.id,
-        chapterId:
-          attachment?.role === "ordinary" ? attachment.id : undefined,
-        localScrollHub: key.startsWith("local:") ? hub.id : undefined,
-        graspKind: "label",
-        shape: {
-          type: "rect",
-          x: at.x,
-          y: at.y,
-          width: width * zoom,
-          height: 44 * zoom,
-          rotation: degree,
-        },
-        priority: 30,
-      });
-    }
+    const symbolKind = attachment?.symbolKind ?? (attachment?.scope === "global" ? resolveSymbolKind(name) : undefined);
+    const frame = evaluateLabel({ hubId: hub.id, key, name, at, anchor, kind, degree, command, aria, alpha, page, attachment,
+      zoom: state?.camera.z ?? 1, interaction: feedback, activity: symbolKind ? this.getSymbolActivity(id, symbolKind, state) : 0 });
+    this.currentFrame.labels.push(frame);
+    const hit = labelHitRegion(frame);
+    if (hit) { this.currentFrame.hitRegions.push(hit); this.actions.set(id, command); }
   }
 
   private renderUnfocusedTraces(
@@ -939,8 +712,6 @@ export class Scene {
       `0 0 ${s.viewport.width} ${s.viewport.height}`,
     );
     this.actions.clear();
-    for (const { labels } of this.hubs.values())
-      for (const e of labels.values()) e.group.style.display = "none";
 
     const contentTurn = s.contentTurn;
     const turnPose = contentTurn
@@ -1214,17 +985,13 @@ export class Scene {
         attachment,
         s,
       );
-      const labelGroup = this.hubs
-        .get(hub.id)!
-        .labels.get(attachment.anchor.id)!.group;
-      labelGroup.dataset.localPhase = leaf.phase;
+      this.currentFrame.labels[this.currentFrame.labels.length - 1].localPhase = leaf.phase;
       const isResonatingRef =
         attachment.command.type === "navigate" &&
         (attachment.command.target === perception.resonatingTargetId ||
           (perception.resonatingHubId !== null &&
             this.catalog.chapters.get(attachment.command.target)?.hub ===
               perception.resonatingHubId));
-      labelGroup.classList.toggle("is-resonating-ref", isResonatingRef);
       this.currentFrame.labels[this.currentFrame.labels.length - 1].resonating = isResonatingRef;
     }
 
@@ -1262,6 +1029,7 @@ export class Scene {
       }
     }
     this.currentFrame.reading = this.readingLayer.render(s);
+    this.semanticLabels.render(this.currentFrame.labels);
     this.labels.style.opacity = "";
     this.labels.style.pointerEvents =
       this.resolvedKind === "webgl" || s.passage ? "none" : "";
@@ -1502,7 +1270,7 @@ export class Scene {
     this.gpu = null;
     this.localLabelTurns.clear();
     this.geometry.replaceChildren();
-    this.labels.replaceChildren();
+    this.semanticLabels.destroy();
     this.loadingRoot.remove();
     this.readingLayer.destroy();
     this.hudControls.remove();
