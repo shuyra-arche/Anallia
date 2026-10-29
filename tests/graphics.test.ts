@@ -333,3 +333,20 @@ test("portal geometry stays finite for near, remote and axis passages", () => {
     assert.doesNotMatch(curveToSvgPath(geometry.stroke), /NaN|Infinity/);
   }
 });
+
+test("dynamic symbol geometry reaches the GPU cache without reading SVG path strings", () => {
+  const geometry = evaluateSymbol("overview", 0.418, 0.62);
+  for (const path of geometry.paths) Object.defineProperty(path, "d", { get() { throw new Error("SVG serialization must stay in SVG rendering"); } });
+  const cache = new IconGeometryCache();
+  const points = cache.getSymbol(geometry);
+  assert.equal(points.length, geometry.paths.length);
+  assert.deepEqual(points, geometry.paths.map(path => path.points));
+});
+
+test("circular hub hits use the original scaled stroke band and leave the interior free for panning", () => {
+  const frame = { hitRegions: [{ id: "hub:A", command: { type: "morph" as const }, priority: 10, shape: { type: "circle" as const, x: 100, y: 100, radius: 80, strokeWidth: 32 } }] };
+  assert.equal(hitTestFrame(frame, { x: 100, y: 100 }), null);
+  assert.equal(hitTestFrame(frame, { x: 180, y: 100 })?.id, "hub:A");
+  assert.equal(hitTestFrame(frame, { x: 195, y: 100 })?.id, "hub:A");
+  assert.equal(hitTestFrame(frame, { x: 197, y: 100 }), null);
+});

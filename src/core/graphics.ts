@@ -72,6 +72,8 @@ export interface TextPrimitive extends ShapeStyle {
   text: string;
   fontSize: number;
   fontFamily?: string;
+  fontWeight?: number;
+  scale?: number;
   angle?: number;
   align?: "left" | "center" | "right";
   baseline?: "top" | "middle" | "bottom" | "alphabetic";
@@ -158,6 +160,7 @@ export interface LabelFrame {
   symbolKind?: SymbolKind;
   symbolGeometry?: SymbolGeometry;
   symbolActivity?: number;
+  resonating?: boolean;
   interaction?: {
     hover: boolean;
     focus: boolean;
@@ -276,6 +279,8 @@ export interface HitCircle {
   x: number;
   y: number;
   radius: number;
+  /** A stroke band leaves the circle's interior available for panning. */
+  strokeWidth?: number;
 }
 
 export interface HitPolyline {
@@ -314,6 +319,13 @@ export interface SceneFrame {
   reading: ReadingFrame[];
   hitRegions: HitRegion[];
   background: BackgroundFrame | null;
+}
+
+export interface GraphicsRenderer {
+  readonly kind: ResolvedRendererKind;
+  resize(width: number, height: number, dpr?: number): void;
+  render(frame: SceneFrame): void;
+  destroy(): void;
 }
 
 export function sceneLayer(
@@ -378,8 +390,10 @@ export function pointInHitRegion(point: Vec, region: HitRegion): boolean {
   switch (shape.type) {
     case "rect":
       return pointInRotatedRect(point, shape);
-    case "circle":
-      return Math.hypot(point.x - shape.x, point.y - shape.y) <= shape.radius;
+    case "circle": {
+      const distance = Math.hypot(point.x - shape.x, point.y - shape.y);
+      return shape.strokeWidth === undefined ? distance <= shape.radius : Math.abs(distance - shape.radius) <= shape.strokeWidth / 2;
+    }
     case "polyline": {
       const points = shape.points;
       if (!points.length) return false;

@@ -22,7 +22,8 @@ export const SYMBOL_KINDS: readonly SymbolKind[] = [
 
 export interface PathGeometry {
   id: string;
-  d: string;
+  readonly d: string;
+  points: readonly Vec[];
   role: "primary" | "secondary" | "guide";
   strokeScale?: number;
   opacity?: number;
@@ -273,11 +274,11 @@ function evaluateOverviewSymbol(m: number, a: number): Omit<SymbolGeometry, "opt
     morph: m,
     activity: a,
     paths: [
-      { id: "orbit-upper", d: pointsToPathD(upperPts), role: "primary" },
-      { id: "orbit-lower", d: pointsToPathD(lowerPts), role: "primary" },
+      { id: "orbit-upper", points: upperPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
+      { id: "orbit-lower", points: lowerPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
       {
         id: "inner-horizon",
-        d: pointsToPathD(innerPts),
+        points: innerPts, get d(): string { return pointsToPathD(this.points); },
         role: "secondary",
         strokeScale: 0.88,
       },
@@ -376,17 +377,17 @@ function evaluateSearchSymbol(m: number, a: number): Omit<SymbolGeometry, "optic
     morph: m,
     activity: a,
     paths: [
-      { id: "track-upper", d: pointsToPathD(upperPts), role: "primary" },
-      { id: "track-lower", d: pointsToPathD(lowerPts), role: "primary" },
+      { id: "track-upper", points: upperPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
+      { id: "track-lower", points: lowerPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
       {
         id: "scan-arc",
-        d: pointsToPathD(scanPts),
+        points: scanPts, get d(): string { return pointsToPathD(this.points); },
         role: "secondary",
         strokeScale: 0.9,
       },
       {
         id: "probe-line",
-        d: pointsToPathD([probeStart, probeEnd]),
+        points: [probeStart, probeEnd], get d(): string { return pointsToPathD(this.points); },
         role: "guide",
       },
     ],
@@ -482,16 +483,16 @@ function evaluateHistorySymbol(m: number, a: number): Omit<SymbolGeometry, "opti
     morph: m,
     activity: a,
     paths: [
-      { id: "return-trajectory", d: pointsToPathD(mainPts), role: "primary" },
+      { id: "return-trajectory", points: mainPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
       {
         id: "foldback-rail",
-        d: pointsToPathD(foldPts),
+        points: foldPts, get d(): string { return pointsToPathD(this.points); },
         role: "secondary",
         strokeScale: 0.88,
       },
       {
         id: "reverse-guide",
-        d: pointsToPathD([wingUpper, headFrame.point, wingLower]),
+        points: [wingUpper, headFrame.point, wingLower], get d(): string { return pointsToPathD(this.points); },
         role: "guide",
       },
     ],
@@ -559,7 +560,7 @@ function evaluateSettingsSymbol(m: number, a: number): Omit<SymbolGeometry, "opt
     );
     paths.push({
       id: `track-${k}`,
-      d: pointsToPathD(pts),
+      points: pts, get d(): string { return pointsToPathD(this.points); },
       role: "primary",
     });
 
@@ -642,9 +643,9 @@ export function measureSymbolBounds(geometry: SymbolGeometry): {
   const xs: number[] = [];
   const ys: number[] = [];
   for (const path of geometry.paths) {
-    for (const match of path.d.matchAll(/[ML](-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g)) {
-      xs.push(Number(match[1]));
-      ys.push(Number(match[2]));
+    for (const point of path.points) {
+      xs.push(point.x);
+      ys.push(point.y);
     }
   }
   for (const pt of geometry.points) {

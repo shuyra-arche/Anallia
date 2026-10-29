@@ -52,9 +52,19 @@ export class GpuGlyphCache<T = unknown> {
 
   getOrCreate(key: string, create: () => T): T {
     const existing = this.values.get(key);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      this.values.delete(key);
+      this.values.set(key, existing);
+      return existing;
+    }
     const value = create();
     this.values.set(key, value);
+    if (this.values.size > 512) {
+      const oldest = this.values.keys().next().value!;
+      const discarded = this.values.get(oldest)!;
+      this.values.delete(oldest);
+      this.dispose?.(discarded);
+    }
     return value;
   }
 
@@ -90,15 +100,7 @@ export class IconGeometryCache {
   }
 
   getSymbol(geometry: SymbolGeometry): Vec[][] {
-    // Quantize the continuous morph so the cache holds bounded buckets rather
-    // than parsing a fresh path string on every rendered frame.
-    const morph = Math.round(geometry.morph * 24) / 24;
-    const activity = Math.round(geometry.activity * 8) / 8;
-    return this.getOrCreate(
-      `symbol:${geometry.kind}:${morph.toFixed(3)}:${activity.toFixed(3)}`,
-      () =>
-        geometry.paths.flatMap((path) => parseSvgPathData(path.d)),
-    );
+    return geometry.paths.map(path => path.points.map(point => ({ ...point })));
   }
 
   getOrCreate(key: string, create: () => Vec[][]): Vec[][] {

@@ -111,9 +111,22 @@ export class PixiGraphicsRenderer {
   private readonly renderer: PixiRenderer;
   private readonly stage: PixiContainer;
   private readonly layerRoots = new Map<string, PixiContainer>();
-  private readonly glyphs = new GpuGlyphCache<PixiText>();
+  private readonly containers = new Map<string, PixiContainer>();
+  private readonly graphicsPools = new Map<PixiContainer, PixiGraphics[]>();
+  private graphicsCursors = new Map<PixiContainer, number>();
+  private textCursors = new Map<PixiContainer, number>();
+  private parentIds = new WeakMap<PixiContainer, number>();
+  private nextParentId = 0;
+  private readonly glyphs = new GpuGlyphCache<PixiText>((text) => text.destroy());
+  private lastFrame: SceneFrame | null = null;
+  private lastBackground: SceneFrame["background"] = null;
+  private renderWidth = 0;
+  private renderHeight = 0;
+  private readonly primitiveSignatures = new WeakMap<PixiGraphics, string>();
   private readonly icons = new IconGeometryCache();
   private fontFamily: string;
+  private fontSymbol = "serif";
+  private paletteTheme: Theme | null = null;
   private dpr: number;
   private destroyed = false;
   private lost = false;
@@ -190,6 +203,8 @@ export class PixiGraphicsRenderer {
 
   /** Invalidate text/icon caches after a theme, DPR or font change. */
   invalidateGlyphs(reason: "theme" | "dpr" | "font" | "manual" = "manual"): void {
+    this.lastFrame = null;
+    if (reason === "font") this.paletteTheme = null;
     this.glyphs.clear(reason);
     if (
       reason === "font" &&
@@ -205,6 +220,10 @@ export class PixiGraphicsRenderer {
 
   resize(width: number, height: number, dpr = this.dpr): void {
     if (this.destroyed || this.lost) return;
+    if (width === this.renderWidth && height === this.renderHeight && dpr === this.dpr) return;
+    this.renderWidth = width;
+    this.renderHeight = height;
+    this.lastFrame = null;
     this.dpr = dpr;
     this.renderer.resize(
       Math.max(1, Math.round(width)),
@@ -215,16 +234,38 @@ export class PixiGraphicsRenderer {
 
   render(frame: SceneFrame): void {
     if (this.destroyed || this.lost) return;
+    if (this.lastFrame === frame) {
+      if (this.lastBackground === frame.background) return;
+      this.graphicsCursors.clear();
+      this.drawBackground(frame, false);
+      this.lastBackground = frame.background;
+      this.renderer.render(this.stage);
+      return;
+    }
+    this.lastFrame = frame;
+    this.lastBackground = frame.background;
+    if (this.paletteTheme !== frame.visualTheme) {
+      const style = getComputedStyle(document.documentElement);
+      const colors = CSS_COLORS[frame.visualTheme];
+      for (const key of ["ink", "quiet", "line", "amber", "paper", "stem", "accent"])
+        colors[key] = style.getPropertyValue(`--${key}`).trim() || colors[key];
+      colors.stemNav = style.getPropertyValue("--stem-nav").trim() || colors.stem;
+      this.fontSymbol = style.getPropertyValue("--font-symbol").trim() || this.fontSymbol;
+      this.paletteTheme = frame.visualTheme;
+    }
     this.glyphs.setEnvironment({
       theme: frame.visualTheme,
       dpr: this.dpr,
       fontFamily: this.fontFamily,
     });
-    this.stage.removeChildren();
-    this.layerRoots.clear();
+    for (const text of this.glyphs.items()) text.visible = false;
+    for (const container of this.containers.values()) container.visible = false;
+    for (const pool of this.graphicsPools.values()) for (const graphics of pool) graphics.visible = false;
+    this.graphicsCursors.clear();
+    this.textCursors.clear();
     const ordered = [...frame.layers].sort((a, b) => a.order - b.order);
     const addLayer = (id: string, primitives: SceneFrame["layers"][number]["primitives"]) => {
-      const root = new this.pixi.Container();
+      const root = this.container(`layer:${id}`, this.stage);
       root.label = id;
       this.layerRoots.set(id, root);
       this.stage.addChild(root);
@@ -250,6 +291,9 @@ export class PixiGraphicsRenderer {
     if (this.destroyed) return;
     this.destroyed = true;
     this.glyphs.clear("manual");
+    this.stage.destroy({ children: true });
+    this.containers.clear();
+    this.graphicsPools.clear();
     try {
       this.renderer.destroy();
     } catch {
@@ -258,20 +302,44 @@ export class PixiGraphicsRenderer {
     this.canvas.remove();
   }
 
-  private graphics(parent: PixiContainer): PixiGraphics {
-    const g = new this.pixi.Graphics();
-    parent.addChild(g);
-    return g;
+  private container(key: string, parent: PixiContainer): PixiContainer {
+    let container = this.containers.get(key);
+    if (!container) {
+      container = new this.pixi.Container();
+      container.eventMode = "none";
+      this.containers.set(key, container);
+      parent.addChild(container);
+    }
+    container.visible = true;
+    return container;
   }
 
-  private drawBackground(frame: SceneFrame): void {
+  private graphics(parent: PixiContainer, clear = true): PixiGraphics {
+    let pool = this.graphicsPools.get(parent);
+    if (!pool) { pool = []; this.graphicsPools.set(parent, pool); }
+    const index = this.graphicsCursors.get(parent) ?? 0;
+    this.graphicsCursors.set(parent, index + 1);
+    let graphics = pool[index];
+    if (!graphics) {
+      graphics = new this.pixi.Graphics();
+      graphics.eventMode = "none";
+      pool[index] = graphics;
+      parent.addChild(graphics);
+    }
+    if (clear) graphics.clear();
+    graphics.visible = true;
+    graphics.alpha = 1;
+    return graphics;
+  }
+
+  private drawBackground(frame: SceneFrame, reorder = true): void {
     const background = frame.background;
     if (!background || background.mode === "none" || background.opacity <= 0)
       return;
-    const root = new this.pixi.Container();
+    const root = this.container("background", this.stage);
     root.label = "background";
     root.alpha = background.opacity;
-    this.stage.addChild(root);
+    if (reorder) this.stage.addChild(root);
     const flow = this.graphics(root);
     for (const line of background.streamlines) {
       this.polyline(
@@ -335,11 +403,11 @@ export class PixiGraphicsRenderer {
   private drawPortalFill(frame: SceneFrame): void {
     const portal = frame.portal;
     if (!portal || !portal.visible || portal.opacity <= 0) return;
-    const root = new this.pixi.Container();
+    const root = this.container("portal", this.stage);
     root.label = "portal";
     root.alpha = portal.opacity;
     this.stage.addChild(root);
-    const mask = new this.pixi.Graphics();
+    const mask = this.container("portal-mask", root);
     for (const maskFrame of frame.masks) {
       if (!maskFrame.visible || maskFrame.id !== portal.maskId) continue;
       const area = this.graphics(mask);
@@ -405,135 +473,83 @@ export class PixiGraphicsRenderer {
   }
 
   private drawLabels(frame: SceneFrame): void {
-    const root = new this.pixi.Container();
-    root.label = "labels";
+    const root = this.container("labels", this.stage);
     this.stage.addChild(root);
+    const colors = palette(frame.visualTheme);
     for (const label of frame.labels) {
       if (label.opacity <= 0.001) continue;
-      const group = new this.pixi.Container();
-      group.alpha = label.opacity;
-      group.position.set(label.layout.hinge.x, label.layout.hinge.y);
+      const group = this.container(`label:${label.id}`, root);
       root.addChild(group);
-      const zoom = label.layout.scale;
-      const dx = label.layout.position.x - label.layout.hinge.x;
-      const dy = label.layout.position.y - label.layout.hinge.y;
+      group.position.set(label.layout.hinge.x, label.layout.hinge.y);
+      group.scale.set(label.layout.scale);
+      group.alpha = label.opacity;
+      const dx = label.layout.offset.x, dy = label.layout.offset.y;
       const distance = Math.hypot(dx, dy);
-      if (distance > 1) {
-        const stem = this.graphics(group);
-        stem
-          .moveTo(0, 0)
-          .lineTo(dx, dy)
-          .stroke({
-            color: colorFrom(palette(frame.visualTheme).stem, "#8fa99e"),
-            width: Math.max(0.5, 1.05 * zoom),
-            alpha: 0.5,
-            cap: "round",
-          });
+      const axis = Math.atan2(dy, dx);
+      const flip = label.page?.squash ?? 1;
+      const c = Math.cos(axis), n = Math.sin(axis);
+      const page = this.container(`page:${label.id}`, group);
+      page.setFromMatrix(new this.pixi.Matrix(c*c*flip+n*n, c*n*(flip-1), c*n*(flip-1), n*n*flip+c*c, 0, 0));
+      page.alpha = label.page?.opacity ?? 1;
+      if (label.page && label.visual === "current") {
+        const pin = this.graphics(group);
+        pin.circle(0, 0, 2.6).fill({ color: colors.amber }).stroke({ color: colors.paper, width: 1.1 });
       }
-      const leaf = new this.pixi.Container();
+      if (distance > 0.0001) {
+        const role = label.attachment?.role;
+        const current = label.visual === "current";
+        const global = role === "operation";
+        const local = role === "local";
+        const end = Math.max(4, distance - 14);
+        const stem = this.graphics(page);
+        stem.moveTo(0, 0).lineTo(dx / distance * end, dy / distance * end).stroke({
+          color: current ? colors.amber : global || local || label.visual === "nav" ? colors.stemNav : colors.stem,
+          width: current ? 1.45 : global ? 1.3 : local ? 1.05 : 1.15,
+          alpha: current ? 0.96 : global ? 0.92 : local ? 0.78 : 0.82,
+        });
+      }
+      const leaf = this.container(`leaf:${label.id}`, page);
       leaf.position.set(dx, dy);
-      leaf.rotation = (label.layout.degree * Math.PI) / 180;
-      leaf.scale.set(zoom * (label.page?.squash ?? 1), zoom);
-      leaf.alpha = label.page?.opacity ?? 1;
-      group.addChild(leaf);
-      const highlighted =
-        label.interaction?.press ||
-        label.interaction?.hover ||
-        label.interaction?.focus ||
-        (label.symbolActivity ?? 0) >= 0.35;
-      const ink = colorFrom(
-        highlighted
-          ? palette(frame.visualTheme).amber
-          : palette(frame.visualTheme).ink,
-        "#233532",
-      );
-      const ring = this.graphics(leaf);
+      leaf.rotation = label.layout.degree * Math.PI / 180;
+      leaf.scale.set(1);
+      leaf.alpha = 1;
+      const highlighted = Boolean(label.interaction?.hover || label.interaction?.focus || label.interaction?.press);
+      const activeIcon = Boolean(label.symbolGeometry && (label.symbolActivity ?? 0) >= 0.35);
+      const ink = highlighted || activeIcon || label.resonating || label.visual === "nav" ? colors.amber : label.visual === "background" ? colors.quiet : colors.accent;
+      if (highlighted || label.resonating || label.visual === "current") {
+        const ring = this.graphics(leaf);
+        const points = Array.from({ length: 65 }, (_, i) => ({ x: 16 * Math.cos(i * Math.PI / 32), y: 16 * Math.sin(i * Math.PI / 32) }));
+        this.polyline(ring, points, colors.amber, 1.25, highlighted ? 1 : label.resonating ? 0.92 : 0.65, [3, 3]);
+      }
       if (!label.icon && !label.symbolGeometry) {
-        ring
-          .circle(0, 0, label.layout.width / 2)
-          .fill({
-            color: colorFrom(palette(frame.visualTheme).paper, "#f5f6f2"),
-            alpha: 0.82,
-          })
-          .stroke({
-            color: colorFrom(
-              highlighted
-                ? palette(frame.visualTheme).amber
-                : palette(frame.visualTheme).line,
-              "#256b63",
-            ),
-            width: highlighted ? 1.6 : 0.9,
-            alpha: highlighted ? 0.9 : 0.5,
-          });
-        this.drawText(
-          leaf,
-          {
-            type: "text",
-            x: 0,
-            y: 0,
-            text: label.glyph,
-            fontSize: 14,
-            fontFamily: this.fontFamily,
-            fill: ink,
-            align: "center",
-            baseline: "middle",
-            opacity: 1,
-          },
-          frame,
-        );
+        const text = label.contentKind === "text";
+        this.drawText(leaf, {
+          type: "text", x: 0, y: 0, text: label.glyph,
+          fontSize: label.visual === "background" ? 13 : label.visual === "nav" ? 16 : text ? 14.5 : 16.5,
+          fontWeight: label.visual === "current" ? 720 : label.visual === "background" ? 520 : label.visual === "nav" ? 620 : 560,
+          fontFamily: text ? this.fontFamily : this.fontSymbol,
+          fill: ink, stroke: colors.paper, strokeWidth: 4, align: "center", baseline: "middle",
+        }, frame);
       } else {
         const glyph = this.graphics(leaf);
-        const icon = label.icon
-          ? this.icons.getIcon(label.icon)
-          : label.symbolGeometry
-            ? this.icons.getSymbol(label.symbolGeometry)
-            : [];
+        const symbol = label.symbolGeometry;
+        const optical = symbol?.optical.opticalScale ?? label.icon?.opticalScale ?? 1;
+        const offset = symbol?.optical.opticalOffset ?? label.icon?.opticalOffset ?? { x: 0, y: 0 };
         const scale = 20 / 24;
-        const optical =
-          label.symbolGeometry?.optical.opticalScale ??
-          label.icon?.opticalScale ??
-          1;
-        const offsetX = label.symbolGeometry?.optical.opticalOffset.x ??
-          label.icon?.opticalOffset.x ??
-          0;
-        const offsetY = label.symbolGeometry?.optical.opticalOffset.y ??
-          label.icon?.opticalOffset.y ??
-          0;
-        for (const points of icon) {
-          const mapped = points.map((p) => ({
-            x: (p.x - 12 + offsetX) * optical * scale,
-            y: (p.y - 12 + offsetY) * optical * scale,
-          }));
-          this.polyline(
-            glyph,
-            mapped,
-            ink,
-            highlighted ? 2.1 : 1.55,
-            highlighted ? 1 : 0.9,
-          );
+        const map = (point: Vec) => ({ x: (point.x - 12 + offset.x) * optical * scale, y: (point.y - 12 + offset.y) * optical * scale });
+        const width = symbol ? (symbol.optical.baseStrokeWidth + symbol.optical.strokeCompensation) * optical * scale : 1.8 * optical * scale;
+        if (symbol) {
+          for (const path of symbol.paths) this.polyline(glyph, path.points.map(map), ink, width * (path.strokeScale ?? 1), path.opacity ?? 1);
+        } else if (label.icon) {
+          for (const points of this.icons.getIcon(label.icon)) this.polyline(glyph, points.map(map), ink, width, 1);
         }
-        for (const point of label.symbolGeometry?.points ?? []) {
-          glyph
-            .circle(
-              (point.x - 12 + offsetX) * optical * scale,
-              (point.y - 12 + offsetY) * optical * scale,
-              Math.max(0.5, point.r * optical * scale),
-            )
-            .fill({
-              color: ink,
-              alpha: point.opacity ?? 1,
-            });
+        for (const point of symbol?.points ?? []) {
+          const p = map(point);
+          glyph.circle(p.x, p.y, point.r * optical * scale);
+          if (point.filled) glyph.fill({ color: ink, alpha: point.opacity ?? 1 });
+          else glyph.stroke({ color: ink, width, alpha: point.opacity ?? 1 });
         }
       }
-      const hit = this.graphics(leaf);
-      hit
-        .rect(
-          -label.layout.width / 2,
-          -label.layout.height / 2,
-          label.layout.width,
-          label.layout.height,
-        )
-        .fill({ color: "#000", alpha: 0 });
     }
   }
 
@@ -542,7 +558,11 @@ export class PixiGraphicsRenderer {
     primitive: Exclude<ScenePrimitive, TextPrimitive>,
     frame: SceneFrame,
   ): void {
-    const g = this.graphics(parent);
+    const g = this.graphics(parent, false);
+    const signature = JSON.stringify(primitive);
+    if (this.primitiveSignatures.get(g) === signature) return;
+    this.primitiveSignatures.set(g, signature);
+    g.clear();
     switch (primitive.type) {
       case "circle":
         this.drawCircle(g, primitive);
@@ -557,11 +577,18 @@ export class PixiGraphicsRenderer {
         this.drawRect(g, primitive);
         break;
     }
-    if (primitive.opacity !== undefined) g.alpha = primitive.opacity;
+    // Shape opacity is applied once by paint().
     void frame;
   }
 
   private drawCircle(g: PixiGraphics, p: CirclePrimitive): void {
+    if (p.dash?.length && p.stroke) {
+      if (p.fill) g.circle(p.cx, p.cy, p.radius).fill({ color: p.fill, alpha: p.opacity ?? 1 });
+      const steps = Math.min(2048, Math.max(32, Math.ceil(2 * Math.PI * p.radius / 3)));
+      const points = Array.from({ length: steps + 1 }, (_, i) => ({ x: p.cx + p.radius * Math.cos(i * 2 * Math.PI / steps), y: p.cy + p.radius * Math.sin(i * 2 * Math.PI / steps) }));
+      this.polyline(g, points, p.stroke, p.strokeWidth ?? 1, p.opacity ?? 1, p.dash);
+      return;
+    }
     g.circle(p.cx, p.cy, p.radius);
     this.paint(g, p.fill, p.stroke, p.strokeWidth, p.opacity);
   }
@@ -582,6 +609,10 @@ export class PixiGraphicsRenderer {
     p: PolylinePrimitive,
   ): void {
     if (!p.points.length) return;
+    if (p.dash?.length && p.stroke && !p.fill) {
+      this.polyline(g, p.closed ? [...p.points, p.points[0]] : p.points, p.stroke, p.strokeWidth ?? 1, p.opacity ?? 1, p.dash);
+      return;
+    }
     if (p.closed)
       g.poly(p.points.flatMap((point) => [point.x, point.y]), true);
     else {
@@ -621,11 +652,27 @@ export class PixiGraphicsRenderer {
     color: string,
     width: number,
     opacity: number,
+    dash?: readonly number[],
   ): void {
     if (points.length < 2) return;
+    const pattern = dash?.filter(value => Number.isFinite(value) && value > 0) ?? [];
+    if (pattern.length % 2) pattern.push(...pattern);
     g.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++)
-      g.lineTo(points[i].x, points[i].y);
+    let phase = 0, remaining = pattern[0] ?? Infinity;
+    for (let i = 1; i < points.length; i++) {
+      const from = points[i - 1], to = points[i];
+      const length = Math.hypot(to.x - from.x, to.y - from.y);
+      let along = 0;
+      while (along < length) {
+        const step = Math.min(remaining, length - along);
+        along += step;
+        const x = from.x + (to.x - from.x) * along / length;
+        const y = from.y + (to.y - from.y) * along / length;
+        if (phase % 2 === 0) g.lineTo(x, y); else g.moveTo(x, y);
+        remaining -= step;
+        if (remaining <= 1e-8 && pattern.length) { phase = (phase + 1) % pattern.length; remaining = pattern[phase]; }
+      }
+    }
     g.stroke({
       color,
       width: Math.max(0.25, width),
@@ -657,9 +704,15 @@ export class PixiGraphicsRenderer {
     primitive: TextPrimitive,
     frame: SceneFrame,
   ): void {
+    let parentId = this.parentIds.get(parent);
+    if (parentId === undefined) { parentId = ++this.nextParentId; this.parentIds.set(parent, parentId); }
+    const slot = this.textCursors.get(parent) ?? 0;
+    this.textCursors.set(parent, slot + 1);
     const key = [
+      parentId, slot,
       primitive.text,
-      primitive.fontSize,
+      primitive.fontSize, primitive.fontWeight, primitive.stroke, primitive.strokeWidth,
+      primitive.fontFamily, primitive.align, primitive.baseline,
       primitive.fill ?? "",
       frame.visualTheme,
       this.dpr,
@@ -671,6 +724,8 @@ export class PixiGraphicsRenderer {
         style: {
           fontFamily: primitive.fontFamily ?? this.fontFamily,
           fontSize: Math.max(1, primitive.fontSize),
+          fontWeight: String(primitive.fontWeight ?? 400) as import("pixi.js").TextStyleFontWeight,
+          stroke: primitive.stroke ? { color: primitive.stroke, width: primitive.strokeWidth ?? 1, join: "round" } : undefined,
           fill: colorFrom(
             primitive.fill,
             palette(frame.visualTheme).ink,
@@ -688,7 +743,9 @@ export class PixiGraphicsRenderer {
       );
       return value;
     });
+    text.visible = true;
     text.position.set(primitive.x, primitive.y);
+    text.scale.set(primitive.scale ?? 1);
     text.rotation = ((primitive.angle ?? 0) * Math.PI) / 180;
     text.alpha = primitive.opacity ?? 1;
     parent.addChild(text);

@@ -312,6 +312,7 @@ export class Scene {
   private loadingGeometry: LoadingGeometry | null = null;
   private loadingRoot: SVGGElement;
   private contentRevision = 0;
+  private readonly amberColors = new Map<Theme, string>();
 
   setLoadingGeometry(geometry: LoadingGeometry | null): void { this.loadingGeometry = geometry; }
 
@@ -873,6 +874,9 @@ export class Scene {
     const interactive = !page || page.interactive;
     if (interactive) this.actions.set(id, command);
     e.group.style.display = "";
+    const feedback = this.symbolFeedback.get(id);
+    if (alpha >= 0.999 && attachment?.role === "operation" && this.host.dataset.discoveryStage === "threshold" && !feedback?.hover && !feedback?.focus)
+      alpha = 0.42;
     e.group.style.opacity = alpha < 0.999 ? String(alpha) : "";
     const zoom = state?.camera.z ?? 1;
     e.group.setAttribute(
@@ -1180,7 +1184,8 @@ export class Scene {
         x: beaconPt.x,
         y: beaconPt.y,
         text: h.glyph,
-        fontSize: fontScale * Math.max(0.55, s.camera.z),
+        fontSize: fontScale,
+        scale: Math.max(0.55, s.camera.z),
         fill:
           perception.tier === "resonating" && sig
             ? sig.accentColor
@@ -1342,6 +1347,13 @@ export class Scene {
     const visualThemeForField =
       s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
     this.currentFrame.visualTheme = visualThemeForField;
+    this.host.ownerDocument.documentElement.dataset.theme = visualThemeForField;
+    if (!this.amberColors.has(visualThemeForField)) {
+      const color = this.host.ownerDocument.defaultView?.getComputedStyle(this.host.ownerDocument.documentElement).getPropertyValue("--amber").trim();
+      this.amberColors.set(visualThemeForField, color || BOUNDARY[visualThemeForField]);
+    }
+    const relationColor = this.amberColors.get(visualThemeForField)!;
+    const relationOpacity = s.loading ? 0 : perception.resonatingHubId ? 0.46 : s.overview ? 0.34 : 0.22;
     const darkPalette = isDarkTheme(visualThemeForField);
     const filamentSegs: string[] = [];
     const hubPrimitives: ScenePrimitive[] = [];
@@ -1399,11 +1411,12 @@ export class Scene {
                 x: curve.cx,
                 y: curve.cy,
                 radius: curve.radius,
+                strokeWidth: 32 * s.camera.z,
               }
             : {
                 type: "polyline",
                 points: curve.points,
-                tolerance: Math.max(8, 10 * s.camera.z),
+                tolerance: 16 * s.camera.z,
               },
         priority: 10,
       });
@@ -1513,9 +1526,10 @@ export class Scene {
           relationPrimitives.push({
             type: "polyline",
             points: evaluateFilament(focusAnchorScreen, targetScreen),
-            stroke: strokeColor,
+            stroke: relationColor,
             strokeWidth: 0.9 * s.camera.z,
-            opacity: 0.22,
+            opacity: relationOpacity,
+            dash: [4, 6],
           });
         }
       }
@@ -1593,6 +1607,7 @@ export class Scene {
             this.catalog.chapters.get(attachment.command.target)?.hub ===
               perception.resonatingHubId));
       labelGroup.classList.toggle("is-resonating-ref", isResonatingRef);
+      this.currentFrame.labels[this.currentFrame.labels.length - 1].resonating = isResonatingRef;
     }
 
     const useTraditionalHud =
@@ -1977,9 +1992,8 @@ export class Scene {
         const heightKey = JSON.stringify([node.id, presentation, widthStr]);
         let height = this.heights.get(heightKey);
         if (height === undefined) {
-          height =
-            article.querySelector<HTMLElement>(".note-content")!.offsetHeight ||
-            this.articleRenderer.estimateArticleHeight(article, node, presentation, widthPx);
+          const preparedHeight = this.articleRenderer.estimateArticleHeight(article, node, presentation, widthPx);
+          height = article.querySelector<HTMLElement>(".note-content")!.offsetHeight || preparedHeight;
           this.heights.set(heightKey, height);
         }
         const panelHeight = Math.min(
