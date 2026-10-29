@@ -1,5 +1,5 @@
 import { frameRateLimit } from "./core/frame-rate.ts";
-import { readFrameRate, saveFrameRate, readBackground, saveBackground, readSound, saveSound } from "./platform/preferences.ts";
+import { readReadingLayout, saveReadingLayout, readFrameRate, saveFrameRate, readBackground, saveBackground, readSound, saveSound } from "./platform/preferences.ts";
 import "./styles.css";
 import { contentManifest } from "./content/generated/manifest.ts";
 import { createLocalContentSource } from "./content/local.ts";
@@ -28,6 +28,8 @@ const field = new Field(catalog, viewport(), motion.matches);
 field.state.settings.frameRate = readFrameRate();
 field.state.settings.background = readBackground();
 field.state.settings.sound = readSound();
+field.state.settings.readingLayoutMode = readReadingLayout();
+let savedReadingLayout = field.state.settings.readingLayoutMode;
 let savedFrameRate = field.state.settings.frameRate;
 let savedBackground = field.state.settings.background;
 let savedSound = field.state.settings.sound !== false;
@@ -53,6 +55,13 @@ const reading = new ReadingSession(field, store, (id, presentation) => scene.pre
 const tasks = new TaskGeometry();
 const soundscape = new GeometricSoundscape();
 const lifecycle = new AbortController();
+const layoutPanel = requireElement<HTMLElement>(document, "#readingLayoutControl");
+for (const event of ["pointerdown", "click", "wheel"])
+  layoutPanel.addEventListener(event, e => e.stopPropagation(), { signal: lifecycle.signal });
+const layoutControl = requireElement<HTMLSelectElement>(document, "#readingLayout");
+layoutControl.value = field.state.settings.readingLayoutMode;
+const layoutStatus = requireElement<HTMLElement>(document, "#readingLayoutStatus");
+layoutControl.addEventListener("change", () => field.dispatch({ type: "set-reading-layout", mode: layoutControl.value === "geometric" ? "geometric" : "window" }), { signal: lifecycle.signal });
 const updateVisibility = () => reading.setVisible(!document.hidden, performance.now());
 document.addEventListener("visibilitychange", updateVisibility, { signal: lifecycle.signal });
 updateVisibility();
@@ -119,9 +128,15 @@ const stopClock = startClock((now, dt) => {
   if (savedBackground !== field.state.settings.background) saveBackground(savedBackground = field.state.settings.background);
   if (savedFrameRate !== field.state.settings.frameRate) saveFrameRate(savedFrameRate = field.state.settings.frameRate);
   if (savedSound !== (field.state.settings.sound !== false)) saveSound(savedSound = field.state.settings.sound !== false);
+  if (savedReadingLayout !== field.state.settings.readingLayoutMode) {
+    saveReadingLayout(savedReadingLayout = field.state.settings.readingLayoutMode);
+    layoutControl.value = savedReadingLayout;
+  }
   const task = reading.activeTask;
   scene.setLoadingGeometry(tasks.update(task, field.state, catalog, dt));
   scene.render(field.state);
+  layoutStatus.hidden = field.state.settings.readingLayoutMode !== "geometric" || field.state.overview || field.state.loading ||
+    document.getElementById(`text-${field.selected().id}`)?.dataset.readingLayout !== "window";
   for (const correction of scene.takeReadingCorrections()) reading.restoreReadingOffset(correction.chapterId, correction.presentation, correction.textOffset);
   reading.afterRender((id, presentation) => {
     const article = document.getElementById(`text-${id}`);

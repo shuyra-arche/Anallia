@@ -100,6 +100,7 @@ export class Field {
       camera: { x: 0, y: 0, z: 1, rotation: 0 },
       viewport,
       settings: {
+        readingLayoutMode: "window",
         background: "flow",
         speed: 1,
         range: 0.62,
@@ -415,6 +416,10 @@ export class Field {
   dispatch(command: Command) {
     if (this.contentGate?.(command)) return;
     const s = this.state;
+    if (command.type === "set-reading-layout") {
+      s.settings.readingLayoutMode = command.mode;
+      return;
+    }
     if (command.type === "search") {
       const searchHub = this.catalog.searchHub;
       if (
@@ -728,6 +733,7 @@ export class Field {
       return;
     }
     if (action === "reset_defaults") {
+      settings.readingLayoutMode = "window";
       settings.background = "flow";
       settings.range = 0.62;
       settings.blur = 1;

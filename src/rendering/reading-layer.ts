@@ -10,6 +10,7 @@ import { themeFromAction } from "../core/palette.ts";
 import { placeReading, readingHeight, readingWidth, resolveReadingClip } from "../core/layout.ts";
 import { readingEnvelope, morphReadingEnvelope, pageTurnPose } from "../core/transitions.ts";
 import { computeHubVerticalClearance, material, outwardNormal, nodeS, hubToScreen } from "../geometry/field.ts";
+import { GeometricArticle } from "./geometric-article.ts";
 import { ArticleRenderer } from "./article.ts";
 import type { ArticleVisuals } from "./article.ts";
 import { ReadingPositions, applyReadingClip } from "./reading-positions.ts";
@@ -65,6 +66,7 @@ export class ReadingLayer {
     width: number;
     height: number;
   } | null = null;
+  private readonly geometric = new GeometricArticle(target => this.catalog.chapters.has(target));
   private destroyed = false;
   private retained: GraspReadingSnapshot | null = null;
   setRetainedChapter(view: GraspReadingSnapshot | null): void { this.retained = view; }
@@ -265,6 +267,36 @@ export class ReadingLayer {
           outwardNormal(hub, position),
           (s.camera.rotation * Math.PI) / 180,
         );
+        const wasGeometric = article.dataset.readingLayout === "geometric";
+        const geometric = s.settings.readingLayoutMode === "geometric" && node.id !== this.catalog.searchRoot && this.catalog.sourceChapterId(node.id) === node.id
+          ? this.geometric.render(article, this.catalog.document(node.id, presentation), node.title,
+            { hub, camera: s.camera, viewport: s.viewport, startS: position },
+            readingWidth(s.viewport, true), hub.textOffset, this.articleRenderer.fontVersion,
+            wasGeometric ? undefined : this.readingPositions.get(node.id, presentation)?.source)
+          : null;
+        if (wasGeometric && !geometric) {
+          const source = this.geometric.firstSource(article);
+          if (source !== undefined) this.readingPositions.seek(node.id, presentation, source);
+        }
+        article.dataset.readingLayout = geometric ? "geometric" : "window";
+        if (geometric) {
+          article.style.width = `${s.viewport.width}px`;
+          article.style.height = `${s.viewport.height}px`;
+          article.style.transform = `rotateY(${page?.angle ?? 0}deg)`;
+          article.style.transformOrigin = "50% 50%";
+          article.style.filter = "none";
+          article.style.opacity = String(surface ** 1.2);
+          article.style.pointerEvents = "none";
+          article.dataset.maxFloat = String(geometric.maxFloat);
+          if (Math.abs(hub.textOffset - geometric.textOffset) > 0.01) this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: geometric.textOffset });
+          frames.push({ id: `reading:${node.id}`, chapterId: node.id, hubId: hub.id,
+            presentation, visible: true, inert, left: 0, top: 0, width: s.viewport.width,
+            height: s.viewport.height, scale: s.camera.z, opacity: surface ** 1.2,
+            blur: 0, rotationY: page?.angle ?? 0, transformOrigin: { x: s.viewport.width / 2, y: s.viewport.height / 2 },
+            anchorY: 0, side: "right", clipEdge: "none", maskImage: "none",
+            textOffset: hub.textOffset, maxFloat: geometric.maxFloat, pointerEvents: "none" });
+          return;
+        }
         const isLong = article.classList.contains("is-long");
         const widthPx = readingWidth(s.viewport, isLong);
         const widthStr = `${widthPx.toFixed(1)}px`;

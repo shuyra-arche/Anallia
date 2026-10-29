@@ -1006,3 +1006,24 @@ button {
 
 :is(article.note, .note-measure) .mirror-origin { margin: 0 0 12px; font-size: 13.8px; line-height: 1.84; letter-spacing: .008em; }
 :is(article.note, .note-measure) .mirror-origin .inline-ref { font: inherit; font-weight: 640; max-width: 100%; }
+
+#readingLayoutControl {
+  position: absolute; top: 16px; right: 16px; z-index: 5;
+  font: 12px/1.5 var(--font-sans); color: var(--quiet);
+}
+#readingLayout { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--low); border-radius: 4px; padding: 4px; }
+.note .geometric-content { display: none; }
+.note[data-reading-layout="geometric"] { contain: style; }
+.note[data-reading-layout="geometric"]::before { display: none; }
+.note[data-reading-layout="geometric"] > .note-window { display: none; }
+.note[data-reading-layout="geometric"] > .geometric-content { display: block; }
+.note .geometric-row {
+  position: absolute; left: 0; top: 0; margin: 0; transform-origin: 0 0;
+  white-space: pre; font-size: 14px; font-weight: 400; line-height: 30px;
+  letter-spacing: 0; color: var(--body-ink); pointer-events: auto;
+}
+.note h2.geometric-row { font-size: 16px; font-weight: 600; color: var(--ink); }
+.note .geometric-row .inline-ref { font: inherit; letter-spacing: 0; padding: 0; display: inline; }
+
+#readingLayoutStatus { font-size: 11px; }
+#readingLayoutStatus:not([hidden]) { display: block; margin-top: 4px; }

@@ -1,3 +1,4 @@
+import type { ReadingLayoutMode } from "../core/types.ts";
 import { FRAME_RATE_OPTIONS, type FrameRate } from "../core/frame-rate.ts";
 import { BACKGROUND_OPTIONS, type BackgroundMode } from "../core/background.ts";
 const key = "shuyra.frame-rate";
@@ -58,4 +59,13 @@ export function saveSound(value: boolean, storage?: PreferenceStorage): void {
   } catch {
     /* Sound preference remains available in this session without storage. */
   }
+}
+
+export function readReadingLayout(storage?: PreferenceStorage): ReadingLayoutMode {
+  try { return (storage ?? window.localStorage).getItem("shuyra.reading-layout") === "geometric" ? "geometric" : "window"; }
+  catch { return "window"; }
+}
+export function saveReadingLayout(value: ReadingLayoutMode, storage?: PreferenceStorage): void {
+  try { (storage ?? window.localStorage).setItem("shuyra.reading-layout", value); }
+  catch { /* The current session retains its choice when storage is unavailable. */ }
 }

@@ -23,6 +23,11 @@ export class ReadingPositions {
   get(id: string, presentation: "circle" | "line"): ReadingPosition | null {
     return this.saved.get(this.key(id, presentation))?.value ?? null;
   }
+  seek(id: string, presentation: "circle" | "line", source: number): void {
+    const key = this.key(id, presentation);
+    this.saved.set(key, { signature: "", value: { chapterId: id, presentation, source, offset: 0 } });
+    this.pending.set(key, { stable: 0, lastOffset: null });
+  }
   invalidate(): void { for (const key of this.saved.keys()) this.pending.set(key, { stable: 0, lastOffset: null }); }
   isSettling(id: string, presentation: "circle" | "line"): boolean { return this.pending.has(this.key(id, presentation)); }
   changed(id: string, presentation: "circle" | "line", replacement: boolean): void {

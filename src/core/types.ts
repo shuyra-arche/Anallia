@@ -70,7 +70,10 @@ export interface Hub extends HubDefinition {
   localScroll: number;
   localScrollTarget: number;
 }
+export type ReadingLayoutMode = "window" | "geometric";
+
 export interface Settings {
+  readingLayoutMode: ReadingLayoutMode;
   background: BackgroundMode;
   frameRate: FrameRate;
   speed: number;
@@ -167,6 +170,7 @@ export interface FieldState {
   searchResults: string[];
 }
 export type Command =
+  | { type: "set-reading-layout"; mode: ReadingLayoutMode }
   | { type: "navigate"; target: string }
   | { type: "focus"; hub: string }
   | { type: "morph" }
