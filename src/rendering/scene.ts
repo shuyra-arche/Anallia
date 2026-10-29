@@ -1,3 +1,5 @@
+import { HoverFeedback } from "../core/hover-feedback.ts";
+import type { HoverChannel } from "../core/hover-feedback.ts";
 import { buildSceneFrame, symbolActivity } from "../geometry/scene-frame.ts";
 import { SemanticLabels } from "./semantic-labels.ts";
 import type { LoadingGeometry } from "../geometry/loading.ts";
@@ -64,7 +66,8 @@ export class Scene {
   private readonly localLabelTurns = new LocalLabelTurns();
   private disposeFeedback: () => void = () => {};
   private symbolFeedback = new Map<string, SymbolInteractionState>();
-  private hoveredTarget: string | null = null;
+  private readonly hoverFeedback = new HoverFeedback();
+  private get hoveredTarget(): string | null { return this.hoverFeedback.target; }
   private readonly options: Required<
     Pick<GraphicsOptions, "renderer" | "background">
   > & { dpr?: number };
@@ -279,8 +282,7 @@ export class Scene {
       geometry: this.geometry,
       resolve: (key) => this.actions.get(key),
       symbol: (key, patch) => this.setSymbolInteraction(key, patch),
-      hovered: () => this.hoveredTarget,
-      hover: (target) => this.setHoveredTarget(target),
+      hover: (target, channel, previous) => this.setHoveredTarget(target, channel, previous),
     });
     if (
       this.options.renderer !== "svg" &&
@@ -330,10 +332,10 @@ export class Scene {
     return nav;
   }
 
-  setHoveredTarget(target: string | null) {
-    if (this.hoveredTarget === target) return;
-    this.hoveredTarget = target;
-    this.lastRenderKey = "";
+  setHoveredTarget(target: string | null, channel: HoverChannel = "pointer", previous?: string | null) {
+    const before = this.hoverFeedback.target;
+    this.hoverFeedback.set(target, channel, previous);
+    if (before !== this.hoverFeedback.target) this.lastRenderKey = "";
   }
 
   /**
@@ -641,6 +643,7 @@ export class Scene {
     if (this.destroyed) return;
     this.destroyed = true;
     this.disposeFeedback();
+    this.hoverFeedback.clear();
     this.svgRenderer.destroy();
     delete this.host.dataset.numericGraphics;
     this.gpu?.destroy();

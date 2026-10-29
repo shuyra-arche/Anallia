@@ -617,3 +617,41 @@ test("search mirror has a native origin button that navigates to the shared sour
   await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "a0" && !(window as any).__shuyra.field.isAnimating);
   await expect(page.locator("#text-a0")).toBeVisible();
 });
+
+test("ordinary label keyboard focus reaches the numeric frame feedback", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  const id = await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    const label = app.scene.frame.labels.find((value: any) => value.attachment?.role === "ordinary" && value.interactive && !value.symbolKind);
+    if (!label) throw new Error("Expected ordinary text label");
+    const proxy = document.querySelector<SVGElement>(`#gLabels [data-command="${label.id}"]`)!;
+    proxy.focus();
+    return label.id;
+  });
+  await page.waitForFunction(id => (window as any).__shuyra.scene.frame.labels.find((label: any) => label.id === id)?.interaction?.focus === true, id);
+  expect(await page.evaluate(id => document.activeElement?.getAttribute("data-command") === id, id)).toBe(true);
+});
+
+test("shared CPU pointer feedback can resume after keyboard focus without changing the hit", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating && !(window as any).__shuyra.scene.isAnimating);
+  const point = await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    for (let y = 20; y < innerHeight - 20; y += 30) for (let x = 20; x < innerWidth - 20; x += 30) {
+      if (document.elementFromPoint(x, y)?.closest("article,button,input")) continue;
+      const hit = app.scene.hitTest({ x, y });
+      if (hit?.command.type === "focus" && hit.command.hub !== app.field.state.focus && app.scene.hitTest({ x: x + 1, y })?.id === hit.id) return { x, y, target: `hub:${hit.command.hub}` };
+    }
+    throw new Error("Expected an exposed inactive hub hit");
+  });
+  await page.mouse.move(point.x, point.y);
+  await page.waitForFunction(target => (window as any).__shuyra.scene.hoveredTarget === target, point.target);
+  const focusTarget = await page.evaluate(() => {
+    const button = document.querySelector<HTMLButtonElement>('#text-a0 .inline-ref[data-target="a1"]')!;
+    button.focus();
+    return "a1";
+  });
+  await page.waitForFunction(target => (window as any).__shuyra.scene.hoveredTarget === target, focusTarget);
+  await page.mouse.move(point.x + 1, point.y);
+  await page.waitForFunction(target => (window as any).__shuyra.scene.hoveredTarget === target, point.target);
+});

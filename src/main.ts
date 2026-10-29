@@ -95,12 +95,14 @@ const disposeInput = bindInput(host, {
     return hit ? { id: hit.id, command: hit.command, localScrollHub: hit.localScrollHub, grasp: (hit.graspKind === "hub" && hit.hubId === field.state.focus) || (hit.graspKind === "label" && hit.command.type === "morph") } : null;
   },
   hover: (hit) => {
-    if (hovered?.id === hit?.id) return;
-    if (hovered) scene.setSymbolInteraction(hovered.id, { hover: false });
-    hovered = hit;
-    if (hit) scene.setSymbolInteraction(hit.id, { hover: true });
-    scene.setHoveredTarget(hit?.command.type === "navigate" ? hit.command.target : hit?.command.type === "focus" ? `hub:${hit.command.hub}` : null);
-    host.style.cursor = hit ? "pointer" : "";
+    if (hovered?.id !== hit?.id) {
+      if (hovered) scene.setSymbolInteraction(hovered.id, { hover: false });
+      hovered = hit;
+      if (hit) scene.setSymbolInteraction(hit.id, { hover: true });
+      host.style.cursor = hit ? "pointer" : "";
+    }
+    scene.setHoveredTarget(hit?.command.type === "navigate" && !hit.command.target.startsWith("act:") ? hit.command.target : hit?.command.type === "focus" ? `hub:${hit.command.hub}` : null);
+
   },
 });
 const unlockAudio = () => soundscape.unlock();
