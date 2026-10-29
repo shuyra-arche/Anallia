@@ -1,3 +1,5 @@
+import { cameraMatrix, canReuseUnderCamera } from "../../geometry/camera-reuse.ts";
+import type { CameraView } from "../../geometry/camera-reuse.ts";
 import type {
   ArcPrimitive,
   CirclePrimitive,
@@ -123,7 +125,8 @@ export class PixiGraphicsRenderer {
   private lastBackground: SceneFrame["background"] = null;
   private renderWidth = 0;
   private renderHeight = 0;
-  private readonly primitiveSignatures = new WeakMap<PixiGraphics, string>();
+  private readonly primitiveRecords = new WeakMap<PixiGraphics, { signature: string; shape: Exclude<ScenePrimitive, TextPrimitive>; view: CameraView }>();
+  readonly geometryStats = { builds: 0, cameraReuses: 0 };
   private readonly icons = new IconGeometryCache();
   private fontFamily: string;
   private fontSymbol = "serif";
@@ -573,8 +576,22 @@ export class PixiGraphicsRenderer {
   ): void {
     const g = this.graphics(parent, false);
     const signature = JSON.stringify(primitive);
-    if (this.primitiveSignatures.get(g) === signature) return;
-    this.primitiveSignatures.set(g, signature);
+    const previous = this.primitiveRecords.get(g);
+    if (previous?.signature === signature) {
+      g.setFromMatrix(new this.pixi.Matrix());
+      return;
+    }
+    if (previous) {
+      const matrix = cameraMatrix(previous.view, frame);
+      if (matrix && canReuseUnderCamera(previous.shape, primitive, matrix)) {
+        g.setFromMatrix(new this.pixi.Matrix(matrix.a, matrix.b, matrix.c, matrix.d, matrix.tx, matrix.ty));
+        this.geometryStats.cameraReuses++;
+        return;
+      }
+    }
+    g.setFromMatrix(new this.pixi.Matrix());
+    this.primitiveRecords.set(g, { signature, shape: primitive, view: { camera: { ...frame.camera }, viewport: { ...frame.viewport } } });
+    this.geometryStats.builds++;
     g.clear();
     switch (primitive.type) {
       case "circle":
@@ -591,7 +608,6 @@ export class PixiGraphicsRenderer {
         break;
     }
     // Shape opacity is applied once by paint().
-    void frame;
   }
 
   private drawCircle(g: PixiGraphics, p: CirclePrimitive): void {

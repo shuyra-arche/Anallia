@@ -460,3 +460,45 @@ test("Escape cancels a pending grasp while preserving camera and the visible sou
   expect(Math.abs(after.top - before)).toBeLessThanOrEqual(2);
   await expect(page.locator("#text-a1")).toBeInViewport();
 });
+
+test("GPU camera changes reuse numeric geometry and rebuild on shape changes", async ({ page }) => {
+  await open(page, "?renderer=gpu");
+  const result = await page.evaluate(() => {
+    const app = (window as any).__shuyra, gpu = app.scene.gpu;
+    if (!gpu) throw new Error("WebGL renderer missing");
+    const viewport = app.scene.frame.viewport;
+    let revision = app.scene.frame.revision + 100;
+    const project = (camera: any, radius = 40) => {
+      const angle = camera.rotation * Math.PI / 180;
+      const x = 100 - camera.x, y = 50 - camera.y;
+      return { type: "circle", cx: viewport.width / 2 + (x * Math.cos(angle) - y * Math.sin(angle)) * camera.z,
+        cy: viewport.height / 2 + (x * Math.sin(angle) + y * Math.cos(angle)) * camera.z, radius: radius * camera.z, stroke: "#123456", strokeWidth: 1.5 * camera.z };
+    };
+    const render = (camera: any, radius = 40) => {
+      const primitive = project(camera, radius);
+      const frame = { ...app.scene.frame, revision: revision++, camera, viewport, background: null, portal: null, masks: [], labels: [], reading: [], layers: [{ id: "hubs", order: 30, primitives: [primitive] }] };
+      gpu.render(frame);
+      const root = gpu.layerRoots.get("hubs"), graphic = gpu.graphicsPools.get(root)[0];
+      const record = gpu.primitiveRecords.get(graphic);
+      const at = graphic.toGlobal({ x: record.shape.cx, y: record.shape.cy });
+      return { graphic, error: Math.hypot(at.x - primitive.cx, at.y - primitive.cy) };
+    };
+    const initial = render({ x: 0, y: 0, z: 1, rotation: 0 });
+    const builds = gpu.geometryStats.builds, reuses = gpu.geometryStats.cameraReuses;
+    let maxError = 0, stable = true;
+    for (let i = 1; i <= 8; i++) {
+      const current = render({ x: i * 12, y: -i * 5, z: 1 + i * .04, rotation: i * 9 });
+      maxError = Math.max(maxError, current.error);
+      stable &&= current.graphic === initial.graphic;
+    }
+    const reusedBuilds = gpu.geometryStats.builds - builds;
+    const reuseCount = gpu.geometryStats.cameraReuses - reuses;
+    render({ x: 96, y: -40, z: 1.32, rotation: 72 }, 60);
+    return { maxError, stable, reusedBuilds, reuseCount, shapeBuilds: gpu.geometryStats.builds - builds };
+  });
+  expect(result.stable).toBe(true);
+  expect(result.maxError).toBeLessThanOrEqual(.5);
+  expect(result.reusedBuilds).toBe(0);
+  expect(result.reuseCount).toBe(8);
+  expect(result.shapeBuilds).toBe(1);
+});
