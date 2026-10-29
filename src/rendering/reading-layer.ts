@@ -1,4 +1,4 @@
-import type { FieldState, Hub, Settings, Theme } from "../core/types.ts";
+import type { FieldState, Hub, Settings, Theme, GraspReadingSnapshot } from "../core/types.ts";
 import type { ReadingFrame } from "../core/graphics.ts";
 import { Catalog } from "../content/catalog.ts";
 import { ease, clamp, rot } from "../core/math.ts";
@@ -64,6 +64,8 @@ export class ReadingLayer {
     height: number;
   } | null = null;
   private destroyed = false;
+  private retained: GraspReadingSnapshot | null = null;
+  setRetainedChapter(view: GraspReadingSnapshot | null): void { this.retained = view; }
   private articles = new Map<string, HTMLElement>();
   private heights = new Map<string, number>();
   readonly readingPositions = new ReadingPositions();
@@ -165,6 +167,14 @@ export class ReadingLayer {
   render(s: FieldState): ReadingFrame[] {
     if (this.destroyed) return [];
     this.lastState = s;
+    if (this.retained) {
+      const node = this.catalog.get(this.retained.chapterId);
+      if (node.hub === s.focus) {
+        const index = this.catalog.siblings(node.id, s.searchResults).findIndex(chapter => chapter.id === node.id);
+        const hub = { ...s.hubs[s.focus], angle: this.retained.angle, path: this.catalog.chain(node.id), scroll: Math.max(0, index), scrollTarget: Math.max(0, index) };
+        s = { ...s, camera: this.retained.camera, hubs: { ...s.hubs, [s.focus]: hub } };
+      }
+    }
     const frames: ReadingFrame[] = [];
     const settingsKey = JSON.stringify(s.settings);
     if (this.measuredSettings !== settingsKey) { this.heights.clear(); this.measuredSettings = settingsKey; }
@@ -407,6 +417,7 @@ export class ReadingLayer {
     this.readingCorrections = [];
     this.heights.clear();
     this.lastState = null;
+    this.retained = null;
     this.readingBounds = null;
     this.readingSettling = false;
   }

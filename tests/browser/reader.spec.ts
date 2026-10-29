@@ -406,3 +406,57 @@ test("source anchors survive typography and viewport changes at a nonzero readin
   expect(empty.position.source).toBe(0);
   expect(empty.offset).toBe(0);
 });
+
+async function prepareUncachedGrasp(page: Page) {
+  await open(page, "?renderer=svg");
+  await navigate(page, "a1");
+  await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    app.useContentSource({ async *open(id: string, presentation: string, signal: AbortSignal) {
+      if (id === "a4" && presentation === "circle") {
+        await new Promise<void>(resolve => { (window as any).__releaseGrasp = resolve; signal.addEventListener("abort", () => resolve(), { once: true }); });
+        if (!signal.aborted) yield { type: "replace", text: "抓握目标已经可读" };
+      } else yield { type: "replace", text: id === "a1" ? "抓握前正文。\n\n" + "可以继续滚动阅读这一段。\n\n".repeat(50) : app.field.catalog.get(id).expressions[presentation] };
+    } });
+  });
+  await expect(page.locator("#text-a1 p").first()).toContainText("抓握前正文");
+}
+
+test("uncached grasp keeps the old article readable and scrollable until the target arrives", async ({ page }) => {
+  await prepareUncachedGrasp(page);
+  await page.evaluate(() => { const app = (window as any).__shuyra; app.reading.grasp(3); app.reading.grasp(null); });
+  await expect(page.locator("#text-a1")).toBeInViewport();
+  await expect(page.locator("#text-a4")).toHaveCount(0);
+  await expect(page.locator("#contentStatus")).toContainText("正在准备");
+  expect(await page.evaluate(() => (window as any).__shuyra.field.selected().id)).toBe("a4");
+  await page.locator("#text-a1").hover();
+  await page.mouse.wheel(0, 100);
+  await expect.poll(() => page.evaluate(() => (window as any).__shuyra.scene.frame.reading.find((frame: any) => frame.chapterId === "a1")?.textOffset ?? 0)).toBeGreaterThan(10);
+  await page.evaluate(() => (window as any).__releaseGrasp());
+  await expect(page.locator("#text-a4 .note-content")).toContainText("抓握目标已经可读");
+  await expect(page.locator("#text-a4")).toBeInViewport();
+  expect(await page.evaluate(() => (window as any).__shuyra.reading.retainedChapterId)).toBeNull();
+});
+
+
+test("Escape cancels a pending grasp while preserving camera and the visible source text", async ({ page }) => {
+  await prepareUncachedGrasp(page);
+  const before = await page.evaluate(() => {
+    const node = document.querySelector("#text-a1 p")!.firstChild!;
+    const range = document.createRange(); range.setStart(node, 0); range.setEnd(node, 1);
+    (window as any).__graspBookmark = range;
+    return range.getBoundingClientRect().top;
+  });
+  await page.evaluate(() => { const app = (window as any).__shuyra; app.reading.grasp(3); app.reading.grasp(null); });
+  await expect(page.locator("#contentStatus")).toContainText("正在准备");
+  const camera = await page.evaluate(() => ({ ...(window as any).__shuyra.field.state.camera }));
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => {
+    const app = (window as any).__shuyra;
+    return app.field.selected().id === "a1" && !app.reading.retainedChapterId && !app.field.isAnimating && !app.scene.isAnimating;
+  });
+  const after = await page.evaluate(() => ({ camera: (window as any).__shuyra.field.state.camera, top: (window as any).__graspBookmark.getBoundingClientRect().top }));
+  expect(after.camera).toEqual(camera);
+  expect(Math.abs(after.top - before)).toBeLessThanOrEqual(2);
+  await expect(page.locator("#text-a1")).toBeInViewport();
+});

@@ -14,6 +14,7 @@ import type {
   Chapter,
   Command,
   FieldState,
+  GraspReadingSnapshot,
   Hub,
   Theme,
   Vec,
@@ -167,6 +168,13 @@ export class Scene {
     this.currentFrame.layers.push(sceneLayer("loading", 70, primitives));
   }
 
+  private retainedReading: GraspReadingSnapshot | null = null;
+  setRetainedReading(view: GraspReadingSnapshot | null): void {
+    if (this.retainedReading === view) return;
+    this.retainedReading = view;
+    this.readingLayer.setRetainedChapter(view);
+    this.lastRenderKey = "";
+  }
   prepareContent(id: string, presentation: "circle" | "line"): boolean { return this.readingLayer.prepareContent(id, presentation); }
   takeReadingCorrections(): ReadingCorrection[] { return this.readingLayer.takeReadingCorrections(); }
   invalidateLayout(fontsChanged = false): void {

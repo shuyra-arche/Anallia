@@ -80,7 +80,7 @@ const disposeInput = bindInput(host, {
   zoom: (factor, point) => field.zoom(factor, point),
   rotate: (delta, point) => field.rotate(delta, point),
   camera: () => field.state.camera,
-  grasp: (delta) => field.grasp(delta),
+  grasp: (delta) => reading.grasp(delta),
   graspGeometry: () => field.graspGeometry(),
   overview: () => field.state.overview,
   loading: () => !reading.bootReady,
@@ -108,6 +108,7 @@ motion.addEventListener("change", () => field.setSystemReducedMotion(motion.matc
 const stopClock = startClock((now, dt) => {
   const changes = reading.flush(now);
   if (changes.length) scene.invalidateContent(changes.map((change) => change.id));
+  scene.setRetainedReading(reading.retainedReadingView);
   field.update(now, dt);
   soundscape.update(field.state, dt);
   if (savedBackground !== field.state.settings.background) saveBackground(savedBackground = field.state.settings.background);
@@ -116,13 +117,13 @@ const stopClock = startClock((now, dt) => {
   const task = reading.activeTask;
   scene.setLoadingGeometry(tasks.update(task, field.state, catalog, now));
   scene.render(field.state);
-  for (const correction of scene.takeReadingCorrections()) field.restoreReadingOffset(correction.chapterId, correction.presentation, correction.textOffset);
+  for (const correction of scene.takeReadingCorrections()) reading.restoreReadingOffset(correction.chapterId, correction.presentation, correction.textOffset);
   reading.afterRender((id, presentation) => {
     const article = document.getElementById(`text-${id}`);
     return article instanceof HTMLElement && !article.hidden && article.dataset.presentation === presentation;
   });
   if (reading.bootReady) delete host.dataset.booting;
-  if (reading.bootReady) field.fitReading(scene.readingBounds);
+  if (reading.bootReady && !reading.retainedChapterId) field.fitReading(scene.readingBounds);
   const message = reading.error ? "内容暂时无法打开。" : task && !task.outcome ? task.firstReadable ? "正文正在继续接收…" : "正在准备篇章…" : "";
   if (statusText.textContent !== message) statusText.textContent = message;
   if (retry.hidden !== !reading.error) retry.hidden = !reading.error;

@@ -175,3 +175,13 @@ export type Command =
   | { type: "float-text"; delta: number; maxOffset?: number }
   | { type: "search"; query: string }
   | { type: "up" | "back" | "overview" };
+
+export interface GraspReadingSnapshot {
+  chapterId: string;
+  camera: Camera;
+  angle: number;
+  textOffset: number;
+  textOffsetTarget: number;
+  localScroll: number;
+  localScrollTarget: number;
+}

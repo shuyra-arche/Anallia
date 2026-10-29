@@ -1,3 +1,4 @@
+import type { GraspReadingSnapshot } from "../core/types.ts";
 import { frameRateFromAction, frameRateLabel } from "../core/frame-rate.ts";
 import {
   BACKGROUND_OPTIONS,
@@ -823,6 +824,25 @@ export class Field {
       Object.assign(s.camera, orbitCamera(s.camera, hub.center, rotation));
     }
     s.description = `${hub.glyph} · 抓握浏览 · ${siblings[nearest].name}`;
+  }
+  restoreGraspReading(snapshot: GraspReadingSnapshot): boolean {
+    const node = this.catalog.get(snapshot.chapterId);
+    if (node.hub !== this.state.focus) return false;
+    const index = this.catalog.siblings(node.id, this.state.searchResults).findIndex(chapter => chapter.id === node.id);
+    if (index < 0) return false;
+    this.graspStart = null;
+    this.follow = false;
+    this.tween = null;
+    this.readingPin = null;
+    this.autoFit = false;
+    this.hub.angle = this.hub.targetMorph < 0.99 ? snapshot.angle + snapshot.camera.rotation - this.state.camera.rotation : snapshot.angle;
+    this.hub.path = this.catalog.chain(node.id);
+    this.hub.scroll = this.hub.scrollTarget = index;
+    this.hub.textOffset = snapshot.textOffset;
+    this.hub.textOffsetTarget = snapshot.textOffsetTarget;
+    this.hub.localScroll = snapshot.localScroll;
+    this.hub.localScrollTarget = snapshot.localScrollTarget;
+    return true;
   }
   graspGeometry() {
     const h = this.hub,

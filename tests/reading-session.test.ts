@@ -251,3 +251,129 @@ test("an empty intermediate replacement keeps readable text until empty EOF is c
     assert.equal(reading.activeTask?.outcome, "complete");
   } finally { reading.destroy(); }
 });
+
+test("grasp keeps the current reading view until an uncached target is readable and does not roll back after handoff", async () => {
+  const { source, field, reading, frame } = setup();
+  source.held.add("a2:circle");
+  reading.startup("a0", Promise.resolve());
+  await frame(20);
+  field.dispatch({ type: "navigate", target: "a1" });
+  await frame(40);
+  try {
+    field.hub.textOffset = field.hub.textOffsetTarget = 40;
+    reading.grasp(1);
+    reading.grasp(null);
+    await frame(200);
+    assert.equal(field.selected().id, "a2");
+    assert.equal(reading.retainedChapterId, "a1");
+    assert.equal(field.hub.textOffsetTarget, 40);
+    assert.equal(reading.activeTask?.chapterId, "a2");
+    source.latest("a2").push("目标首批正文", "replace");
+    await frame(220);
+    assert.equal(reading.retainedChapterId, null);
+    assert.equal(field.hub.textOffset, 0);
+    const camera = { ...field.state.camera };
+    assert.equal(reading.cancel(), true);
+    assert.equal(field.selected().id, "a2");
+    assert.deepEqual(field.state.camera, camera);
+  } finally { reading.destroy(); }
+});
+
+test("retargeting a pending grasp cancels the old subscription and keeps only the latest target", async () => {
+  const { source, store, field, reading, frame } = setup();
+  source.held.add("a2:circle"); source.held.add("a3:circle");
+  reading.startup("a0", Promise.resolve());
+  await frame(20);
+  field.dispatch({ type: "navigate", target: "a1" });
+  await frame(40);
+  try {
+    reading.grasp(1);
+    const stale = source.latest("a2");
+    reading.grasp(2);
+    reading.grasp(null);
+    stale.push("过期目标", "replace");
+    await frame(200);
+    assert.equal(field.selected().id, "a3");
+    assert.equal(reading.retainedChapterId, "a1");
+    assert.equal(store.get("a2", "circle").status, "cancelled");
+    assert.equal(field.catalog.get("a2").expressions.circle, "");
+    source.latest("a3").push("最后目标", "replace"); source.latest("a3").finish();
+    await frame(220);
+    assert.equal(reading.retainedChapterId, null);
+    assert.equal(field.catalog.get("a3").expressions.circle, "最后目标");
+  } finally { reading.destroy(); }
+});
+
+test("cancelling an unreadable grasp restores reading and its own history entry without moving the camera", async () => {
+  const { source, field, reading, frame } = setup();
+  source.held.add("a2:circle");
+  reading.startup("a0", Promise.resolve());
+  await frame(20);
+  field.dispatch({ type: "navigate", target: "a1" });
+  await frame(40);
+  try {
+    const historyLength = field.state.history.length;
+    field.hub.textOffset = field.hub.textOffsetTarget = 60;
+    reading.grasp(1); reading.grasp(null);
+    await frame(200);
+    const camera = { ...field.state.camera };
+    assert.equal(reading.cancel(), true);
+    assert.equal(field.selected().id, "a1");
+    assert.equal(field.state.history.length, historyLength);
+    assert.equal(field.hub.textOffset, 60);
+    assert.equal(reading.retainedChapterId, null);
+    assert.deepEqual(field.state.camera, camera);
+    reading.grasp(null);
+    assert.deepEqual(field.state.camera, camera);
+    assert.equal(reading.activeTask?.outcome, "cancelled");
+  } finally { reading.destroy(); }
+});
+
+test("a cached grasp uses the existing gesture without creating a loading task", async () => {
+  const { field, reading, frame } = setup();
+  reading.startup("a0", Promise.resolve()); await frame(20);
+  field.dispatch({ type: "navigate", target: "a1" }); await frame(40); await frame(60);
+  try {
+    reading.grasp(1); reading.grasp(null); await frame(200);
+    assert.equal(field.selected().id, "a2");
+    assert.equal(reading.retainedChapterId, null);
+    assert.equal(reading.activeTask, null);
+  } finally { reading.destroy(); }
+});
+
+test("a failed grasp keeps the old body through retry and does not move the camera again", async () => {
+  const { source, field, reading, frame } = setup();
+  source.held.add("a2:circle");
+  reading.startup("a0", Promise.resolve()); await frame(20);
+  field.dispatch({ type: "navigate", target: "a1" }); await frame(40);
+  try {
+    reading.grasp(1); reading.grasp(null);
+    source.latest("a2").finish(new Error("grasp offline")); await frame(200);
+    assert.equal(reading.retainedChapterId, "a1");
+    assert.equal(reading.error?.chapterId, "a2");
+    const camera = { ...field.state.camera };
+    field.dispatch({ type: "navigate", target: "act:retry_content" }); await tick();
+    assert.equal(reading.retainedChapterId, "a1");
+    source.latest("a2").push("重试后目标", "replace"); source.latest("a2").finish(); await frame(240);
+    assert.equal(reading.retainedChapterId, null);
+    assert.equal(reading.error, null);
+    assert.equal(field.selected().id, "a2");
+    assert.deepEqual(field.state.camera, camera);
+  } finally { reading.destroy(); }
+});
+
+test("a shared search mirror stream reattaches feedback to its new material owner", async () => {
+  const { source, field, reading, frame } = setup();
+  source.held.add("a2:circle");
+  reading.startup("a0", Promise.resolve()); await frame(20);
+  try {
+    field.dispatch({ type: "navigate", target: "q_hit_a2" }); await tick();
+    source.latest("a2").push("共享流正文", "replace"); await frame(200);
+    const requests = source.channels.get("a2:circle")!.length;
+    field.dispatch({ type: "navigate", target: "a2" }); await frame(220); await frame(380);
+    assert.equal(field.selected().id, "a2");
+    assert.equal(source.channels.get("a2:circle")!.length, requests);
+    assert.equal(reading.activeTask?.chapterId, "a2");
+    assert.equal(reading.activeTask?.hubId, "A");
+  } finally { reading.destroy(); }
+});

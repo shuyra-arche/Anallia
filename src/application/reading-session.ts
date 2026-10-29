@@ -1,4 +1,4 @@
-import type { Command } from "../core/types.ts";
+import type { Command, GraspReadingSnapshot, Snapshot } from "../core/types.ts";
 import type { ContentChange, ContentRequest, Presentation } from "../core/content.ts";
 import { ContentStore } from "../content/store.ts";
 import { LoadController } from "../core/loading.ts";
@@ -22,6 +22,10 @@ export class ReadingSession {
   readonly loading = new LoadController();
   private jobs = new Map<string, ReadingJob>();
   private foreground: ReadingJob | null = null;
+  private graspReturn: { reading: GraspReadingSnapshot; historyEntry?: Snapshot } | null = null;
+  private retainedId: string | null = null;
+  get retainedChapterId(): string | null { return this.retainedId; }
+  get retainedReadingView(): GraspReadingSnapshot | null { return this.graspReturn?.reading ?? null; }
   private bypassGate = false;
   private serial = 0;
   private now = 0;
@@ -75,6 +79,13 @@ export class ReadingSession {
 
   private gate(command: Command): boolean {
     if (this.bypassGate) return false;
+    const changesSelection = command.type === "back" || command.type === "overview" || command.type === "morph" || command.type === "search" || command.type === "focus" || command.type === "up" || command.type === "step" ||
+      command.type === "navigate" && !command.target.startsWith("act:");
+    if (this.graspReturn && changesSelection) {
+      const returning = command.type === "back";
+      this.cancel();
+      if (returning) return true;
+    }
     if (command.type === "navigate" && command.target === "act:retry_content") {
       if (this.error) {
         const { chapterId, presentation, command } = this.error;
@@ -113,9 +124,9 @@ export class ReadingSession {
     if (this.foreground && this.foreground.key !== this.key(id, presentation)) this.cancel();
     if (snapshot.complete) return false;
     if (snapshot.text.length > 0 && existing && !existing.terminal) {
-      if (existing.id !== id) { existing.prepared = false; existing.readable = false; }
+      const changedView = existing.id !== id;
       existing.id = id;
-      if (!existing.taskId || this.foreground !== existing) this.promote(existing, "navigation");
+      if (changedView || !existing.taskId || this.foreground !== existing) this.promote(existing, "navigation");
       return false;
     }
     this.open(id, presentation, "navigation", command);
@@ -126,12 +137,13 @@ export class ReadingSession {
     const key = this.key(id, presentation);
     const previous = this.jobs.get(key);
     if (previous && !force && !previous.terminal) {
+      const changedView = previous.id !== id;
       if (scope !== "prefetch") previous.id = id;
       if (command) previous.command = command;
-      if (!previous.taskId && scope !== "prefetch") this.promote(previous, scope);
+      if (scope !== "prefetch" && (changedView || !previous.taskId || this.foreground !== previous)) this.promote(previous, scope);
       return previous;
     }
-    if (scope !== "prefetch") this.cancel();
+    if (scope !== "prefetch") this.cancelRequest();
     previous?.request.cancel();
     const request = this.store.start(this.sourceId(id), presentation);
     const job: ReadingJob = { key, id, presentation, request, taskId: null, command, prepared: false, readable: false, terminal: false };
@@ -155,7 +167,7 @@ export class ReadingSession {
     this.open(id, this.presentation(id), "refresh", undefined, true);
   }
 
-  cancel(): boolean {
+  private cancelRequest(): boolean {
     const job = this.foreground;
     if (!job || job.terminal || (!this.booted && !job.command)) return false;
     job.request.cancel();
@@ -163,6 +175,59 @@ export class ReadingSession {
     this.jobs.delete(job.key);
     this.foreground = null;
     return true;
+  }
+
+  cancel(): boolean {
+    const cancelled = this.cancelRequest();
+    const retained = this.graspReturn;
+    if (retained) {
+      retained.reading.textOffset = this.field.hub.textOffset;
+      retained.reading.textOffsetTarget = this.field.hub.textOffsetTarget;
+      if (this.field.restoreGraspReading(retained.reading) && retained.historyEntry && this.field.state.history.at(-1) === retained.historyEntry)
+        this.field.state.history.pop();
+      this.graspReturn = null;
+      this.retainedId = null;
+      this.error = null;
+      this.foreground = null;
+    }
+    return cancelled || Boolean(retained);
+  }
+
+  restoreReadingOffset(id: string, presentation: Presentation, offset: number): void {
+    if (this.retainedId === id && this.presentation(id) === presentation && Number.isFinite(offset)) {
+      this.field.hub.textOffset = this.field.hub.textOffsetTarget = Math.max(0, offset);
+    } else this.field.restoreReadingOffset(id, presentation, offset);
+  }
+
+  grasp(delta: number | null): void {
+    if (!this.booted) return;
+    if (this.foreground?.command) this.cancelRequest();
+    const before = this.field.selected().id;
+    const hub = this.field.hub;
+    const saved: GraspReadingSnapshot = { chapterId: before, camera: { ...this.field.state.camera }, angle: hub.angle, textOffset: hub.textOffset, textOffsetTarget: hub.textOffsetTarget,
+      localScroll: hub.localScroll, localScrollTarget: hub.localScrollTarget };
+    const historyLength = this.field.state.history.length;
+    this.field.grasp(delta);
+    if (delta === null && this.graspReturn) {
+      this.field.hub.textOffset = saved.textOffset;
+      this.field.hub.textOffsetTarget = saved.textOffsetTarget;
+    }
+    const id = this.field.selected().id;
+    if (id === before) return;
+    const presentation = this.presentation(id);
+    const key = this.key(id, presentation);
+    if (this.foreground?.key !== key) this.cancelRequest();
+    this.error = null;
+    if (this.store.get(this.sourceId(id), presentation).complete) {
+      this.graspReturn = null;
+      this.retainedId = null;
+      return;
+    }
+    if (!this.graspReturn) {
+      this.graspReturn = { reading: saved, historyEntry: this.field.state.history.length > historyLength ? this.field.state.history.at(-1) : undefined };
+      this.retainedId = before;
+    }
+    this.open(id, presentation, "navigation");
   }
 
   flush(now: number): readonly ContentChange[] {
@@ -190,6 +255,11 @@ export class ReadingSession {
         if (job.taskId && this.prepare && (this.booted || this.backendReady)) {
           job.readable = true;
           this.loading.readable(job.taskId, now);
+        }
+        if (this.graspReturn && this.foreground === job && this.key(this.field.selected().id, this.presentation(this.field.selected().id)) === job.key) {
+          this.graspReturn = null;
+          this.retainedId = null;
+          this.field.hub.textOffset = this.field.hub.textOffsetTarget = 0;
         }
         if (job.command) { this.dispatch(job.command); job.command = undefined; }
       }
@@ -232,6 +302,8 @@ export class ReadingSession {
     for (const job of this.jobs.values()) job.request.cancel();
     this.jobs.clear();
     this.foreground = null;
+    this.graspReturn = null;
+    this.retainedId = null;
     this.field.setContentGate(null);
   }
 }
