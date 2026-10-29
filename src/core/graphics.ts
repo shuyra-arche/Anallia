@@ -80,6 +80,7 @@ export interface TextPrimitive extends ShapeStyle {
   aria?: string;
 }
 
+/** CSS screen coordinates; symbol and icon points use their local 24×24 frame. */
 export type ScenePrimitive =
   | CirclePrimitive
   | ArcPrimitive
@@ -133,6 +134,7 @@ export interface SceneMask {
   fill?: string;
 }
 
+/** Hinge/position are on screen; offset, width and height precede the one scale. */
 export interface LabelLayout {
   hinge: Vec;
   position: Vec;
@@ -346,8 +348,8 @@ export function emptySceneFrame(
   return {
     revision: 0,
     rendererKind,
-    viewport,
-    camera,
+    viewport: { ...viewport },
+    camera: { ...camera },
     theme,
     visualTheme: theme,
     layers: [],

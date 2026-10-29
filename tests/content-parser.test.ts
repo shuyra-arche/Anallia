@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import {
   contentText,
   parseContent,
-  type ReferenceInline,
-} from "../src/core/content.ts";
+} from "../src/content/parser.ts";
+import type { ReferenceInline } from "../src/core/content.ts";
 
 const source = [
   "开场 {开始|a1} 与 {动作|act:pulse}。",

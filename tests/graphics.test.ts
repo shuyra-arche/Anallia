@@ -20,7 +20,7 @@ import { evaluateBackgroundFrame, GpuBackgroundAdapter } from "../src/rendering/
 import { GpuGlyphCache, IconGeometryCache } from "../src/rendering/graphics/glyph-cache.ts";
 import { ICON_TOKENS } from "../src/core/icons.ts";
 import { evaluateSymbol } from "../src/core/symbol-morph.ts";
-import { hitTestFrame } from "../src/core/graphics.ts";
+import { emptySceneFrame, hitTestFrame } from "../src/core/graphics.ts";
 
 const finite = (n: number) => Number.isFinite(n);
 
@@ -342,4 +342,14 @@ test("circular hub hits use the original scaled stroke band and leave the interi
   assert.equal(hitTestFrame(frame, { x: 180, y: 100 })?.id, "hub:A");
   assert.equal(hitTestFrame(frame, { x: 195, y: 100 })?.id, "hub:A");
   assert.equal(hitTestFrame(frame, { x: 197, y: 100 }), null);
+});
+
+
+test("a committed scene frame does not retain mutable camera or viewport objects", () => {
+  const camera = { x: 10, y: 20, z: 1.2, rotation: 30 };
+  const viewport = { width: 800, height: 600 };
+  const frame = emptySceneFrame("svg", viewport, camera, "light");
+  camera.x = 300; camera.z = 4; viewport.width = 1200;
+  assert.deepEqual(frame.camera, { x: 10, y: 20, z: 1.2, rotation: 30 });
+  assert.deepEqual(frame.viewport, { width: 800, height: 600 });
 });

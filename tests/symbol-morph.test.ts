@@ -23,13 +23,6 @@ const makeField = () =>
     height: 820,
   });
 
-function parsePathPoints(d: string): { x: number; y: number }[] {
-  const pts: { x: number; y: number }[] = [];
-  for (const m of d.matchAll(/[ML](-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/g)) {
-    pts.push({ x: Number(m[1]), y: Number(m[2]) });
-  }
-  return pts;
-}
 
 test("Symbol Morph Geometric Continuity: endpoints m=0, m=1 and intermediate states m=0.01..0.99 are finite and continuous", () => {
   const samples = [0, 0.01, 0.25, 0.49, 0.5, 0.51, 0.75, 0.99, 1];
@@ -61,12 +54,9 @@ test("Symbol Morph Geometric Continuity: endpoints m=0, m=1 and intermediate sta
       const g = evaluateSymbol(kind, m);
       assert.equal(g.morph, m);
       for (const p of g.paths) {
-        assert.ok(p.d.length > 4, `${kind} at m=${m} path ${p.id} non-empty`);
-        assert.doesNotMatch(
-          p.d,
-          /NaN|Infinity|undefined/,
-          `${kind} at m=${m} path ${p.id} finite`,
-        );
+        assert.ok(p.points.length > 1, `${kind} at m=${m} path ${p.id} non-empty`);
+        assert.ok(p.points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)), `${kind} at m=${m} path ${p.id} finite`);
+        assert.equal("d" in p, false, "dynamic geometry must contain numbers rather than SVG serialization");
         // Never use opacity cross-fading to fake a morph
         assert.equal(
           p.opacity ?? 1,
@@ -91,9 +81,9 @@ test("Symbol Morph Geometric Continuity: endpoints m=0, m=1 and intermediate sta
     const g50 = evaluateSymbol(kind, 0.5);
     const g51 = evaluateSymbol(kind, 0.51);
     for (let i = 0; i < g50.paths.length; i++) {
-      const pts49 = parsePathPoints(g49.paths[i].d);
-      const pts50 = parsePathPoints(g50.paths[i].d);
-      const pts51 = parsePathPoints(g51.paths[i].d);
+      const pts49 = g49.paths[i].points;
+      const pts50 = g50.paths[i].points;
+      const pts51 = g51.paths[i].points;
       assert.equal(pts49.length, pts50.length);
       assert.equal(pts50.length, pts51.length);
       for (let j = 0; j < pts50.length; j++) {

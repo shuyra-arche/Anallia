@@ -22,7 +22,6 @@ export const SYMBOL_KINDS: readonly SymbolKind[] = [
 
 export interface PathGeometry {
   id: string;
-  readonly d: string;
   points: readonly Vec[];
   role: "primary" | "secondary" | "guide";
   strokeScale?: number;
@@ -160,14 +159,6 @@ function cosc(x: number): number {
   return (1 - Math.cos(x)) / x;
 }
 
-const fmt = (n: number): string => Number(n.toFixed(3)).toString();
-
-function pointsToPathD(pts: readonly Vec[]): string {
-  return pts
-    .map((p, i) => `${i === 0 ? "M" : "L"}${fmt(p.x)} ${fmt(p.y)}`)
-    .join("");
-}
-
 /**
  * Evaluate a point on a constant-curvature Darboux arc at normalized parameter u ∈ [-1, 1].
  * - When halfAngle = 0: exact straight line segment of half-length `halfLength` along `angleRad`.
@@ -274,11 +265,11 @@ function evaluateOverviewSymbol(m: number, a: number): Omit<SymbolGeometry, "opt
     morph: m,
     activity: a,
     paths: [
-      { id: "orbit-upper", points: upperPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
-      { id: "orbit-lower", points: lowerPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
+      { id: "orbit-upper", points: upperPts, role: "primary" },
+      { id: "orbit-lower", points: lowerPts, role: "primary" },
       {
         id: "inner-horizon",
-        points: innerPts, get d(): string { return pointsToPathD(this.points); },
+        points: innerPts,
         role: "secondary",
         strokeScale: 0.88,
       },
@@ -377,17 +368,17 @@ function evaluateSearchSymbol(m: number, a: number): Omit<SymbolGeometry, "optic
     morph: m,
     activity: a,
     paths: [
-      { id: "track-upper", points: upperPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
-      { id: "track-lower", points: lowerPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
+      { id: "track-upper", points: upperPts, role: "primary" },
+      { id: "track-lower", points: lowerPts, role: "primary" },
       {
         id: "scan-arc",
-        points: scanPts, get d(): string { return pointsToPathD(this.points); },
+        points: scanPts,
         role: "secondary",
         strokeScale: 0.9,
       },
       {
         id: "probe-line",
-        points: [probeStart, probeEnd], get d(): string { return pointsToPathD(this.points); },
+        points: [probeStart, probeEnd],
         role: "guide",
       },
     ],
@@ -483,16 +474,16 @@ function evaluateHistorySymbol(m: number, a: number): Omit<SymbolGeometry, "opti
     morph: m,
     activity: a,
     paths: [
-      { id: "return-trajectory", points: mainPts, get d(): string { return pointsToPathD(this.points); }, role: "primary" },
+      { id: "return-trajectory", points: mainPts, role: "primary" },
       {
         id: "foldback-rail",
-        points: foldPts, get d(): string { return pointsToPathD(this.points); },
+        points: foldPts,
         role: "secondary",
         strokeScale: 0.88,
       },
       {
         id: "reverse-guide",
-        points: [wingUpper, headFrame.point, wingLower], get d(): string { return pointsToPathD(this.points); },
+        points: [wingUpper, headFrame.point, wingLower],
         role: "guide",
       },
     ],
@@ -560,7 +551,7 @@ function evaluateSettingsSymbol(m: number, a: number): Omit<SymbolGeometry, "opt
     );
     paths.push({
       id: `track-${k}`,
-      points: pts, get d(): string { return pointsToPathD(this.points); },
+      points: pts,
       role: "primary",
     });
 

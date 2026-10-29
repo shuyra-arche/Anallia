@@ -132,6 +132,3 @@ export interface ContentManifest {
   chapters: ManifestChapter[];
   searchIndex: SearchIndexEntry[];
 }
-
-export * from "../content/parser.ts";
-export * from "../content/store.ts";
