@@ -34,16 +34,18 @@ export class ReadingSession {
   private settleBoot!: () => void;
   readonly ready = new Promise<void>((resolve) => { this.settleBoot = resolve; });
   error: { chapterId: string; presentation: Presentation; message: string; command?: Command } | null = null;
+  private readonly eventTime?: () => number;
   private readonly prepare?: (id: string, presentation: Presentation) => boolean;
 
   readonly field: Field;
   readonly store: ContentStore;
 
-  constructor(field: Field, store: ContentStore, prepare?: (id: string, presentation: Presentation) => boolean) {
+  constructor(field: Field, store: ContentStore, prepare?: (id: string, presentation: Presentation) => boolean, eventTime?: () => number) {
     this.field = field;
     this.store = store;
     field.catalog.bindContentStore(store);
     this.prepare = prepare;
+    this.eventTime = eventTime;
     field.setContentGate((command) => this.gate(command));
   }
 
@@ -159,7 +161,9 @@ export class ReadingSession {
     job.taskId = `content-${++this.serial}`;
     this.foreground = job;
     this.error = null;
-    this.loading.start({ id: job.taskId, scope, hubId: this.field.catalog.get(job.id).hub, chapterId: job.id, cancellable: scope !== "initial" }, this.now);
+    const eventAt = this.eventTime?.();
+    const startedAt = eventAt !== undefined && Number.isFinite(eventAt) ? Math.max(this.now, eventAt) : this.now;
+    this.loading.start({ id: job.taskId, scope, hubId: this.field.catalog.get(job.id).hub, chapterId: job.id, cancellable: scope !== "initial" }, startedAt);
   }
 
   refresh(): void {
@@ -237,7 +241,7 @@ export class ReadingSession {
       if (change.status === "cancelled" || (!change.text && !change.complete)) continue;
       const job = this.jobs.get(this.key(change.id, change.presentation));
       this.field.catalog.updateExpression(change.id, change.presentation, change.text, change.complete);
-      if (job?.readable && job.taskId && !change.complete) this.loading.readable(job.taskId, now);
+      if (job?.readable && job.taskId && !change.complete) this.loading.receive(job.taskId, now);
     }
     for (const job of this.jobs.values()) {
       const snapshot = this.store.get(this.sourceId(job.id), job.presentation);

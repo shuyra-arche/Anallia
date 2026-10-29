@@ -79,6 +79,10 @@ export class LoadingPresenter {
     return this.sync(this.controller.readable(id, now));
   }
 
+  receive(id: string, now: number): LoadingSnapshot | null {
+    return this.sync(this.controller.receive(id, now));
+  }
+
   complete(id: string, now: number): LoadingSnapshot | null {
     return this.sync(this.controller.complete(id, now));
   }

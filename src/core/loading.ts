@@ -99,7 +99,13 @@ export class LoadController {
     const state = this.owned(id);
     if (!state) return this.snapshot(safeNow(now));
     if (state.terminal) return this.snapshot(safeNow(now));
-    state.readableCount += 1;
+    state.readableCount = Math.max(1, state.readableCount);
+    return this.snapshot(safeNow(now));
+  }
+
+  receive(id: string, now: number): LoadingSnapshot | null {
+    const state = this.owned(id);
+    if (state && !state.terminal && state.readableCount > 0) state.readableCount = 2;
     return this.snapshot(safeNow(now));
   }
 

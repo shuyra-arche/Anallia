@@ -51,7 +51,8 @@ test("first readable, local streaming and completion stay separate", () => {
   assert.equal(first.streaming, true);
   assert.equal(first.outcome, null);
 
-  const second = controller.readable("stream", 400);
+  assert.equal(controller.readable("stream", 350)?.phase, "readable", "readability is an idempotent barrier");
+  const second = controller.receive("stream", 400);
   assert.ok(second);
   assert.equal(second.phase, "streaming");
   assert.equal(second.streaming, true);

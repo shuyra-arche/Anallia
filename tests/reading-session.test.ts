@@ -42,11 +42,11 @@ class Source implements ContentSource {
   latest(id: string, presentation: Presentation = "circle") { return this.channels.get(`${id}:${presentation}`)!.at(-1)!; }
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
-function setup() {
+function setup(eventTime?: () => number) {
   const source = new Source();
   const store = new ContentStore(source);
   const field = new Field(new Catalog(contentManifest.definitions, contentManifest), { width: 1366, height: 820 }, true);
-  const reading = new ReadingSession(field, store);
+  const reading = new ReadingSession(field, store, undefined, eventTime);
   async function frame(now: number) {
     await tick();
     reading.flush(now);
@@ -375,5 +375,36 @@ test("a shared search mirror stream reattaches feedback to its new material owne
     assert.equal(source.channels.get("a2:circle")!.length, requests);
     assert.equal(reading.activeTask?.chapterId, "a2");
     assert.equal(reading.activeTask?.hubId, "A");
+  } finally { reading.destroy(); }
+});
+
+test("loading waits 150ms from the event and commits readability and completion only once", async () => {
+  let eventAt = 0;
+  const { source, reading, frame } = setup(() => eventAt);
+  reading.startup("a0", Promise.resolve());
+  await frame(20);
+  source.held.add("a0:circle");
+  eventAt = 100;
+  let readable = 0, completed = 0;
+  const onReadable = reading.loading.readable.bind(reading.loading), onComplete = reading.loading.complete.bind(reading.loading);
+  reading.loading.readable = (...args) => { readable++; return onReadable(...args); };
+  reading.loading.complete = (...args) => { completed++; return onComplete(...args); };
+  try {
+    reading.refresh();
+    await frame(200);
+    assert.equal(reading.activeTask, null, "the previous frame time must not shorten the delay");
+    await frame(249);
+    assert.equal(reading.activeTask, null);
+    await frame(250);
+    assert.equal(reading.activeTask?.phase, "waiting");
+    source.latest("a0").push("首批"); await frame(260);
+    assert.equal(readable, 1);
+    source.latest("a0").push("继续"); await frame(280);
+    source.latest("a0").push("接收"); await frame(300);
+    assert.equal(readable, 1);
+    assert.equal(reading.activeTask?.phase, "streaming");
+    source.latest("a0").finish(); await frame(320); await frame(340);
+    assert.equal(completed, 1);
+    assert.equal(readable, 1);
   } finally { reading.destroy(); }
 });
