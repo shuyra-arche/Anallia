@@ -98,7 +98,8 @@ export function canReuseUnderCamera(
         m,
       ) && near(before.radius * m.scale, after.radius)
     );
-  if (before.type === "arc" && after.type === "arc")
+  if (before.type === "arc" && after.type === "arc") {
+    const wholeCircle = near(Math.abs(before.endAngle - before.startAngle), 2 * Math.PI) && !before.dash?.length;
     return (
       pointMatches(
         { x: before.cx, y: before.cy },
@@ -106,14 +107,15 @@ export function canReuseUnderCamera(
         m,
       ) &&
       near(before.radius * m.scale, after.radius) &&
-      angleNear(before.startAngle + m.angle, after.startAngle) &&
-      angleNear(before.endAngle + m.angle, after.endAngle) &&
+      (wholeCircle || (angleNear(before.startAngle + m.angle, after.startAngle) &&
+        angleNear(before.endAngle + m.angle, after.endAngle))) &&
       (before.anticlockwise ?? false) === (after.anticlockwise ?? false) &&
       near(
         before.endAngle - before.startAngle,
         after.endAngle - after.startAngle,
       )
     );
+  }
   if (before.type === "polyline" && after.type === "polyline")
     return (
       (before.closed ?? false) === (after.closed ?? false) &&

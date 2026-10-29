@@ -471,7 +471,7 @@ test("GPU camera changes reuse numeric geometry and rebuild on shape changes", a
     const project = (camera: any, radius = 40) => {
       const angle = camera.rotation * Math.PI / 180;
       const x = 100 - camera.x, y = 50 - camera.y;
-      return { type: "circle", cx: viewport.width / 2 + (x * Math.cos(angle) - y * Math.sin(angle)) * camera.z,
+      return { type: "arc", startAngle: 0, endAngle: Math.PI * 2, cx: viewport.width / 2 + (x * Math.cos(angle) - y * Math.sin(angle)) * camera.z,
         cy: viewport.height / 2 + (x * Math.sin(angle) + y * Math.cos(angle)) * camera.z, radius: radius * camera.z, stroke: "#123456", strokeWidth: 1.5 * camera.z };
     };
     const render = (camera: any, radius = 40) => {

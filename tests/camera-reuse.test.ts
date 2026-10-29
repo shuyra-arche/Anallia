@@ -141,3 +141,12 @@ test("camera reuse rejects changed shape, paint, clipping, large zoom and invali
     null,
   );
 });
+
+test("whole hub arcs reuse camera rotation while dashed and partial arcs keep their phase", () => {
+  const matrix = cameraMatrix(first, second)!;
+  const before: ArcPrimitive = { ...circle(first), type: "arc", dash: undefined, startAngle: 0, endAngle: 2 * Math.PI };
+  const after: ArcPrimitive = { ...circle(second), type: "arc", dash: undefined, startAngle: 0, endAngle: 2 * Math.PI };
+  assert.equal(canReuseUnderCamera(before, after, matrix), true);
+  assert.equal(canReuseUnderCamera({ ...before, dash: [3 * first.camera.z, 2 * first.camera.z] }, { ...after, dash: [3 * second.camera.z, 2 * second.camera.z] }, matrix), false);
+  assert.equal(canReuseUnderCamera({ ...before, endAngle: Math.PI }, { ...after, endAngle: Math.PI }, matrix), false);
+});
