@@ -118,20 +118,18 @@ test("SceneFrame carries layers, labels, masks, reading placement and CPU hit re
       d.host.querySelector('#hudControls [data-command="hud:loading"]'),
       null,
     );
-    const hubPath = d.host
-      .querySelector('[data-hub-id="A"].curve')!
-      .getAttribute("d");
-    assert.equal(
-      hubPath,
-      curveToSvgPath(
-        evaluateHubCurve(
-          field.state.hubs.A,
-          field.state.camera,
-          field.state.viewport,
-        ),
-      ),
-      "SVG hub stroke is serialized from the same numeric frame geometry",
-    );
+    const hubCircle = d.host.querySelector('.svg-graphics [data-layer="hubs"] [data-svg-primitive="arc"]')!;
+    const numericCircle = evaluateHubCurve(field.state.hubs.A, field.state.camera, field.state.viewport);
+    assert.equal(numericCircle.kind, "circle");
+    if (numericCircle.kind === "circle") {
+      const path = hubCircle.getAttribute("d")!;
+      const values = path.match(/-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi)!.map(Number);
+      assert.ok(Math.abs(values[0] - numericCircle.cx - numericCircle.radius) <= .001);
+      assert.ok(Math.abs(values[1] - numericCircle.cy) <= .001);
+      assert.ok(Math.abs(values[2] - numericCircle.radius) <= .001);
+      assert.equal((path.match(/A/g) ?? []).length, 2);
+    }
+    assert.equal(d.host.querySelector("#gGeometry")!.childElementCount, 0, "no hidden hub geometry is drawn twice");
 
     const label = frame.labels.find((entry) => entry.id === "A:a0")!;
     const hit = scene.hitTest(label.layout.position);
@@ -273,14 +271,11 @@ test("color-sweep passage publishes the same numeric portal mask and stroke used
       field.state.camera,
       field.state.viewport,
     );
-    assert.equal(
-      d.host.querySelector("#portalBoundaryPath")!.getAttribute("d"),
-      clipToSvgPath(geometry.boundary),
-    );
-    assert.equal(
-      d.host.querySelector("#portalStroke")!.getAttribute("d"),
-      curveToSvgPath(geometry.stroke),
-    );
+    assert.deepEqual(mask.shapes, geometry.boundary.curve.kind === "circle"
+      ? [{ ...geometry.boundary.curve }]
+      : [{ kind: "polyline", points: geometry.boundary.curve.points, closed: geometry.boundary.curve.closed }]);
+    assert.deepEqual(portal.stroke?.path, geometry.stroke);
+    assert.ok(d.host.querySelector(".svg-graphics .portal-stroke")!.getAttribute("d"));
   } finally {
     scene.destroy();
     d.close();

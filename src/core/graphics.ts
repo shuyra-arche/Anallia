@@ -145,6 +145,13 @@ export interface LabelLayout {
   scale: number;
 }
 
+export interface LocalLabelFrame {
+  attachment: FieldAttachment;
+  visibility: number;
+  phase: "entering" | "leaving" | "settled";
+  pose: PagePose | null;
+}
+
 export interface LabelFrame {
   id: string;
   command: Command;

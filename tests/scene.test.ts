@@ -211,7 +211,7 @@ test("different-background travel keeps one continuous color sweep while the con
   field.dispatch({ type: "navigate", target: "d0" });
   scene.render(field.state);
   assert.equal(host.getAttribute("data-transition"), "passage");
-  const begin = host.querySelector("#portalBoundaryPath")!.getAttribute("d")!;
+  const begin = JSON.stringify(scene.frame.masks);
   field.update(540, 20);
   scene.render(field.state);
   assert.equal(
@@ -221,20 +221,18 @@ test("different-background travel keeps one continuous color sweep while the con
       ?.includes("pointer-events: none"),
     true,
   );
-  const midpoint = host
-    .querySelector("#portalBoundaryPath")!
-    .getAttribute("d")!;
+  const midpoint = JSON.stringify(scene.frame.masks);
   assert.notEqual(midpoint, begin);
   assert.equal(
-    host.querySelector("#portalViewport")!.getAttribute("visibility"),
-    "visible",
+    scene.frame.portal?.visible,
+    true,
   );
   for (let now = 560; now <= 1600; now += 20) field.update(now, 20);
   scene.render(field.state);
   assert.equal(host.getAttribute("data-transition"), null);
   assert.equal(
-    host.querySelector("#portalViewport")!.getAttribute("visibility"),
-    "hidden",
+    scene.frame.portal,
+    null,
   );
   scene.destroy();
   window.close();
@@ -276,18 +274,16 @@ test("same-background near, flight, remote and axis travel never draw a color ma
         scene.render(field.state);
         assert.equal(host.getAttribute("data-transition"), "passage");
         assert.equal(
-          host.querySelector("#portalViewport")!.getAttribute("visibility"),
-          "hidden",
+          scene.frame.portal,
+          null,
         );
         assert.equal(
-          (host.querySelector("#portalStroke")! as unknown as HTMLElement).style
-            .opacity,
-          "0",
+          host.querySelector(".svg-graphics .portal-stroke")!.getAttribute("d"),
+          null,
         );
         assert.equal(
-          (host.querySelector("#portalEchoStroke")! as unknown as HTMLElement)
-            .style.opacity,
-          "0",
+          host.querySelector(".svg-graphics .portal-echo-stroke")!.getAttribute("d"),
+          null,
         );
         assert.equal(
           host.querySelector("#baseBg")!.getAttribute("fill")!.toLowerCase(),
@@ -334,8 +330,7 @@ test("same-background travel clears a preceding color mask and reverse history u
     now += field.state.passage!.duration + 20;
     field.update(now, 20);
   };
-  const mask = () =>
-    host.querySelector("#portalViewport")!.getAttribute("visibility");
+  const mask = () => scene.frame.portal?.visible ? "visible" : "hidden";
   try {
     field.dispatch({ type: "navigate", target: "d0" });
     field.update(field.state.passage!.duration * 0.25, 20);
@@ -362,7 +357,7 @@ test("same-background travel clears a preceding color mask and reverse history u
       "dark-to-light history return still sweeps",
     );
     assert.equal(
-      host.querySelector("#portalBg")!.getAttribute("fill"),
+      scene.frame.portal?.fill,
       "#F5F6F2",
     );
   } finally {

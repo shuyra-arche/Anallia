@@ -1,5 +1,4 @@
 import type { FieldAttachment } from "../core/attachments.ts";
-import type { PagePose } from "../core/transitions.ts";
 import { clamp, ease, mix } from "../core/math.ts";
 
 export const LOCAL_LABEL_TURN_MS = 240;
@@ -12,12 +11,8 @@ interface LocalLeaf {
   started: number;
   duration: number;
 }
-export interface LocalLabelFrame {
-  attachment: FieldAttachment;
-  visibility: number;
-  phase: "entering" | "leaving" | "settled";
-  pose: PagePose | null;
-}
+import type { LocalLabelFrame } from "../core/graphics.ts";
+export type { LocalLabelFrame } from "../core/graphics.ts";
 
 /** Local leaves keep their semantic identity until their material-hinge exit completes. */
 export class LocalLabelTurns {

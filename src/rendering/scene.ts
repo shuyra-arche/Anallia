@@ -1,8 +1,8 @@
-import { evaluateLabel, labelHitRegion } from "../geometry/labels.ts";
+import { buildSceneFrame, symbolActivity } from "../geometry/scene-frame.ts";
 import { SemanticLabels } from "./semantic-labels.ts";
 import type { LoadingGeometry } from "../geometry/loading.ts";
 import { loadingShapes } from "../geometry/loading.ts";
-import { renderLoadingGeometry, loadingToneColor } from "./loading.ts";
+import { loadingToneColor } from "./loading.ts";
 import { bindSemanticFeedback } from "./semantic-feedback.ts";
 import type { SymbolInteractionState } from "./semantic-feedback.ts";
 export type { SymbolInteractionState } from "./semantic-feedback.ts";
@@ -10,10 +10,7 @@ import { ReadingLayer } from "./reading-layer.ts";
 import type { ReadingCorrection } from "./reading-positions.ts";
 import type { ArticleRenderer } from "./article.ts";
 import { LocalLabelTurns } from "./local-labels.ts";
-import { evaluatePerception } from "../core/perception.ts";
-import type { HubPerception } from "../core/perception.ts";
 import type {
-  Chapter,
   Command,
   FieldState,
   GraspReadingSnapshot,
@@ -21,94 +18,47 @@ import type {
   Theme,
   Vec,
 } from "../core/types.ts";
-import { ease, clamp } from "../core/math.ts";
-import {
-  readingEnvelope,
-  pageTurnPose,
-} from "../core/transitions.ts";
-import type { PagePose } from "../core/transitions.ts";
-import { PAPER, BOUNDARY, blendHex, needsColorSweep, isDarkTheme } from "../core/palette.ts";
-import {
-  ICON_TOKENS,
-  resolveIconToken,
-} from "../core/icons.ts";
+import { BOUNDARY } from "../core/palette.ts";
+import { ICON_TOKENS, resolveIconToken } from "../core/icons.ts";
 import type { IconToken } from "../core/icons.ts";
-import { resolveSymbolKind } from "../core/symbol-morph.ts";
 import type { SymbolKind } from "../core/symbol-morph.ts";
 import { Catalog } from "../content/catalog.ts";
-import {
-  ordinaryAndLocalAttachments,
-  globalAttachments,
-  resolveGlobalHostHub,
-} from "../application/attachments.ts";
-import { projectAttachment } from "../geometry/attachments.ts";
-import type { FieldAttachment } from "../core/attachments.ts";
-import {
-  material,
-  nodeS,
-  hubToScreen,
-} from "../geometry/field.ts";
+import { ordinaryAndLocalAttachments } from "../application/attachments.ts";
 import { populateIconGlyph } from "./svg-symbols.ts";
 export { renderSymbolGeometryToGroup } from "./svg-symbols.ts";
-import { svg, requireElement } from "./dom.ts";
+import { requireElement } from "./dom.ts";
 import type {
   BackgroundFrame,
   GraphicsOptions,
   HitRegion,
-  PortalFrame,
   ResolvedRendererKind,
   SceneFrame,
-  SceneMask,
-  ScenePrimitive,
 } from "../core/graphics.ts";
-import {
-  emptySceneFrame,
-  hitTestFrame,
-  sceneLayer,
-} from "../core/graphics.ts";
-import {
-  clipMaskShapes,
-  clipToSvgPath,
-  curveToPrimitive,
-  curveToSvgPath,
-  evaluateFilament,
-  evaluateHubAuraCurve,
-  evaluateHubCurve,
-  evaluatePassageGeometry,
-  evaluateRemotePortalGeometry,
-} from "../geometry/graphics.ts";
+import { emptySceneFrame, hitTestFrame, sceneLayer } from "../core/graphics.ts";
 import { evaluateBackgroundFrame } from "./graphics/background.ts";
 import { PixiGraphicsRenderer } from "./graphics/pixi-renderer.ts";
 import { SvgGraphicsRenderer } from "./graphics/svg-renderer.ts";
 
 /** Camera zoom threshold below which focused hub global tags yield to the traditional HUD bar. */
-export const TRADITIONAL_HUD_ZOOM_THRESHOLD = 0.45;
-
-
+export { TRADITIONAL_HUD_ZOOM_THRESHOLD } from "../geometry/scene-frame.ts";
 
 export class Scene {
   private root: SVGSVGElement;
   private geometry: SVGGElement;
-  private relationFilaments: SVGPathElement;
   private labels: SVGGElement;
   private readonly semanticLabels: SemanticLabels;
   private reading: HTMLElement;
   private hudControls: HTMLElement;
-  private hubs = new Map<
-    string,
-    {
-      auraPath: SVGPathElement;
-      beacon: SVGTextElement;
-      path: SVGPathElement;
-      hit: SVGPathElement;
-      tracePath: SVGPathElement;
-      traceDot: SVGCircleElement;
-    }
-  >();
   private readonly readingLayer: ReadingLayer;
-  get readingBounds() { return this.readingLayer.readingBounds; }
-  get readingPositions() { return this.readingLayer.readingPositions; }
-  get articleRenderer(): ArticleRenderer { return this.readingLayer.articleRenderer; }
+  get readingBounds() {
+    return this.readingLayer.readingBounds;
+  }
+  get readingPositions() {
+    return this.readingLayer.readingPositions;
+  }
+  get articleRenderer(): ArticleRenderer {
+    return this.readingLayer.articleRenderer;
+  }
   readonly actions = new Map<string, Command>();
   private lastRenderKey = "";
   private readonly localLabelTurns = new LocalLabelTurns();
@@ -128,11 +78,12 @@ export class Scene {
   private backgroundCacheKey = "";
   private backgroundCache: BackgroundFrame | null = null;
   private loadingGeometry: LoadingGeometry | null = null;
-  private loadingRoot: SVGGElement;
   private contentRevision = 0;
   private readonly amberColors = new Map<Theme, string>();
 
-  setLoadingGeometry(geometry: LoadingGeometry | null): void { this.loadingGeometry = geometry; }
+  setLoadingGeometry(geometry: LoadingGeometry | null): void {
+    this.loadingGeometry = geometry;
+  }
 
   invalidateContent(ids: readonly string[]): void {
     this.contentRevision++;
@@ -141,15 +92,40 @@ export class Scene {
 
   private appendLoadingFrame(): void {
     const geometry = this.loadingGeometry;
-    this.loadingRoot.style.display = geometry && !this.gpu ? "" : "none";
-    if (!geometry) { this.loadingRoot.replaceChildren(); return; }
-    if (!this.gpu) renderLoadingGeometry(this.loadingRoot, geometry);
-    const primitives: import("../core/graphics.ts").ScenePrimitive[] = loadingShapes(geometry).map((shape) => {
-      const style = { stroke: loadingToneColor(geometry.theme, shape.tone), strokeWidth: shape.weight, opacity: shape.opacity };
-      if (shape.kind === "circle") return { type: "circle", cx: shape.cx, cy: shape.cy, radius: shape.r, ...style };
-      if (shape.kind === "arc") return { type: "arc", cx: shape.cx, cy: shape.cy, radius: shape.r, startAngle: shape.startAngle, endAngle: shape.endAngle, anticlockwise: !shape.clockwise, ...style };
-      return { type: "polyline", points: shape.points, closed: shape.closed, ...style };
-    });
+    if (!geometry) return;
+    const primitives: import("../core/graphics.ts").ScenePrimitive[] =
+      loadingShapes(geometry).map((shape) => {
+        const style = {
+          stroke: loadingToneColor(geometry.theme, shape.tone),
+          strokeWidth: shape.weight,
+          opacity: shape.opacity,
+        };
+        if (shape.kind === "circle")
+          return {
+            type: "circle",
+            cx: shape.cx,
+            cy: shape.cy,
+            radius: shape.r,
+            ...style,
+          };
+        if (shape.kind === "arc")
+          return {
+            type: "arc",
+            cx: shape.cx,
+            cy: shape.cy,
+            radius: shape.r,
+            startAngle: shape.startAngle,
+            endAngle: shape.endAngle,
+            anticlockwise: !shape.clockwise,
+            ...style,
+          };
+        return {
+          type: "polyline",
+          points: shape.points,
+          closed: shape.closed,
+          ...style,
+        };
+      });
     this.currentFrame.layers.push(sceneLayer("loading", 70, primitives));
   }
 
@@ -160,8 +136,12 @@ export class Scene {
     this.readingLayer.setRetainedChapter(view);
     this.lastRenderKey = "";
   }
-  prepareContent(id: string, presentation: "circle" | "line"): boolean { return this.readingLayer.prepareContent(id, presentation); }
-  takeReadingCorrections(): ReadingCorrection[] { return this.readingLayer.takeReadingCorrections(); }
+  prepareContent(id: string, presentation: "circle" | "line"): boolean {
+    return this.readingLayer.prepareContent(id, presentation);
+  }
+  takeReadingCorrections(): ReadingCorrection[] {
+    return this.readingLayer.takeReadingCorrections();
+  }
   invalidateLayout(fontsChanged = false): void {
     this.readingLayer.invalidateLayout(fontsChanged);
     if (fontsChanged) this.gpu?.invalidateGlyphs("font");
@@ -169,7 +149,11 @@ export class Scene {
   }
 
   get isAnimating(): boolean {
-    return this.lastRenderKey === "" || this.readingLayer.isSettling || this.localLabelTurns.isAnimating;
+    return (
+      this.lastRenderKey === "" ||
+      this.readingLayer.isSettling ||
+      this.localLabelTurns.isAnimating
+    );
   }
 
   /** Concrete renderer chosen after `initialize` (WebGL or permanent SVG). */
@@ -233,7 +217,6 @@ export class Scene {
       this.host.dataset.renderer = "webgl";
       this.reading.before(gpu.canvas);
       this.lastRenderKey = "";
-
     } catch {
       this.installSvgFallback();
     }
@@ -250,12 +233,15 @@ export class Scene {
     this.gpu?.destroy();
     this.gpu = null;
     this.lastRenderKey = "";
-
   }
 
   private host: HTMLElement;
   private catalog: Catalog;
-  constructor(host: HTMLElement, catalog: Catalog, options: GraphicsOptions = {}) {
+  constructor(
+    host: HTMLElement,
+    catalog: Catalog,
+    options: GraphicsOptions = {},
+  ) {
     this.host = host;
     this.catalog = catalog;
     this.options = {
@@ -270,7 +256,6 @@ export class Scene {
       "light",
     );
     this.root = requireElement(host, "#world");
-    this.loadingRoot = svg("g", this.root, { id: "gLoading", "aria-hidden": "true" });
     this.geometry = requireElement(host, "#gGeometry");
     this.labels = requireElement(host, "#gLabels");
     this.semanticLabels = new SemanticLabels(this.labels);
@@ -280,47 +265,16 @@ export class Scene {
       iconShowcase: (hub) => this.buildIconShowcase(hub),
     });
     this.hudControls = this.ensureHudControls(host);
-    this.relationFilaments = svg("path", this.geometry, {
-      id: "relationFilaments",
-      class: "relation-filaments",
-      d: "",
-    });
-    for (const hub of catalog.definitions)
-      this.hubs.set(hub.id, {
-        auraPath: svg("path", this.geometry, {
-          class: "hub-aura",
-          "data-hub-id": hub.id,
-        }),
-        path: svg("path", this.geometry, {
-          class: "curve",
-          "data-hub-id": hub.id,
-        }),
-        tracePath: svg("path", this.geometry, {
-          class: "inner-trace",
-          "data-hub-id": hub.id,
-        }),
-        traceDot: svg("circle", this.geometry, {
-          class: "inner-dot",
-          "data-hub-id": hub.id,
-          r: 2.2,
-        }),
-        beacon: svg("text", this.geometry, {
-          class: "hub-beacon",
-          "data-hub-id": hub.id,
-        }),
-        hit: svg("path", this.geometry, {
-          class: "hit",
-          "data-command": `hub:${hub.id}`,
-        }),
-      });
     this.svgRenderer = new SvgGraphicsRenderer(this.root);
     this.host.dataset.numericGraphics = "true";
     this.disposeFeedback = bindSemanticFeedback({
-      labels: this.labels, reading: this.reading, geometry: this.geometry,
-      resolve: key => this.actions.get(key),
+      labels: this.labels,
+      reading: this.reading,
+      geometry: this.geometry,
+      resolve: (key) => this.actions.get(key),
       symbol: (key, patch) => this.setSymbolInteraction(key, patch),
       hovered: () => this.hoveredTarget,
-      hover: target => this.setHoveredTarget(target),
+      hover: (target) => this.setHoveredTarget(target),
     });
     if (
       this.options.renderer !== "svg" &&
@@ -370,7 +324,6 @@ export class Scene {
     return nav;
   }
 
-
   setHoveredTarget(target: string | null) {
     if (this.hoveredTarget === target) return;
     this.hoveredTarget = target;
@@ -401,201 +354,12 @@ export class Scene {
     kind: SymbolKind,
     s?: FieldState | null,
   ): number {
-    const fb = this.symbolFeedback.get(commandKey);
-    const semanticActive =
-      fb?.active ||
-      Boolean(
-        s &&
-        ((kind === "overview" && s.overview) ||
-          (kind === "search" && !s.overview && s.focus === "Q") ||
-          (kind === "settings" && !s.overview && s.focus === "S")),
-      );
-    let activity = semanticActive ? 0.35 : 0;
-    if (fb?.hover || fb?.focus) activity = Math.max(activity, 0.62);
-    if (fb?.press) activity = 1.0;
-    return clamp(activity, 0, 1);
+    return symbolActivity(this.symbolFeedback.get(commandKey), kind, s);
   }
 
   private selected(hub: Hub) {
     return this.catalog.get(hub.path.at(-1)!);
   }
-  private label(
-    hub: Hub,
-    key: string,
-    name: string,
-    at: Vec,
-    anchor: Vec,
-    kind: string,
-    degree: number,
-    command: Command,
-    aria = name,
-    alpha = 1,
-    page: PagePose | null = null,
-    attachment?: FieldAttachment,
-    state?: FieldState,
-  ) {
-    const id = `${hub.id}:${key}`;
-    const feedback = this.symbolFeedback.get(id);
-    if (alpha >= 0.999 && attachment?.role === "operation" && this.host.dataset.discoveryStage === "threshold" && !feedback?.hover && !feedback?.focus)
-      alpha = 0.42;
-    const symbolKind = attachment?.symbolKind ?? (attachment?.scope === "global" ? resolveSymbolKind(name) : undefined);
-    const frame = evaluateLabel({ hubId: hub.id, key, name, at, anchor, kind, degree, command, aria, alpha, page, attachment,
-      zoom: state?.camera.z ?? 1, interaction: feedback, activity: symbolKind ? this.getSymbolActivity(id, symbolKind, state) : 0 });
-    this.currentFrame.labels.push(frame);
-    const hit = labelHitRegion(frame);
-    if (hit) { this.currentFrame.hitRegions.push(hit); this.actions.set(id, command); }
-  }
-
-  private renderUnfocusedTraces(
-    h: Hub,
-    nodes: Chapter[],
-    s: FieldState,
-    perception?: HubPerception,
-    darkPalette = false,
-    primitives: ScenePrimitive[] = [],
-  ) {
-    const entry = this.hubs.get(h.id)!;
-    if (s.loading || (h.id === s.focus && !s.overview)) {
-      entry.tracePath.setAttribute("d", "");
-      entry.tracePath.style.display = "none";
-      entry.traceDot.style.display = "none";
-      entry.beacon.style.display = "none";
-      return;
-    }
-    const sig = perception?.signature;
-    const tickScale = sig ? sig.tickScale : 1;
-    const strokeColor = sig
-      ? darkPalette
-        ? sig.darkStroke
-        : sig.lightStroke
-      : "";
-    const segs: string[] = [];
-    const activeIdx =
-      ((Math.round(h.scroll) % nodes.length) + nodes.length) % nodes.length;
-    let dotPt: Vec | null = null;
-    let beaconPt: Vec | null = null;
-    for (let j = 0; j < nodes.length; j++) {
-      const param = nodeS(h, j, nodes.length, s.camera, s.viewport);
-      const p0 = hubToScreen(h, material(h, param, 0), s.camera, s.viewport);
-      const isSelected = j === activeIdx;
-      const baseLen = (isSelected ? -26 : j % 2 === 0 ? -16 : -11) * tickScale;
-      const p1 = hubToScreen(
-        h,
-        material(h, param, baseLen),
-        s.camera,
-        s.viewport,
-      );
-      segs.push(
-        `M${p0.x.toFixed(2)} ${p0.y.toFixed(2)}L${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`,
-      );
-      primitives.push({
-        type: "polyline",
-        points: [p0, p1],
-        stroke: strokeColor,
-        strokeWidth: 0.9 * s.camera.z,
-        opacity: perception?.traceOpacity ?? 0.2,
-      });
-      if (sig && (sig.archetype === "origin" || sig.archetype === "portal" || sig.archetype === "instrument")) {
-        const pOut = hubToScreen(
-          h,
-          material(h, param, isSelected ? 9 : 4.5),
-          s.camera,
-          s.viewport,
-        );
-        segs.push(
-          `M${p0.x.toFixed(2)} ${p0.y.toFixed(2)}L${pOut.x.toFixed(2)} ${pOut.y.toFixed(2)}`,
-        );
-        primitives.push({
-          type: "polyline",
-          points: [p0, pOut],
-          stroke: strokeColor,
-          strokeWidth: 0.75 * s.camera.z,
-          opacity: perception?.traceOpacity ?? 0.2,
-        });
-      }
-      if (isSelected) {
-        dotPt = hubToScreen(
-          h,
-          material(h, param, baseLen - 5.5),
-          s.camera,
-          s.viewport,
-        );
-        beaconPt = hubToScreen(
-          h,
-          material(h, param, baseLen - 22),
-          s.camera,
-          s.viewport,
-        );
-      }
-    }
-    entry.tracePath.style.display = "";
-    entry.tracePath.setAttribute("d", segs.join(""));
-    if (strokeColor) entry.tracePath.style.stroke = strokeColor;
-    if (perception) {
-      entry.tracePath.style.opacity = String(perception.traceOpacity);
-    }
-    if (dotPt) {
-      const dotScale = perception ? perception.dotScale : 1;
-      entry.traceDot.style.display = "";
-      entry.traceDot.setAttribute("cx", dotPt.x.toFixed(2));
-      entry.traceDot.setAttribute("cy", dotPt.y.toFixed(2));
-      entry.traceDot.setAttribute("r", String(2.4 * dotScale * s.camera.z));
-      if (sig) entry.traceDot.style.fill = sig.accentColor;
-      entry.traceDot.classList.toggle(
-        "is-resonating",
-        perception?.tier === "resonating",
-      );
-      primitives.push({
-        type: "circle",
-        cx: dotPt.x,
-        cy: dotPt.y,
-        radius: 2.4 * dotScale * s.camera.z,
-        fill: sig?.accentColor ?? strokeColor,
-        opacity: perception?.traceOpacity ?? 0.2,
-      });
-    } else {
-      entry.traceDot.style.display = "none";
-    }
-    if (beaconPt && perception && perception.beaconOpacity > 0.05) {
-      entry.beacon.style.display = "";
-      entry.beacon.setAttribute("x", beaconPt.x.toFixed(2));
-      entry.beacon.setAttribute("y", beaconPt.y.toFixed(2));
-      if (entry.beacon.textContent !== h.glyph) {
-        entry.beacon.textContent = h.glyph;
-      }
-      const fontScale =
-        perception.tier === "resonating"
-          ? 16.5
-          : perception.tier === "related"
-            ? 14.5
-            : 12;
-      entry.beacon.style.fontSize = `${(fontScale * Math.max(0.55, s.camera.z)).toFixed(1)}px`;
-      entry.beacon.style.opacity = String(perception.beaconOpacity);
-      entry.beacon.style.fill =
-        perception.tier === "resonating" && sig
-          ? sig.accentColor
-          : strokeColor;
-      entry.beacon.dataset.tier = perception.tier;
-      primitives.push({
-        type: "text",
-        x: beaconPt.x,
-        y: beaconPt.y,
-        text: h.glyph,
-        fontSize: fontScale,
-        scale: Math.max(0.55, s.camera.z),
-        fill:
-          perception.tier === "resonating" && sig
-            ? sig.accentColor
-            : strokeColor,
-        align: "center",
-        baseline: "middle",
-        opacity: perception.beaconOpacity,
-      });
-    } else {
-      entry.beacon.style.display = "none";
-    }
-  }
-
   private updateHudControls(s: FieldState, showTraditionalHud: boolean) {
     this.actions.set("hud:back", { type: "back" });
     this.actions.set("hud:overview", { type: "overview" });
@@ -699,451 +463,53 @@ export class Scene {
       return;
     }
     this.lastRenderKey = key;
-    this.currentFrame = emptySceneFrame(
-      this.resolvedKind,
-      s.viewport,
-      s.camera,
-      s.theme,
-    );
-    this.currentFrame.revision = ++this.frameRevision;
+    const visualTheme =
+      s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
+    this.host.ownerDocument.documentElement.dataset.theme = visualTheme;
+    if (!this.amberColors.has(visualTheme)) {
+      const color = this.host.ownerDocument.defaultView
+        ?.getComputedStyle(this.host.ownerDocument.documentElement)
+        .getPropertyValue("--amber")
+        .trim();
+      this.amberColors.set(visualTheme, color || BOUNDARY[visualTheme]);
+    }
+    const built = buildSceneFrame(s, this.catalog, {
+      renderer: this.resolvedKind,
+      revision: ++this.frameRevision,
+      relationColor: this.amberColors.get(visualTheme)!,
+      focusedEntries,
+      locals,
+      feedback: this.symbolFeedback,
+      hoveredTarget: this.hoveredTarget,
+    });
+    this.currentFrame = built.frame;
     this.host.style.setProperty("--camera-scale", String(s.camera.z));
     this.root.setAttribute(
       "viewBox",
       `0 0 ${s.viewport.width} ${s.viewport.height}`,
     );
-    this.actions.clear();
-
-    const contentTurn = s.contentTurn;
-    const turnPose = contentTurn
-      ? pageTurnPose(
-          contentTurn.phase,
-          s.settings.reducedMotion,
-          contentTurn.direction,
-        )
-      : null;
-    const chapterEnvelope = s.passage ? readingEnvelope(s.passage.phase) : 1;
-
-    const perception = evaluatePerception(s, this.catalog, this.hoveredTarget);
-    if (this.host.dataset.discoveryStage !== perception.stage) {
-      this.host.dataset.discoveryStage = perception.stage;
-    }
-    if (perception.resonatingHubId) {
-      this.host.dataset.resonatingHub = perception.resonatingHubId;
-    } else {
-      delete this.host.dataset.resonatingHub;
-    }
-
-    const visualThemeForField =
-      s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
-    this.currentFrame.visualTheme = visualThemeForField;
-    this.host.ownerDocument.documentElement.dataset.theme = visualThemeForField;
-    if (!this.amberColors.has(visualThemeForField)) {
-      const color = this.host.ownerDocument.defaultView?.getComputedStyle(this.host.ownerDocument.documentElement).getPropertyValue("--amber").trim();
-      this.amberColors.set(visualThemeForField, color || BOUNDARY[visualThemeForField]);
-    }
-    const relationColor = this.amberColors.get(visualThemeForField)!;
-    const relationOpacity = s.loading ? 0 : perception.resonatingHubId ? 0.46 : s.overview ? 0.34 : 0.22;
-    const darkPalette = isDarkTheme(visualThemeForField);
-    const filamentSegs: string[] = [];
-    const hubPrimitives: ScenePrimitive[] = [];
-    const relationPrimitives: ScenePrimitive[] = [];
-    const focusHubObj = s.hubs[perception.focusedHubId] ?? s.hubs[s.focus];
-    const focusSibs = this.catalog.siblings(
-      this.selected(focusHubObj).id,
-      s.searchResults,
-    );
-    const focusAnchorScreen = hubToScreen(
-      focusHubObj,
-      material(
-        focusHubObj,
-        nodeS(focusHubObj, focusHubObj.scroll, focusSibs.length, s.camera, s.viewport),
-        0,
-      ),
-      s.camera,
-      s.viewport,
-    );
-
-    for (const h of Object.values(s.hubs)) {
-      const entry = this.hubs.get(h.id)!,
-        active = h.id === s.focus && !s.overview && !s.loading,
-        hubPerception = perception.hubs[h.id],
-        sig = hubPerception.signature;
-      const strokeColor = darkPalette ? sig.darkStroke : sig.lightStroke;
-      const curve = evaluateHubCurve(h, s.camera, s.viewport);
-      const path = curveToSvgPath(curve);
-      entry.path.setAttribute("d", path);
-      entry.hit.setAttribute("d", path);
-      hubPrimitives.push(
-        curveToPrimitive(curve, {
-          stroke: strokeColor,
-          strokeWidth: 1.25 * hubPerception.strokeWidthScale * s.camera.z,
-          opacity: hubPerception.curveOpacity,
-          dash:
-            !active &&
-            sig.curveDash &&
-            hubPerception.tier !== "resonating"
-              ? sig.curveDash.split(/\s+/).map(Number)
-              : undefined,
-        }),
-      );
-      this.currentFrame.hitRegions.push({
-        id: `hub:${h.id}`,
-        command: active
-          ? { type: "morph" }
-          : { type: "focus", hub: h.id },
-        hubId: h.id,
-        graspKind: "hub",
-        shape:
-          curve.kind === "circle"
-            ? {
-                type: "circle",
-                x: curve.cx,
-                y: curve.cy,
-                radius: curve.radius,
-                strokeWidth: 32 * s.camera.z,
-              }
-            : {
-                type: "polyline",
-                points: curve.points,
-                tolerance: 16 * s.camera.z,
-              },
-        priority: 10,
-      });
-
-      const auraCurve =
-        hubPerception.auraOpacity > 0.01
-          ? evaluateHubAuraCurve(
-              h,
-              s.camera,
-              s.viewport,
-              sig.auraOffset,
-            )
-          : null;
-      const auraD = auraCurve ? curveToSvgPath(auraCurve, false) : "";
-      entry.auraPath.setAttribute("d", auraD);
-      entry.auraPath.style.display = auraD ? "" : "none";
-      entry.auraPath.style.opacity = String(hubPerception.auraOpacity);
-      entry.auraPath.style.stroke =
-        hubPerception.tier === "resonating" ? sig.accentColor : strokeColor;
-      if (sig.auraDash) {
-        entry.auraPath.setAttribute("stroke-dasharray", sig.auraDash);
-      } else {
-        entry.auraPath.removeAttribute("stroke-dasharray");
-      }
-      if (auraCurve) {
-        hubPrimitives.push(
-          curveToPrimitive(auraCurve, {
-            stroke:
-              hubPerception.tier === "resonating"
-                ? sig.accentColor
-                : strokeColor,
-            strokeWidth: 0.9 * s.camera.z,
-            opacity: hubPerception.auraOpacity,
-            dash: sig.auraDash
-              ? sig.auraDash.split(/\s+/).map(Number)
-              : undefined,
-          }),
-        );
-      }
-
-      const tierClass =
-        hubPerception.tier === "resonating"
-          ? " related is-resonating"
-          : hubPerception.tier === "related"
-            ? " related"
-            : hubPerception.tier === "ambient"
-              ? " is-ambient"
-              : "";
-      entry.path.setAttribute(
-        "class",
-        `curve${active ? " selected" : ""}${tierClass}`,
-      );
-      entry.path.dataset.tier = hubPerception.tier;
-      entry.path.dataset.relation = hubPerception.relation;
-      entry.path.dataset.archetype = sig.archetype;
-      entry.path.style.opacity = String(hubPerception.curveOpacity);
-      entry.path.style.stroke =
-        hubPerception.tier === "resonating" ? sig.accentColor : strokeColor;
-      entry.path.style.strokeWidth = `calc(${(1.25 * hubPerception.strokeWidthScale).toFixed(2)}px * var(--camera-scale, 1))`;
-      if (!active && sig.curveDash && hubPerception.tier !== "resonating") {
-        entry.path.setAttribute("stroke-dasharray", sig.curveDash);
-      } else {
-        entry.path.removeAttribute("stroke-dasharray");
-      }
-
-      this.actions.set(
-        `hub:${h.id}`,
-        active ? { type: "morph" } : { type: "focus", hub: h.id },
-      );
-      const current = this.selected(h);
-      const nodes = this.catalog.siblings(current.id, s.searchResults);
-      this.renderUnfocusedTraces(
-        h,
-        nodes,
-        s,
-        hubPerception,
-        darkPalette,
-        hubPrimitives,
-      );
-
-      if (
-        !s.loading &&
-        h.id !== focusHubObj.id &&
-        (hubPerception.tier === "resonating" || hubPerception.tier === "related")
-      ) {
-        const targetParam = nodeS(h, h.scroll, nodes.length, s.camera, s.viewport);
-        const targetScreen = hubToScreen(
-          h,
-          material(h, targetParam, 0),
-          s.camera,
-          s.viewport,
-        );
-        const mx = (focusAnchorScreen.x + targetScreen.x) * 0.5;
-        const my = (focusAnchorScreen.y + targetScreen.y) * 0.5;
-        const dx = targetScreen.x - focusAnchorScreen.x;
-        const dy = targetScreen.y - focusAnchorScreen.y;
-        const cx = mx - dy * 0.12;
-        const cy = my + dx * 0.12;
-        if (
-          Number.isFinite(
-            focusAnchorScreen.x + focusAnchorScreen.y + cx + cy + targetScreen.x + targetScreen.y,
-          )
-        ) {
-          filamentSegs.push(
-            `M${focusAnchorScreen.x.toFixed(1)} ${focusAnchorScreen.y.toFixed(1)}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${targetScreen.x.toFixed(1)} ${targetScreen.y.toFixed(1)}`,
-          );
-          relationPrimitives.push({
-            type: "polyline",
-            points: evaluateFilament(focusAnchorScreen, targetScreen),
-            stroke: relationColor,
-            strokeWidth: 0.9 * s.camera.z,
-            opacity: relationOpacity,
-            dash: [4, 6],
-          });
-        }
-      }
-
-      if (s.loading || !active) continue;
-
-      const materialSide: 1 | -1 = 1;
-      for (const attachment of focusedEntries) {
-        if (attachment.role === "local") continue;
-        const point = projectAttachment(
-          h,
-          attachment,
-          s.camera,
-          s.viewport,
-          materialSide,
-        );
-        this.label(
-          h,
-          attachment.id,
-          attachment.glyph,
-          point.position,
-          point.hinge,
-          attachment.visual,
-          point.degree,
-          attachment.command,
-          attachment.aria,
-          attachment.opacity * chapterEnvelope,
-          contentTurn?.hub === h.id ? turnPose : null,
-          attachment,
-          s,
-        );
-      }
-    }
-
-    this.relationFilaments.setAttribute("d", filamentSegs.join(""));
-    this.relationFilaments.style.opacity = s.loading
-      ? "0"
-      : perception.resonatingHubId
-        ? "0.46"
-        : s.overview
-          ? "0.34"
-          : "0.22";
-    this.currentFrame.layers.push(
-      sceneLayer("hubs", 30, hubPrimitives),
-      sceneLayer("relations", 40, relationPrimitives),
-    );
-
-    for (const leaf of locals) {
-      const attachment = leaf.attachment;
-      const hub = s.hubs[attachment.anchor.hostHub];
-      const point = projectAttachment(hub, attachment, s.camera, s.viewport, 1);
-      this.label(
-        hub,
-        attachment.anchor.id,
-        attachment.glyph,
-        point.position,
-        point.hinge,
-        attachment.visual,
-        point.degree,
-        attachment.command,
-        attachment.aria,
-        attachment.opacity,
-        leaf.pose,
-        attachment,
-        s,
-      );
-      this.currentFrame.labels[this.currentFrame.labels.length - 1].localPhase = leaf.phase;
-      const isResonatingRef =
-        attachment.command.type === "navigate" &&
-        (attachment.command.target === perception.resonatingTargetId ||
-          (perception.resonatingHubId !== null &&
-            this.catalog.chapters.get(attachment.command.target)?.hub ===
-              perception.resonatingHubId));
-      this.currentFrame.labels[this.currentFrame.labels.length - 1].resonating = isResonatingRef;
-    }
-
-    const useTraditionalHud =
-      s.overview || s.camera.z < TRADITIONAL_HUD_ZOOM_THRESHOLD;
-    this.updateHudControls(s, useTraditionalHud);
-
-    if (!s.loading && !useTraditionalHud) {
-      const owner = resolveGlobalHostHub(s);
-      const materialSide: 1 | -1 = 1;
-      for (const attachment of globalAttachments(s, this.catalog)) {
-        const point = projectAttachment(
-          owner,
-          attachment,
-          s.camera,
-          s.viewport,
-          materialSide,
-        );
-        // Global operation labels do NOT animate or fade during hub-switching passage.
-        this.label(
-          owner,
-          attachment.id,
-          attachment.glyph,
-          point.position,
-          point.hinge,
-          attachment.visual,
-          point.degree,
-          attachment.command,
-          attachment.aria,
-          attachment.opacity,
-          null,
-          attachment,
-          s,
-        );
-      }
-    }
-    this.currentFrame.reading = this.readingLayer.render(s);
-    this.semanticLabels.render(this.currentFrame.labels);
-    this.labels.style.opacity = "";
-    this.labels.style.pointerEvents =
-      this.resolvedKind === "webgl" || s.passage ? "none" : "";
-    this.geometry.style.pointerEvents =
-      this.resolvedKind === "webgl" ? "none" : "";
-    const visualTheme =
-      s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
-    this.host.ownerDocument.documentElement.dataset.theme = visualTheme;
-    const t = s.passage;
-    const bgMix = t ? ease(clamp((t.phase - 0.42) / 0.58, 0, 1)) : 1;
-    const baseFill = t
-      ? blendHex(PAPER[t.sourceTheme], PAPER[t.theme], bgMix)
-      : PAPER[s.theme];
-    requireElement(this.host, "#baseBg").setAttribute("fill", baseFill);
-    this.currentFrame.layers.unshift(
-      sceneLayer("base", 0, [
-        {
-          type: "rect",
-          x: 0,
-          y: 0,
-          width: s.viewport.width,
-          height: s.viewport.height,
-          fill: baseFill,
-        },
-      ]),
-    );
-    const portal = requireElement<SVGGElement>(this.host, "#portalViewport"),
-      stroke = requireElement<SVGPathElement>(this.host, "#portalStroke"),
-      echo = requireElement<SVGPathElement>(this.host, "#portalEchoStroke");
-    if (t) {
+    this.host.dataset.discoveryStage = built.perception.stage;
+    if (built.perception.resonatingHubId)
+      this.host.dataset.resonatingHub = built.perception.resonatingHubId;
+    else delete this.host.dataset.resonatingHub;
+    const passage = s.passage;
+    if (passage) {
       this.host.dataset.transition = "passage";
-      this.host.dataset.transitionKind = t.kind;
-      this.host.dataset.direction = t.direction;
+      this.host.dataset.transitionKind = passage.kind;
+      this.host.dataset.direction = passage.direction;
     } else {
       delete this.host.dataset.transition;
       delete this.host.dataset.transitionKind;
       delete this.host.dataset.direction;
     }
-    if (t && needsColorSweep(t.sourceTheme, t.theme)) {
-      const geometry = evaluatePassageGeometry(t, s.camera, s.viewport);
-      portal.setAttribute("visibility", "visible");
-      const portalAlpha =
-        ease(clamp(t.phase / 0.12, 0, 1)) *
-        ease(clamp((1 - t.phase) / 0.12, 0, 1));
-      portal.style.opacity = String(portalAlpha);
-      requireElement(this.host, "#portalBoundaryPath").setAttribute(
-        "d",
-        clipToSvgPath(geometry.boundary),
-      );
-      requireElement(this.host, "#portalBg").setAttribute(
-        "fill",
-        PAPER[t.theme],
-      );
-      stroke.setAttribute("d", curveToSvgPath(geometry.stroke));
-      stroke.setAttribute("stroke", BOUNDARY[t.theme]);
-      stroke.style.opacity = String(Math.sin(t.phase * Math.PI) * 0.82);
-      let echoGeometry: ReturnType<typeof evaluateRemotePortalGeometry> | null =
-        null;
-      if (t.kind === "remote" || t.kind === "axis") {
-        echoGeometry = evaluateRemotePortalGeometry(
-          clamp(t.phase - 0.055, 0, 1),
-          s.viewport,
-        );
-        echo.setAttribute("d", curveToSvgPath(echoGeometry.stroke));
-        echo.setAttribute("stroke", BOUNDARY[t.sourceTheme]);
-        echo.style.opacity = String(Math.sin(t.phase * Math.PI) * 0.26);
-      } else {
-        echo.style.opacity = "0";
-      }
-      const mask: SceneMask = {
-        id: "portal",
-        visible: true,
-        opacity: portalAlpha,
-        rule: geometry.boundary.rule,
-        shapes: clipMaskShapes(geometry.boundary),
-        outerRect: geometry.boundary.outerRect,
-        fill: PAPER[t.theme],
-      };
-      this.currentFrame.masks.push(mask);
-      const portalFrame: PortalFrame = {
-        visible: true,
-        opacity: portalAlpha,
-        fill: PAPER[t.theme],
-        maskId: mask.id,
-        stroke: {
-          path: geometry.stroke,
-          color: BOUNDARY[t.theme],
-          opacity: Math.sin(t.phase * Math.PI) * 0.82,
-          width: 1.1 * s.camera.z,
-        },
-        echo:
-          echoGeometry &&
-          (t.kind === "remote" || t.kind === "axis")
-            ? {
-                path: echoGeometry.stroke,
-                color: BOUNDARY[t.sourceTheme],
-                opacity: Math.sin(t.phase * Math.PI) * 0.26,
-                width: 1.0 * s.camera.z,
-              }
-            : undefined,
-      };
-      this.currentFrame.portal = portalFrame;
-    } else {
-      portal.setAttribute("visibility", "hidden");
-      stroke.style.opacity = "0";
-      echo.style.opacity = "0";
-      this.currentFrame.portal = null;
-    }
-    this.currentFrame.layers.push(
-      sceneLayer("portal", 10),
-      sceneLayer("background", 20),
-      sceneLayer("labels", 50),
-      sceneLayer("reading", 60),
-    );
+    this.actions.clear();
+    for (const hit of this.currentFrame.hitRegions)
+      this.actions.set(hit.id, hit.command);
+    this.updateHudControls(s, built.useTraditionalHud);
+    this.currentFrame.reading = this.readingLayer.render(s);
+    this.semanticLabels.render(this.currentFrame.labels);
+    this.labels.style.pointerEvents =
+      this.resolvedKind === "webgl" || s.passage ? "none" : "";
     this.appendLoadingFrame();
     this.currentFrame.layers.sort((a, b) => a.order - b.order);
     this.refreshBackgroundFrame(s);
@@ -1170,13 +536,15 @@ export class Scene {
     const quiet = this.readingBounds
       ? {
           x:
-            (this.readingBounds.left + this.readingBounds.width / 2 -
+            (this.readingBounds.left +
+              this.readingBounds.width / 2 -
               s.viewport.width / 2) /
-              s.camera.z,
+            s.camera.z,
           y:
-            (this.readingBounds.top + this.readingBounds.height / 2 -
+            (this.readingBounds.top +
+              this.readingBounds.height / 2 -
               s.viewport.height / 2) /
-              s.camera.z,
+            s.camera.z,
         }
       : undefined;
     // Convert the screen-space reading centre back to a world quiet zone.
@@ -1194,7 +562,10 @@ export class Scene {
       : undefined;
     const visualTheme =
       s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
-    const bucket = s.settings.background === "none" || s.settings.reducedMotion ? 0 : Math.floor(s.elapsed / 40);
+    const bucket =
+      s.settings.background === "none" || s.settings.reducedMotion
+        ? 0
+        : Math.floor(s.elapsed / 40);
     const key = JSON.stringify([
       s.settings.background,
       visualTheme,
@@ -1271,7 +642,6 @@ export class Scene {
     this.localLabelTurns.clear();
     this.geometry.replaceChildren();
     this.semanticLabels.destroy();
-    this.loadingRoot.remove();
     this.readingLayer.destroy();
     this.hudControls.remove();
     this.actions.clear();
