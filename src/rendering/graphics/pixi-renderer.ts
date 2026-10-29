@@ -119,6 +119,7 @@ export class PixiGraphicsRenderer {
   private nextParentId = 0;
   private readonly glyphs = new GpuGlyphCache<PixiText>((text) => text.destroy());
   private lastFrame: SceneFrame | null = null;
+  private lastRevision = -1;
   private lastBackground: SceneFrame["background"] = null;
   private renderWidth = 0;
   private renderHeight = 0;
@@ -235,16 +236,17 @@ export class PixiGraphicsRenderer {
 
   render(frame: SceneFrame): void {
     if (this.destroyed || this.lost) return;
-    if (this.lastFrame === frame) {
+    if (this.lastFrame === frame && this.lastRevision === frame.revision) {
       if (this.lastBackground === frame.background) return;
       this.graphicsCursors.clear();
       this.drawBackground(frame, false);
       this.lastBackground = frame.background;
       this.stage.sortChildren();
-    this.renderer.render(this.stage);
+      this.renderer.render(this.stage);
       return;
     }
     this.lastFrame = frame;
+    this.lastRevision = frame.revision;
     this.lastBackground = frame.background;
     if (this.paletteTheme !== frame.visualTheme) {
       const style = getComputedStyle(document.documentElement);

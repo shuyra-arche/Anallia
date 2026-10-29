@@ -267,3 +267,57 @@ test("appending below a small readable article keeps its first stable text withi
   const after = await page.evaluate(() => (window as any).__smallRange.getBoundingClientRect().top);
   expect(Math.abs(after - before)).toBeLessThanOrEqual(2);
 });
+
+
+test("numeric SVG drawing matches frame labels and retains one keyboard proxy per label", async ({ page }) => {
+  await open(page, "?renderer=svg&chapter=m3");
+  await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating);
+  const result = await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    app.field.pan({ x: 0, y: 0 }, app.field.state.camera);
+    app.field.state.settings.background = "none";
+    app.field.state.settings.reducedMotion = true;
+    let error = 0, compared = 0;
+    for (const morph of [0, 0.5, 0.999999, 1]) for (const zoom of [0.6, 1.6]) {
+      app.field.hub.morph = app.field.hub.targetMorph = morph;
+      app.field.state.camera = { x: -1400, y: 450, z: zoom, rotation: zoom < 1 ? -60 : 35 };
+      app.scene.invalidateLayout();
+      app.scene.render(app.field.state);
+      for (const label of app.scene.frame.labels) {
+        if (label.opacity <= 0.001) continue;
+        const visual = document.querySelector(`.svg-graphics [data-label="${label.id}"] .label-visual`) as SVGGraphicsElement | null;
+        const proxy = document.querySelector(`[data-command="${label.id}"] .label`) as SVGGraphicsElement | null;
+        const actual = visual?.getScreenCTM(), expected = proxy?.getScreenCTM();
+        if (!actual || !expected) throw new Error(`Missing transform ${label.id}`);
+        error = Math.max(error, Math.hypot(actual.e - expected.e, actual.f - expected.f));
+        compared++;
+      }
+    }
+    return { error, compared, extraInteractions: document.querySelectorAll('.svg-graphics [role="button"], .svg-graphics [tabindex], .svg-graphics [data-command]').length };
+  });
+  expect(result.compared).toBeGreaterThan(20);
+  expect(result.error).toBeLessThanOrEqual(0.5);
+  expect(result.extraInteractions).toBe(0);
+});
+
+
+test("numeric SVG full-circle hubs have the expected rendered circumference", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating);
+  const result = await page.evaluate(() => {
+    const frame = (window as any).__shuyra.scene.frame;
+    const primitives = frame.layers.find((layer: any) => layer.id === "hubs").primitives;
+    const paths = document.querySelector('[data-layer="hubs"]')!.children;
+    let compared = 0, error = 0;
+    primitives.forEach((primitive: any, index: number) => {
+      if (primitive.type !== "arc" || Math.abs(primitive.endAngle - primitive.startAngle) < Math.PI * 2 - 1e-8) return;
+      const length = (paths[index] as SVGPathElement).getTotalLength();
+      if (!(length > primitive.radius * 6)) throw new Error(`Missing circle: ${length} for radius ${primitive.radius}`);
+      error = Math.max(error, Math.abs(length / (Math.PI * 2 * primitive.radius) - 1));
+      compared++;
+    });
+    return { error, compared };
+  });
+  expect(result.compared).toBeGreaterThan(0);
+  expect(result.error).toBeLessThan(0.002);
+});

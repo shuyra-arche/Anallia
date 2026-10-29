@@ -306,6 +306,7 @@ export interface HitRegion {
 }
 
 export interface SceneFrame {
+  /** Advance for geometry, labels or style changes; background may be replaced independently. */
   revision: number;
   rendererKind: ResolvedRendererKind;
   viewport: Viewport;

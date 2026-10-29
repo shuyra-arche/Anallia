@@ -53,7 +53,7 @@ import {
   nodeS,
   hubToScreen,
 } from "../geometry/field.ts";
-import { NS, svg, requireElement } from "./dom.ts";
+import { svg, requireElement } from "./dom.ts";
 import type {
   BackgroundFrame,
   GraphicsOptions,
@@ -83,6 +83,7 @@ import {
 } from "../geometry/graphics.ts";
 import { evaluateBackgroundFrame } from "./graphics/background.ts";
 import { PixiGraphicsRenderer } from "./graphics/pixi-renderer.ts";
+import { SvgGraphicsRenderer } from "./graphics/svg-renderer.ts";
 
 /** Camera zoom threshold below which focused hub global tags yield to the traditional HUD bar. */
 export const TRADITIONAL_HUD_ZOOM_THRESHOLD = 0.45;
@@ -261,15 +262,6 @@ export class Scene {
   private labels: SVGGElement;
   private reading: HTMLElement;
   private hudControls: HTMLElement;
-  private backgroundRoot: SVGGElement;
-  private backgroundFlow: SVGGElement;
-  private backgroundStars: SVGGElement;
-  private flowPaths: SVGPathElement[] = [];
-  private flowMarkers: SVGCircleElement[] = [];
-  private starPoints: SVGCircleElement[] = [];
-  private starTrails: SVGPathElement[] = [];
-  private meteorPaths: SVGPathElement[] = [];
-  private meteorHeads: SVGCircleElement[] = [];
   private hubs = new Map<
     string,
     {
@@ -304,6 +296,7 @@ export class Scene {
   > & { dpr?: number };
   private resolvedKind: ResolvedRendererKind = "svg";
   private gpu: PixiGraphicsRenderer | null = null;
+  private readonly svgRenderer: SvgGraphicsRenderer;
   private initPromise: Promise<void> | null = null;
   private destroyed = false;
   private frameRevision = 0;
@@ -373,7 +366,7 @@ export class Scene {
   }
 
   get isAnimating(): boolean {
-    return this.localLabelTurns.isAnimating;
+    return this.lastRenderKey === "" || this.localLabelTurns.isAnimating;
   }
 
   /** Concrete renderer chosen after `initialize` (WebGL or permanent SVG). */
@@ -436,7 +429,7 @@ export class Scene {
       this.host.dataset.renderer = "webgl";
       this.reading.before(gpu.canvas);
       this.lastRenderKey = "";
-      if (this.lastState) this.render(this.lastState);
+
     } catch {
       this.installSvgFallback();
     }
@@ -452,7 +445,7 @@ export class Scene {
     this.gpu?.destroy();
     this.gpu = null;
     this.lastRenderKey = "";
-    if (!this.destroyed && this.lastState) this.render(this.lastState);
+
   }
 
   private host: HTMLElement;
@@ -481,13 +474,6 @@ export class Scene {
     this.labels = requireElement(host, "#gLabels");
     this.reading = requireElement(host, "#reading");
     this.hudControls = this.ensureHudControls(host);
-    this.backgroundRoot = this.ensureBackgroundRoot();
-    this.backgroundFlow = svg("g", this.backgroundRoot, {
-      class: "background-flow",
-    });
-    this.backgroundStars = svg("g", this.backgroundRoot, {
-      class: "background-stars",
-    });
     this.relationFilaments = svg("path", this.geometry, {
       id: "relationFilaments",
       class: "relation-filaments",
@@ -522,6 +508,8 @@ export class Scene {
         }),
         labels: new Map(),
       });
+    this.svgRenderer = new SvgGraphicsRenderer(this.root);
+    this.host.dataset.numericGraphics = "true";
     this.bindSymbolFeedbackListeners();
     if (
       this.options.renderer !== "svg" &&
@@ -530,155 +518,6 @@ export class Scene {
       window.document === document
     ) {
       void this.initialize();
-    }
-  }
-
-  private ensureBackgroundRoot(): SVGGElement {
-    const existing = this.host.querySelector<SVGGElement>("#gSceneBackground");
-    if (existing) return existing;
-    const root = document.createElementNS(NS, "g");
-    root.id = "gSceneBackground";
-    root.setAttribute("aria-hidden", "true");
-    root.setAttribute("pointer-events", "none");
-    this.geometry.parentNode?.insertBefore(root, this.geometry);
-    // The Scene owns the numeric background now; the legacy SVG Background
-    // instance stays available for its own tests but must not double-draw.
-    const legacy = this.host.querySelector<SVGGElement>("#gDecorations");
-    if (legacy) legacy.style.display = "none";
-    return root;
-  }
-
-  private ensureBackgroundPools(frame: BackgroundFrame): void {
-    for (let i = this.flowPaths.length; i < frame.streamlines.length; i++) {
-      this.flowPaths.push(
-        svg("path", this.backgroundFlow, {
-          class: "flow-line",
-          fill: "none",
-          "stroke-width": 1.05,
-        }),
-      );
-      this.flowMarkers.push(
-        svg("circle", this.backgroundFlow, {
-          class: "flow-marker",
-          r: 1.7,
-        }),
-      );
-    }
-    for (let i = this.starPoints.length; i < frame.stars.length; i++)
-      this.starPoints.push(
-        svg("circle", this.backgroundStars, { class: "star-point" }),
-      );
-    for (let i = this.starTrails.length; i < frame.trails.length; i++)
-      this.starTrails.push(
-        svg("path", this.backgroundStars, {
-          class: "star-trail",
-          fill: "none",
-          "stroke-linecap": "round",
-        }),
-      );
-    for (let i = this.meteorPaths.length; i < frame.meteors.length; i++) {
-      this.meteorPaths.push(
-        svg("path", this.backgroundStars, {
-          class: "star-meteor",
-          fill: "none",
-          "stroke-linecap": "round",
-        }),
-      );
-      this.meteorHeads.push(
-        svg("circle", this.backgroundStars, { class: "meteor-head" }),
-      );
-    }
-  }
-
-  private renderSvgBackground(frame: BackgroundFrame): void {
-    this.ensureBackgroundPools(frame);
-    const flowVisible = frame.mode === "flow";
-    const starsVisible = frame.mode === "stars";
-    const flowDisplay = flowVisible ? "" : "none";
-    if (this.backgroundFlow.style.display !== flowDisplay)
-      this.backgroundFlow.style.display = flowDisplay;
-    const starsDisplay = starsVisible ? "" : "none";
-    if (this.backgroundStars.style.display !== starsDisplay)
-      this.backgroundStars.style.display = starsDisplay;
-    this.backgroundRoot.style.opacity =
-      frame.mode === "none" ? "0" : String(frame.opacity);
-    if (flowVisible) {
-      frame.streamlines.forEach((line, i) => {
-        const path = this.flowPaths[i];
-        const d = line.points
-          .map(
-            (point, index) =>
-              `${index ? "L" : "M"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`,
-          )
-          .join("");
-        path.setAttribute("d", d);
-        path.setAttribute("stroke-width", String(line.width));
-        path.style.opacity = String(line.opacity);
-        const marker = this.flowMarkers[i];
-        marker.setAttribute("cx", line.marker.x.toFixed(2));
-        marker.setAttribute("cy", line.marker.y.toFixed(2));
-        marker.setAttribute("r", String(line.markerRadius));
-        marker.style.opacity = String(line.markerOpacity);
-      });
-      for (let i = frame.streamlines.length; i < this.flowPaths.length; i++) {
-        this.flowPaths[i].style.display = "none";
-        this.flowMarkers[i].style.display = "none";
-      }
-      return;
-    }
-    if (!starsVisible) return;
-    frame.stars.forEach((star, i) => {
-      const point = this.starPoints[i];
-      point.style.display = "";
-      point.setAttribute("cx", star.at.x.toFixed(2));
-      point.setAttribute("cy", star.at.y.toFixed(2));
-      point.setAttribute("r", String(star.radius));
-      point.setAttribute("fill", star.fill);
-      point.style.opacity = String(star.opacity);
-    });
-    for (let i = frame.stars.length; i < this.starPoints.length; i++)
-      this.starPoints[i].style.display = "none";
-    frame.trails.forEach((trail, i) => {
-      const start = {
-        x: trail.center.x + Math.cos(trail.startAngle) * trail.radius,
-        y: trail.center.y + Math.sin(trail.startAngle) * trail.radius,
-      };
-      const end = {
-        x: trail.center.x + Math.cos(trail.endAngle) * trail.radius,
-        y: trail.center.y + Math.sin(trail.endAngle) * trail.radius,
-      };
-      const path = this.starTrails[i];
-      path.setAttribute(
-        "d",
-        `M${start.x.toFixed(2)} ${start.y.toFixed(2)}A${trail.radius.toFixed(2)} ${trail.radius.toFixed(2)} 0 0 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`,
-      );
-      path.setAttribute("stroke", trail.color);
-      path.setAttribute("stroke-width", String(trail.width));
-      path.style.opacity = String(trail.opacity);
-    });
-    for (let i = frame.trails.length; i < this.starTrails.length; i++)
-      this.starTrails[i].style.opacity = "0";
-    frame.meteors.forEach((meteor, i) => {
-      const path = this.meteorPaths[i];
-      path.style.display = "";
-      path.setAttribute(
-        "d",
-        `M${meteor.from.x.toFixed(2)} ${meteor.from.y.toFixed(2)}L${meteor.to.x.toFixed(2)} ${meteor.to.y.toFixed(2)}`,
-      );
-      path.setAttribute("stroke", meteor.color);
-      path.setAttribute("stroke-width", String(meteor.width));
-      path.style.opacity = String(meteor.opacity);
-      const head = this.meteorHeads[i];
-      head.style.display = "";
-      head.setAttribute("cx", meteor.head.x.toFixed(2));
-      head.setAttribute("cy", meteor.head.y.toFixed(2));
-      head.setAttribute("r", String(meteor.headRadius));
-      head.setAttribute("fill", meteor.color);
-      head.style.opacity = String(meteor.opacity);
-    });
-    for (let i = frame.meteors.length; i < this.meteorPaths.length; i++) {
-      this.meteorPaths[i].style.display = "none";
-      this.meteorHeads[i].style.display = "none";
     }
   }
 
@@ -786,10 +625,7 @@ export class Scene {
   setHoveredTarget(target: string | null) {
     if (this.hoveredTarget === target) return;
     this.hoveredTarget = target;
-    if (this.lastState) {
-      this.lastRenderKey = "";
-      this.render(this.lastState);
-    }
+    this.lastRenderKey = "";
   }
 
   /**
@@ -808,10 +644,7 @@ export class Scene {
     };
     const next: SymbolInteractionState = { ...current, ...patch };
     this.symbolFeedback.set(commandKey, next);
-    if (this.lastState) {
-      this.lastRenderKey = "";
-      this.render(this.lastState);
-    }
+    this.lastRenderKey = "";
   }
 
   getSymbolActivity(
@@ -1325,8 +1158,7 @@ export class Scene {
     if (key === this.lastRenderKey) {
       this.refreshBackgroundFrame(s);
       if (this.gpu) this.gpu.render(this.currentFrame);
-      else if (this.currentFrame.background && s.settings.background !== "none" && !s.settings.reducedMotion)
-        this.renderSvgBackground(this.currentFrame.background);
+      else this.svgRenderer.render(this.currentFrame);
       return;
     }
     this.lastRenderKey = key;
@@ -1788,8 +1620,7 @@ export class Scene {
     this.appendLoadingFrame();
     this.currentFrame.layers.sort((a, b) => a.order - b.order);
     this.refreshBackgroundFrame(s);
-    if (this.resolvedKind === "svg" && this.currentFrame.background)
-      this.renderSvgBackground(this.currentFrame.background);
+
     this.currentFrame.rendererKind = this.resolvedKind;
     if (this.gpu) {
       const dpr =
@@ -1799,7 +1630,7 @@ export class Scene {
           : 1);
       this.gpu.resize(s.viewport.width, s.viewport.height, dpr);
       this.gpu.render(this.currentFrame);
-    }
+    } else this.svgRenderer.render(this.currentFrame);
     requireElement<HTMLElement>(this.host, "#descBar").textContent =
       s.description;
   }
@@ -2165,19 +1996,14 @@ export class Scene {
   }
   destroy() {
     this.destroyed = true;
+    this.svgRenderer.destroy();
+    delete this.host.dataset.numericGraphics;
     this.gpu?.destroy();
     this.gpu = null;
     this.localLabelTurns.clear();
     this.geometry.replaceChildren();
     this.labels.replaceChildren();
-    this.backgroundRoot.replaceChildren();
     this.loadingRoot.remove();
-    this.flowPaths = [];
-    this.flowMarkers = [];
-    this.starPoints = [];
-    this.starTrails = [];
-    this.meteorPaths = [];
-    this.meteorHeads = [];
     for (const article of this.articles.values()) this.articleRenderer.releaseArticle(article);
     this.articles.clear();
     this.reading.replaceChildren();

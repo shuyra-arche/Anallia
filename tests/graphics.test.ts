@@ -108,16 +108,12 @@ test("SceneFrame carries layers, labels, masks, reading placement and CPU hit re
     assert.equal(frame.background?.mode, "flow");
     assert.equal(frame.background?.streamlines.length, 35);
     assert.equal(
-      d.host.querySelectorAll("#gSceneBackground .flow-line").length,
+      d.host.querySelectorAll(".svg-graphics .flow-line").length,
       35,
       "SVG fallback draws the same numeric background batch",
     );
-    assert.equal(
-      (
-        d.host.querySelector("#gDecorations") as HTMLElement
-      ).style.display,
-      "none",
-    );
+    assert.equal(d.host.querySelector("#gDecorations")!.childElementCount, 0,
+      "the legacy background does not duplicate the numeric renderer");
     assert.equal(
       d.host.querySelector('#hudControls [data-command="hud:loading"]'),
       null,
@@ -149,22 +145,19 @@ test("SceneFrame carries layers, labels, masks, reading placement and CPU hit re
     assert.equal(scene.frame.background?.mode, "stars");
     assert.equal(scene.frame.background?.trails.length, 72);
     assert.equal(
-      d.host.querySelectorAll("#gSceneBackground .star-trail").length,
+      d.host.querySelectorAll(".svg-graphics .star-trail").length,
       72,
     );
     assert.equal(
-      (d.host.querySelector("#gSceneBackground .background-flow") as HTMLElement)
-        .style.display,
+      d.host.querySelector(".svg-graphics .background-flow")!.getAttribute("display"),
       "none",
     );
     field.state.settings.background = "none";
     scene.render(field.state);
     assert.equal(scene.frame.background?.mode, "none");
-    assert.equal(
-      (d.host.querySelector("#gSceneBackground") as HTMLElement).style
-        .opacity,
-      "0",
-    );
+    for (const selector of [".background-flow", ".background-stars"]) {
+      assert.equal(d.host.querySelector(`.svg-graphics ${selector}`)!.getAttribute("display"), "none");
+    }
   } finally {
     scene.destroy();
     d.close();

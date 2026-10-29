@@ -1054,3 +1054,5 @@ article.note[data-side="left"].is-long::before {
 
 #scene[data-renderer="webgl"] #world { opacity: 0; }
 #scene[data-shared-input="true"] #world * { pointer-events: none !important; }
+
+#scene[data-numeric-graphics="true"] #world > :not(.svg-graphics) { opacity: 0; }
