@@ -168,7 +168,7 @@ export class Catalog {
 
   private expressionState(id: string, presentation: Presentation) {
     if (!this.chapters.has(id)) throw new Error(`Unknown chapter: ${id}`);
-    return this.content.expression(this.mirrorSources.get(id) ?? id, presentation);
+    return this.content.expression(this.sourceChapterId(id), presentation);
   }
 
   private observeContent(): void {
@@ -295,6 +295,10 @@ export class Catalog {
       .map((item) => item.chapter);
   }
 
+  sourceChapterId(id: string): string {
+    return this.mirrorSources.get(id) ?? id;
+  }
+
   get(id: string): Chapter {
     const n = this.chapters.get(id);
     if (!n) throw new Error(`Unknown chapter: ${id}`);
@@ -329,7 +333,7 @@ export class Catalog {
 
   document(id: string, presentation: Presentation): ContentDocument {
     this.expressionState(id, presentation);
-    return this.content.document(this.mirrorSources.get(id) ?? id, presentation);
+    return this.content.document(this.sourceChapterId(id), presentation);
   }
 
   expressionVersion(id: string, presentation: Presentation): number {
@@ -343,6 +347,6 @@ export class Catalog {
     complete: boolean,
   ): void {
     this.expressionState(id, presentation);
-    this.content.publish(this.mirrorSources.get(id) ?? id, presentation, text, complete);
+    this.content.publish(this.sourceChapterId(id), presentation, text, complete);
   }
 }

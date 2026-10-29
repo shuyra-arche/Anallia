@@ -1003,3 +1003,6 @@ button {
 #scene[data-shared-input="true"] #world * { pointer-events: none !important; }
 
 #scene[data-numeric-graphics="true"] #world > :not(.svg-graphics) { opacity: 0; }
+
+:is(article.note, .note-measure) .mirror-origin { margin: 0 0 12px; font-size: 13.8px; line-height: 1.84; letter-spacing: .008em; }
+:is(article.note, .note-measure) .mirror-origin .inline-ref { font: inherit; font-weight: 640; max-width: 100%; }

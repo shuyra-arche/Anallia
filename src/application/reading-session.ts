@@ -73,7 +73,7 @@ export class ReadingSession {
   }
 
   private sourceId(id: string): string {
-    return id.startsWith("q_hit_") ? id.slice("q_hit_".length) : id;
+    return this.field.catalog.sourceChapterId(id);
   }
 
   private presentation(id: string): Presentation {

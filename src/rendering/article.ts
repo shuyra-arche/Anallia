@@ -133,6 +133,8 @@ interface ArticleShell {
   contentElement: HTMLDivElement;
   eyebrow: HTMLDivElement;
   heading: HTMLHeadingElement;
+  origin?: HTMLDivElement;
+  originButton?: HTMLButtonElement;
   tail: HTMLDivElement;
   searchBox?: HTMLDivElement;
   searchInput?: HTMLInputElement;
@@ -464,11 +466,41 @@ export class ArticleRenderer {
     if (state.heading.textContent !== node.title) state.heading.textContent = node.title;
     if (state.tail.textContent !== tail) state.tail.textContent = tail;
 
+    this.syncOrigin(state, node);
     this.syncBlocks(article, state, document, hub);
     state.ready = true;
 
     if (selection) restoreReadingSelection(article, selection);
     return continuation && source.length > (previousSource?.length ?? 0) ? "append" as const : source !== previousSource || !sameExpression ? "replace" as const : undefined;
+  }
+
+  private originFor(node: Chapter): { target: string; label: string } | null {
+    const sourceId = this.catalog.sourceChapterId?.(node.id);
+    if (!sourceId || sourceId === node.id) return null;
+    const source = this.catalog.get(sourceId);
+    const hub = this.catalog.definitions.find(item => item.id === source.hub);
+    return { target: source.id, label: `前往 ${hub?.glyph ?? source.hub} / ${source.name} 原枢阅读 ↗` };
+  }
+
+  private syncOrigin(state: ArticleState, node: Chapter): void {
+    const origin = this.originFor(node);
+    if (!origin) {
+      state.origin?.remove();
+      state.origin = undefined;
+      state.originButton = undefined;
+      return;
+    }
+    if (!state.origin || !state.originButton) {
+      state.origin = state.contentElement.ownerDocument.createElement("div");
+      state.origin.className = "mirror-origin";
+      state.originButton = state.contentElement.ownerDocument.createElement("button");
+      state.originButton.type = "button";
+      state.originButton.className = "inline-ref";
+      state.origin.append(state.originButton);
+      state.contentElement.insertBefore(state.origin, state.heading.nextSibling);
+    }
+    if (state.originButton.textContent !== origin.label) state.originButton.textContent = origin.label;
+    if (state.originButton.dataset.target !== origin.target) state.originButton.dataset.target = origin.target;
   }
 
   private ensureShell(
@@ -1062,6 +1094,10 @@ export class ArticleRenderer {
       lineHeight: 31,
     }) + 11;
     if (state?.searchBox) height += 76;
+    const origin = this.originFor(node);
+    if (origin) height += this.layouts.layout(`${node.id}:origin`, origin.label, width, {
+      ...style, font: `640 13.8px ${fontFamilyOf(style.font)}`, lineHeight: 25.392, letterSpacing: .1104,
+    }, { contentVersion: origin.label, stable: true }).height + 16;
     height += 18;
     for (const block of document.blocks) {
       if (block.kind === "icons") {

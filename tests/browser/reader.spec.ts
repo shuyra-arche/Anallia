@@ -604,3 +604,16 @@ test("hidden presentation coalesces source updates and resumes without an artifi
   await expect(page.locator("#text-a0")).toContainText("第一包。第二包。第三包。");
   expect(await page.evaluate(() => (window as any).__shuyra.reading.activeTask)).toBeNull();
 });
+
+test("search mirror has a native origin button that navigates to the shared source chapter", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  await navigate(page, "q0");
+  await page.locator(".hub-search-input").fill("视线");
+  await page.waitForFunction(() => (window as any).__shuyra.field.state.searchResults.includes("q_hit_a0"));
+  await navigate(page, "q_hit_a0");
+  const button = page.locator('#text-q_hit_a0 .mirror-origin button[data-target="a0"]');
+  await expect(button).toBeVisible();
+  await button.click();
+  await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "a0" && !(window as any).__shuyra.field.isAnimating);
+  await expect(page.locator("#text-a0")).toBeVisible();
+});
