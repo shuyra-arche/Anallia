@@ -47,13 +47,18 @@ for (const renderer of ["svg", "gpu"]) {
 }
 
 
-test("default and unrecognized renderer parameters use SVG without creating a GPU canvas", async ({ page }) => {
-  for (const suffix of ["", "?renderer=unknown"]) {
+test("default and unrecognized renderer parameters use automatic selection", async ({ page }) => {
+  for (const suffix of ["", "?renderer=unknown", "?renderer=auto"]) {
     await page.goto(`/${suffix}`);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
-    expect(await page.evaluate(() => (window as any).__shuyra.scene.rendererKind)).toBe("svg");
-    await expect(page.locator('canvas[data-renderer="webgl"]')).toHaveCount(0);
+    const result = await page.evaluate(() => {
+      const app = (window as any).__shuyra;
+      return { requested: app.scene.options.renderer, resolved: app.scene.rendererKind };
+    });
+    expect(result.requested).toBe("auto");
+    expect(["svg", "webgl"]).toContain(result.resolved);
+    await expect(page.locator('canvas[data-renderer="webgl"]')).toHaveCount(result.resolved === "webgl" ? 1 : 0);
     await expect(page.locator("#text-a0")).toBeVisible();
   }
 });

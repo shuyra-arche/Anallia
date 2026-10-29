@@ -129,3 +129,6 @@ SHUYRA_PERF=1 SHUYRA_CPU_PROFILE=1 npm run test:browser -- tests/browser/perform
 它从页面就绪后开始采样，结束时写出 `cpu-gpu.cpuprofile`；JSON 的 `cpuSampling` 标记区分诊断与普通对照。原始 CPU 文件、前后性能 JSON、网格诊断、源码快照、日志和四种产物备份在 `/home/anreonyr/Documents/shuyra/work/refactor-20261029/gpu-submit-optimization-20261029/`。
 
 最终源码通过类型检查和 260 项单元测试；可见浏览器 33 项开发回归与 4 项当前发布产物检查全部通过。新增用例把裁切路径与完整路径直接做 GPU 像素比较，同时检查网格减少、平移后不复用过期裁切、视口扩大时重新构建。普通、Pages、模块预览及离线单文件均已重建并实际打开；原局域网/HMR和触控模拟仍通过，实体第二设备与移动端未验收。
+
+
+默认策略随后按用户选择恢复为 auto，优先 WebGL 并在失败、丢失上下文或明确软件设备时回退 SVG。上述显式 SVG / GPU 对照对应 `9fd6652`，裁切实现不变；默认值调整不重跑性能压测。

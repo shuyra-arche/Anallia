@@ -48,7 +48,7 @@ const theme = THEME_OPTIONS.find((option) => option.value === params.get("theme"
 if (theme) field.state.theme = theme.value;
 field.state.camera = frameFor(field.hub, field.hub.scroll, field.siblings().length, field.state.camera, field.state.viewport);
 const renderer = params.get("renderer");
-const scene = new Scene(host, catalog, { renderer: renderer === "gpu" ? "webgl" : renderer === "auto" ? "auto" : "svg" });
+const scene = new Scene(host, catalog, { renderer: renderer === "svg" ? "svg" : renderer === "gpu" ? "webgl" : "auto" });
 const reading = new ReadingSession(field, store, (id, presentation) => scene.prepareContent(id, presentation), () => performance.now());
 const tasks = new TaskGeometry();
 const soundscape = new GeometricSoundscape();
