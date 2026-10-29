@@ -35,10 +35,12 @@ for (const form of ["normal", "pages", "preview", "single-file"]) {
     page.on("request", request => { if (/^https?:/.test(request.url())) requests.push(request.url()); });
     const base = form === "single-file" ? pathToFileURL(resolve("demo.html")).href : origin + (form === "pages" ? "/Anallia/" : form === "preview" ? "/preview/" : "/");
     if (form === "single-file") await page.context().setOffline(true);
-    await page.goto(`${base}?renderer=svg`);
+    const renderer = form === "single-file" ? "auto" : "gpu";
+    await page.goto(`${base}?renderer=${renderer}`);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
     await expect(page.locator("#text-a0")).toBeVisible();
+    if (renderer === "gpu") expect(await page.evaluate(() => (window as any).__shuyra.scene.rendererKind)).toBe("webgl");
     expect(await page.evaluate(() => typeof (window as any).__shuyra.useContentSource)).toBe("undefined");
     await expect(page.locator("#loadingOverlay")).toHaveCount(0);
     await page.locator('#text-a0 [data-target="a1"]').first().click();

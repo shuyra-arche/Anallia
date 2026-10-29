@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 
-for (const renderer of ["svg", "gpu"]) {
+for (const renderer of ["auto", "svg", "gpu"]) {
   test(`100000-character stream and route performance (${renderer})`, async ({ page }, testInfo) => {
     test.skip(process.env.SHUYRA_PERF !== "1", "Opt-in measurement with a fixed resource envelope");
     test.setTimeout(55_000);
@@ -122,7 +122,7 @@ for (const renderer of ["svg", "gpu"]) {
       return {
         at: new Date().toISOString(), browser: navigator.userAgent, gpu,
         softwareGpu: /SwiftShader|llvmpipe|softpipe|software/i.test(gpu),
-        renderer: app.scene.rendererKind, viewport: { width: innerWidth, height: innerHeight }, dpr: devicePixelRatio,
+        requestedRenderer: new URLSearchParams(location.search).get("renderer"), renderer: app.scene.rendererKind, viewport: { width: innerWidth, height: innerHeight }, dpr: devicePixelRatio,
         resourceEnvelope: "tools/browser-test.mjs", build: "Vite development", hanCharacters: 100000,
         route: { seconds: 30, samples: routeIntervals.length, intervalP95: percentile(routeIntervals, 0.95), renderP95: percentile(routeRenders, 0.95) },
         stream: { samples: commits.length, intervalP95: percentile(streamIntervals, 0.95), commitP95: percentile(commits, 0.95), maxDrift, stableNodeConnected: bookmarkNode?.isConnected, complete: app.store.get("m3", "line").complete, sourceLength: app.store.get("m3", "line").text.length },
