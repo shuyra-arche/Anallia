@@ -530,7 +530,7 @@ export class Scene {
       this.actions.set(hit.id, hit.command);
     this.updateHudControls(s, built.useTraditionalHud);
     profile?.mark("scene.host");
-    this.currentFrame.reading = this.readingLayer.render(s);
+    this.currentFrame.reading = this.readingLayer.render(s, profile ?? undefined);
     profile?.mark("scene.reading");
     this.semanticLabels.render(this.currentFrame.labels);
     profile?.mark("scene.labels");

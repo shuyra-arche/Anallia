@@ -57,7 +57,9 @@ test("scene profiles full and cached SVG frames only while enabled, then release
     scene.render(field.state);
     assert.equal(samples[0].path, "full");
     assert.equal(samples[1].path, "cached");
-    assert.equal(samples[0].stages["scene.reading"], 1);
+    assert.ok(samples[0].stages["reading.sync"] !== undefined);
+    assert.ok(samples[0].stages["reading.place"] !== undefined);
+    assert.ok(samples[0].stages["scene.reading"] !== undefined);
     assert.equal(samples[1].stages["scene.reading"], undefined);
     assert.equal(samples[0].stages["scene.geometry"], 1);
     for (const sample of samples) assert.equal(Object.values(sample.stages).reduce((sum, ms) => sum + ms!, 0), sample.total);

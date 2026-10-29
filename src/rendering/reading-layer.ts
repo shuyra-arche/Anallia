@@ -1,3 +1,4 @@
+import type { RenderProfiler } from "../core/render-profile.ts";
 import type { ContentBlock } from "../core/content.ts";
 import type { FieldState, Hub, Settings, Theme, GraspReadingSnapshot } from "../core/types.ts";
 import type { ReadingFrame } from "../core/graphics.ts";
@@ -167,7 +168,7 @@ export class ReadingLayer {
     }
   }
 
-  render(s: FieldState): ReadingFrame[] {
+  render(s: FieldState, profile?: RenderProfiler): ReadingFrame[] {
     if (this.destroyed) return [];
     this.lastState = s;
     if (this.retained) {
@@ -208,7 +209,9 @@ export class ReadingLayer {
         const article = this.articleFor(node.id),
           depth = 1 - surface,
           presentation = morph > 0.5 ? "line" : "circle";
+        profile?.mark("reading.place");
         const contentChange = this.articleRenderer.syncArticle(article, node, hub, presentation);
+        profile?.mark("reading.sync");
         this.readingPositions.changed(node.id, presentation, contentChange === "replace");
         if (node.id === this.catalog.searchRoot) {
           const input = article.querySelector<HTMLInputElement>(
@@ -269,8 +272,11 @@ export class ReadingLayer {
         const heightKey = JSON.stringify([node.id, presentation, widthStr]);
         let height = this.heights.get(heightKey);
         if (height === undefined) {
+          profile?.mark("reading.place");
           const preparedHeight = this.articleRenderer.estimateArticleHeight(article, node, presentation, widthPx);
+          profile?.mark("reading.pretext");
           height = article.querySelector<HTMLElement>(".note-content")!.offsetHeight || preparedHeight;
+          profile?.mark("reading.measure");
           this.heights.set(heightKey, height);
         }
         const windowGeometry = JSON.stringify([
@@ -357,7 +363,9 @@ export class ReadingLayer {
         if (article.style.pointerEvents !== pointerStr)
           article.style.pointerEvents = pointerStr;
         if (!inert && node.id === this.selected(hub).id) {
+          profile?.mark("reading.place");
           const corrected = this.readingPositions.restore(article, node.id, presentation, s.camera.z, activeFloat, maxFloat);
+          profile?.mark("reading.anchor");
           if (Math.abs(corrected - activeFloat) > 0.01) {
             activeFloat = corrected;
             content.style.transform = `translateY(${-activeFloat.toFixed(2)}px)`;
@@ -367,8 +375,10 @@ export class ReadingLayer {
           if (Math.abs(activeFloat - hub.textOffset) > 0.01)
             this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: activeFloat });
           this.readingSettling = this.readingPositions.isSettling(node.id, presentation);
+          profile?.mark("reading.place");
           this.readingPositions.capture(article, node.id, presentation, s.camera.z,
             JSON.stringify([widthStr, panelHeight, activeFloat, this.articleRenderer.fontVersion]));
+          profile?.mark("reading.anchor");
         }
         frames.push({
           id: `reading:${node.id}`,
@@ -406,6 +416,7 @@ export class ReadingLayer {
           article.setAttribute("aria-hidden", "true");
       }
     this.trimArticles(visible);
+    profile?.mark("reading.place");
     return frames;
   }
   destroy(): void {

@@ -26,12 +26,14 @@ for (const renderer of ["auto", "svg", "gpu"]) {
     test.setTimeout(55_000);
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
+    const input = await page.context().newCDPSession(page);
+    await input.send("Input.setIgnoreInputEvents", { ignore: true });
     await page.goto(`/?chapter=m3&renderer=${renderer}`);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
     await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating);
     const stopCpuSampling = await startCpuSampling(page, testInfo, renderer);
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async ({ routeSeconds }) => {
       const app = (window as any).__shuyra;
       await document.fonts.ready;
       app.field.state.settings.frameRate = 60;
@@ -47,24 +49,27 @@ for (const renderer of ["auto", "svg", "gpu"]) {
       const routeIntervals: number[] = [], routeRenders: number[] = [];
       const routeProfiles: RenderSample[] = [], streamProfiles: RenderSample[] = [];
       let profileSamples = routeProfiles, profileDropped = 0;
+      let latestProfile: RenderSample | null = null;
       app.scene.setRenderProfiler((sample: RenderSample) => {
+        latestProfile = sample;
         if (profileSamples.length < 10000) profileSamples.push(sample);
         else profileDropped++;
       });
       const originalRender = app.scene.render.bind(app.scene);
       app.scene.render = (state: any) => { const start = performance.now(); const result = originalRender(state); routeRenders.push(performance.now() - start); return result; };
-      await new Promise<void>(resolve => {
+      if (routeSeconds > 0) await new Promise<void>(resolve => {
         const start = performance.now();
         let previous = start, lastToggle = start;
         const frame = (now: number) => {
           routeIntervals.push(now - previous); previous = now;
           if (now - lastToggle >= 1500) { app.field.dispatch({ type: "morph" }); lastToggle = now; }
-          if (now - start < 30_000) requestAnimationFrame(frame); else resolve();
+          if (now - start < routeSeconds * 1000) requestAnimationFrame(frame); else resolve();
         };
         requestAnimationFrame(frame);
       });
       app.scene.render = originalRender;
       app.scene.setRenderProfiler(null);
+      if (app.field.selected().id !== "m3") throw new Error(`Benchmark chapter changed to ${app.field.selected().id}`);
       if (app.field.hub.targetMorph < 0.5) app.field.dispatch({ type: "morph" });
       while (app.field.isAnimating) await new Promise(requestAnimationFrame);
       app.field.pan({ x: 0, y: 0 }, app.field.state.camera);
@@ -79,42 +84,41 @@ for (const renderer of ["auto", "svg", "gpu"]) {
       const next = () => packets.length ? Promise.resolve(packets.shift()!) : new Promise<{ type: "append" | "replace"; text: string } | null>(resolve => { waiter = resolve; });
       const push = (patch: { type: "append" | "replace"; text: string } | null) => { if (waiter) { const resolve = waiter; waiter = null; resolve(patch); } else packets.push(patch); };
       const commits: number[] = [], streamIntervals: number[] = [];
-      let contentTime = 0, pending = false, active = true, maxDrift = 0;
+      interface CommitRow { units: number; packets: number; sourceLength: number; version: number; complete: boolean; flushMs: number; readingMs: number; costMs: number; latencyMs: number }
+      const commitRows: CommitRow[] = [], sends: { units: number; utf8Bytes: number; at: number }[] = [];
+      let pendingRow: CommitRow | null = null, committedPackets = 0, publishedLength = 0, active = true, maxDrift = 0;
+      let acknowledge: (() => void) | null = null;
       let bookmark: Range | null = null, bookmarkNode: Node | null = null, baseline: number | null = null;
       const originalFlush = app.reading.flush.bind(app.reading);
-      const originalSync = app.scene.articleRenderer.syncArticle.bind(app.scene.articleRenderer);
-      const originalEstimate = app.scene.articleRenderer.estimateArticleHeight.bind(app.scene.articleRenderer);
-      const height = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
       app.reading.flush = (now: number) => {
         const start = performance.now(), changes = originalFlush(now);
-        if (active && changes.some((change: any) => change.id === "m3" && change.presentation === "line")) {
-          pending = true; contentTime = performance.now() - start;
+        const change = changes.find((change: any) => change.id === "m3" && change.presentation === "line");
+        if (active && change) {
+          pendingRow = { units: change.text.length - publishedLength, packets: sends.length - committedPackets,
+            sourceLength: change.text.length, version: change.version, complete: change.complete,
+            flushMs: performance.now() - start, readingMs: 0, costMs: 0, latencyMs: 0 };
+          committedPackets = sends.length; publishedLength = change.text.length;
         }
         return changes;
       };
-      app.scene.articleRenderer.syncArticle = (...args: any[]) => {
-        const start = performance.now(), result = originalSync(...args);
-        if (active && pending && args[1].id === "m3") contentTime += performance.now() - start;
-        return result;
-      };
-      app.scene.articleRenderer.estimateArticleHeight = (...args: any[]) => {
-        const start = performance.now(), result = originalEstimate(...args);
-        if (active && pending && args[1].id === "m3") contentTime += performance.now() - start;
-        return result;
-      };
-      Object.defineProperty(HTMLElement.prototype, "offsetHeight", { ...height, get() {
-        const start = performance.now(), value = height.get!.call(this);
-        if (active && pending && this.classList.contains("note-content") && this.closest("#text-m3")) contentTime += performance.now() - start;
-        return value;
-      } });
       app.scene.render = (state: any) => {
         const result = originalRender(state);
-        if (active && pending) { commits.push(contentTime); pending = false; }
+        if (active && pendingRow) {
+          const sample = latestProfile;
+          pendingRow.readingMs = sample ? Object.entries(sample.stages).reduce((sum, [name, ms]) => sum + (name.startsWith("reading.") || name === "scene.reading" ? ms! : 0), 0) : 0;
+          pendingRow.costMs = pendingRow.flushMs + pendingRow.readingMs;
+          pendingRow.latencyMs = pendingRow.units > 0 && sends.length ? performance.now() - sends.at(-1)!.at : 0;
+          commitRows.push(pendingRow);
+          if (pendingRow.units > 0) commits.push(pendingRow.costMs);
+          pendingRow = null;
+          const resolve = acknowledge; acknowledge = null; resolve?.();
+        }
         if (bookmark && baseline !== null) maxDrift = Math.max(maxDrift, Math.abs(bookmark.getBoundingClientRect().top - baseline));
         return result;
       };
       profileSamples = streamProfiles;
       app.scene.setRenderProfiler((sample: RenderSample) => {
+        latestProfile = sample;
         if (profileSamples.length < 10000) profileSamples.push(sample);
         else profileDropped++;
       });
@@ -123,49 +127,65 @@ for (const renderer of ["auto", "svg", "gpu"]) {
         signal.addEventListener("abort", () => push(null), { once: true });
         for (;;) { const patch = await next(); if (!patch || signal.aborted) return; yield patch; }
       } });
-      await new Promise<void>(resolve => {
-        let cursor = 0, frames = 0, previous = performance.now();
-        const frame = (now: number) => {
-          streamIntervals.push(now - previous); previous = now; frames++;
-          if (frames === 35) {
-            const paragraph = document.querySelector("#text-m3 p:nth-of-type(11)")!;
-            bookmarkNode = paragraph.firstChild!;
-            bookmark = document.createRange(); bookmark.setStart(bookmarkNode, 0); bookmark.setEnd(bookmarkNode, 1);
-            const windowBounds = document.querySelector("#text-m3 .note-window")!.getBoundingClientRect();
-            const desired = windowBounds.top + Math.min(120, windowBounds.height / 2);
-            const offset = app.field.hub.textOffset + (bookmark.getBoundingClientRect().top - desired) / app.field.state.camera.z;
-            app.field.hub.textOffset = app.field.hub.textOffsetTarget = Math.max(0, offset);
-          }
-          if (frames === 39 && bookmark) baseline = bookmark.getBoundingClientRect().top;
-          if (cursor < text.length) { push({ type: cursor === 0 ? "replace" : "append", text: text.slice(cursor, cursor + 1024) }); cursor += 1024; requestAnimationFrame(frame); }
-          else { push(null); resolve(); }
-        };
-        requestAnimationFrame(frame);
+      const encoder = new TextEncoder(), cadenceMs = 25;
+      let lastSend = performance.now() - cadenceMs;
+      let observerActive = true, observerHandle = 0;
+      const observe = (now: number) => { if (streamIntervals.length) streamIntervals.push(now - lastObserver); else streamIntervals.push(0); lastObserver = now; if (observerActive) observerHandle = requestAnimationFrame(observe); };
+      let lastObserver = performance.now(); observerHandle = requestAnimationFrame(observe);
+      for (let cursor = 0, packet = 0; cursor < text.length; cursor += 1024, packet++) {
+        await new Promise(resolve => setTimeout(resolve, Math.max(0, lastSend + cadenceMs - performance.now())));
+        const chunk = text.slice(cursor, cursor + 1024);
+        const committed = new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error(`Content commit acknowledgement timed out at packet ${sends.length}; chapter=${app.field.selected().id}; visibility=${document.visibilityState}`)), 2500);
+          acknowledge = () => { clearTimeout(timer); resolve(); };
+        });
+        lastSend = performance.now();
+        sends.push({ units: chunk.length, utf8Bytes: encoder.encode(chunk).byteLength, at: lastSend });
+        push({ type: cursor === 0 ? "replace" : "append", text: chunk });
+        await committed;
+        if (packet === 34) {
+          const paragraph = document.querySelector("#text-m3 p:nth-of-type(11)")!;
+          bookmarkNode = paragraph.firstChild!;
+          bookmark = document.createRange(); bookmark.setStart(bookmarkNode, 0); bookmark.setEnd(bookmarkNode, 1);
+          const windowBounds = document.querySelector("#text-m3 .note-window")!.getBoundingClientRect();
+          const desired = windowBounds.top + Math.min(120, windowBounds.height / 2);
+          const offset = app.field.hub.textOffset + (bookmark.getBoundingClientRect().top - desired) / app.field.state.camera.z;
+          app.field.hub.textOffset = app.field.hub.textOffsetTarget = Math.max(0, offset);
+        }
+        if (packet === 38 && bookmark) baseline = bookmark.getBoundingClientRect().top;
+      }
+      const completed = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("EOF commit acknowledgement timed out")), 2500);
+        acknowledge = () => { clearTimeout(timer); resolve(); };
       });
+      push(null); await completed;
       while (!app.store.get("m3", "line").complete) await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
       await new Promise(requestAnimationFrame);
+      observerActive = false; cancelAnimationFrame(observerHandle);
       active = false;
       app.scene.setRenderProfiler(null);
       app.reading.flush = originalFlush;
-      app.scene.articleRenderer.syncArticle = originalSync;
-      app.scene.articleRenderer.estimateArticleHeight = originalEstimate;
       app.scene.render = originalRender;
-      Object.defineProperty(HTMLElement.prototype, "offsetHeight", height);
       return {
         at: new Date().toISOString(), browser: navigator.userAgent, gpu,
         softwareGpu: /SwiftShader|llvmpipe|softpipe|software/i.test(gpu),
         requestedRenderer: new URLSearchParams(location.search).get("renderer"), renderer: app.scene.rendererKind, viewport: { width: innerWidth, height: innerHeight }, dpr: devicePixelRatio,
         resourceEnvelope: "tools/browser-test.mjs", build: "Vite development", hanCharacters: 100000,
-        profileVersion: 1, profileDropped,
-        route: { seconds: 30, samples: routeIntervals.length, intervalP95: percentile(routeIntervals, 0.95), renderP95: percentile(routeRenders, 0.95) },
-        stream: { samples: commits.length, intervalP95: percentile(streamIntervals, 0.95), commitP95: percentile(commits, 0.95), maxDrift, stableNodeConnected: bookmarkNode?.isConnected, complete: app.store.get("m3", "line").complete, sourceLength: app.store.get("m3", "line").text.length },
-        raw: { routeIntervals, routeRenders, streamIntervals, commits, routeProfiles, streamProfiles },
+        profileVersion: 2, profileDropped,
+        workload: { packetUnits: 1024, cadenceMs, maximumOutstandingPackets: 1, packetCount: sends.length,
+          utf16Units: text.length, utf8Bytes: sends.reduce((sum, row) => sum + row.utf8Bytes, 0) },
+        route: { seconds: routeSeconds, samples: routeIntervals.length, intervalP95: percentile(routeIntervals, 0.95), renderP95: percentile(routeRenders, 0.95) },
+        stream: { samples: commits.length, intervalP95: percentile(streamIntervals, 0.95), commitP95: percentile(commits, 0.95), maxDrift, stableNodeConnected: bookmarkNode?.isConnected, complete: app.store.get("m3", "line").complete, sourceLength: app.store.get("m3", "line").text.length,
+          commitUnitsP95: percentile(commitRows.filter(row => row.units > 0).map(row => row.units), .95),
+          latencyP95: percentile(commitRows.filter(row => row.units > 0).map(row => row.latencyMs), .95),
+          flushP95: percentile(commitRows.filter(row => row.units > 0).map(row => row.flushMs), .95) },
+        raw: { routeIntervals, routeRenders, streamIntervals, commits, routeProfiles, streamProfiles, commitRows, sends },
       };
-    }).finally(stopCpuSampling);
+    }, { routeSeconds: process.env.SHUYRA_STREAM_ONLY === "1" ? 0 : 30 }).finally(stopCpuSampling);
     const measured = {
       ...result,
-      cpuSampling: process.env.SHUYRA_CPU_PROFILE === "1",
+      cpuSampling: process.env.SHUYRA_CPU_PROFILE === "1", repetition: testInfo.repeatEachIndex, inputIsolated: true,
       route: { ...result.route, profile: summarizeRenderProfiles(result.raw.routeProfiles) },
       stream: { ...result.stream, profile: summarizeRenderProfiles(result.raw.streamProfiles) },
     };
@@ -184,7 +204,7 @@ for (const renderer of ["auto", "svg", "gpu"]) {
     }));
     expect(errors).toEqual([]);
     expect(result.profileDropped).toBe(0);
-    for (const samples of [result.raw.routeProfiles, result.raw.streamProfiles]) {
+    for (const samples of result.route.seconds ? [result.raw.routeProfiles, result.raw.streamProfiles] : [result.raw.streamProfiles]) {
       expect(samples.length).toBeGreaterThan(20);
       for (const sample of samples) {
         const sum = Object.values(sample.stages).reduce((sum, ms) => sum + ms!, 0);
@@ -192,12 +212,17 @@ for (const renderer of ["auto", "svg", "gpu"]) {
         expect(Object.values(sample.stages).every(ms => Number.isFinite(ms) && ms! >= 0)).toBe(true);
       }
     }
-    expect(measured.route.profile.stages["scene.geometry"]?.samples).toBeGreaterThan(0);
-    expect(measured.stream.profile.stages["scene.reading"]?.samples).toBeGreaterThan(0);
-    if (result.renderer === "webgl") {
-      expect(measured.route.profile.stages["gpu.submit"]?.samples).toBeGreaterThan(0);
-      expect(measured.route.profile.stages["gpu.labels"]?.samples).toBeGreaterThan(0);
-    } else expect(measured.route.profile.stages["svg.render"]?.samples).toBeGreaterThan(0);
+    if (result.route.seconds) {
+      expect(measured.route.profile.stages["scene.geometry"]?.samples).toBeGreaterThan(0);
+      if (result.renderer === "webgl") expect(measured.route.profile.stages["gpu.submit"]?.samples).toBeGreaterThan(0);
+      else expect(measured.route.profile.stages["svg.render"]?.samples).toBeGreaterThan(0);
+    }
+    expect(measured.stream.profile.stages["reading.sync"]?.samples).toBeGreaterThan(0);
+    expect(measured.stream.profile.stages["reading.pretext"]?.samples).toBeGreaterThan(0);
+    expect(result.raw.commitRows.filter(row => row.units > 0).map(row => row.units)).toEqual(result.raw.sends.map(row => row.units));
+    expect(result.raw.commitRows.filter(row => row.units > 0).every(row => row.packets === 1)).toBe(true);
+    expect(result.raw.commitRows.filter(row => row.units === 0 && row.complete).length).toBe(1);
+    expect(result.workload.packetCount).toBe(99);
     expect(result.stream.complete).toBe(true);
     expect(result.stream.sourceLength).toBe(100998);
     expect(result.stream.samples).toBeGreaterThan(20);

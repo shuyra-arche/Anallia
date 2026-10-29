@@ -2,6 +2,7 @@ import type { ResolvedRendererKind } from "./graphics.ts";
 
 export type RenderStage =
   | "scene.prepare" | "scene.geometry" | "scene.host" | "scene.reading"
+  | "reading.sync" | "reading.pretext" | "reading.measure" | "reading.place" | "reading.anchor"
   | "scene.labels" | "scene.compose" | "scene.background" | "backend.resize"
   | "gpu.prepare" | "gpu.geometry" | "gpu.background" | "gpu.labels"
   | "gpu.finalize" | "gpu.submit" | "svg.render";
