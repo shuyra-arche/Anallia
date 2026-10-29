@@ -1,3 +1,4 @@
+import type { ContentBlock } from "../core/content.ts";
 import type { FieldState, Hub, Settings, Theme, GraspReadingSnapshot } from "../core/types.ts";
 import type { ReadingFrame } from "../core/graphics.ts";
 import { Catalog } from "../content/catalog.ts";
@@ -115,7 +116,9 @@ export class ReadingLayer {
     const text = tail.inline.map(inline => inline.text).join("");
     if (paragraph.textContent !== text) paragraph.textContent = text;
     const height = this.articleRenderer.estimateArticleHeight(probe, node, presentation, width, blockId => blockId === tail.id && tail.kind === "paragraph" ? paragraph.offsetHeight : 0);
-    return Number.isFinite(height) && height > 0 && (tail.stable || tail.kind === "icons" || paragraph.offsetHeight > 0);
+    const readable = (block: ContentBlock) => block.kind === "icons" || block.inline.some(inline => inline.text.trim().length > 0);
+    const preparedPrefix = document.blocks.some(block => block.stable && readable(block));
+    return Number.isFinite(height) && height > 0 && (document.complete || preparedPrefix || tail.kind === "icons" || readable(tail) && paragraph.offsetHeight > 0);
   }
 
   takeReadingCorrections(): ReadingCorrection[] {
@@ -408,9 +411,12 @@ export class ReadingLayer {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    for (const article of this.articles.values()) this.articleRenderer.releaseArticle(article);
+    for (const article of this.articles.values()) {
+      this.articleRenderer.releaseArticle(article);
+      article.remove();
+    }
     this.articles.clear();
-    this.reading.replaceChildren();
+    this.contentProbe?.remove();
     this.contentProbe = null;
     this.readingWindows.clear();
     this.readingPositions.clear();

@@ -381,3 +381,33 @@ test("text raster buckets bound screen halo error and reuse textures through sma
   assert.equal(textRasterScale(NaN), 1);
   assert.equal(textRasterScale(Infinity), 1);
 });
+
+test("target preparation accepts a stable prefix while withholding an empty unfinished list", () => {
+  const d = dom(), catalog = new Catalog(hubDefinitions, rawContent), field = new Field(catalog, { width: 1366, height: 820 });
+  const scene = new Scene(d.host, catalog, { renderer: "svg" });
+  try {
+    scene.render(field.state);
+    catalog.updateExpression("a0", "circle", "[vlist]", false);
+    assert.equal(scene.prepareContent("a0", "circle"), false);
+    catalog.updateExpression("a0", "circle", "已经排版的稳定正文。\n\n[vlist]", false);
+    assert.equal(scene.prepareContent("a0", "circle"), true);
+    catalog.updateExpression("a0", "circle", "[vlist]", true);
+    assert.equal(scene.prepareContent("a0", "circle"), true);
+  } finally { scene.destroy(); d.close(); }
+});
+
+test("reading disposal removes owned articles and probe while preserving host content", () => {
+  const d = dom(), catalog = new Catalog(hubDefinitions, rawContent), field = new Field(catalog, { width: 1366, height: 820 });
+  const scene = new Scene(d.host, catalog, { renderer: "svg" });
+  try {
+    const foreign = d.host.ownerDocument.createElement("span");
+    foreign.textContent = "宿主内容";
+    d.host.querySelector("#reading")!.append(foreign);
+    scene.render(field.state); scene.prepareContent("a0", "circle");
+    assert.ok(d.host.querySelector("#reading .note-measure"));
+    scene.destroy();
+    assert.ok(foreign.isConnected);
+    assert.equal(d.host.querySelectorAll("#reading article, #reading .note-measure").length, 0);
+    assert.equal(d.host.querySelector("#reading")!.childElementCount, 1);
+  } finally { scene.destroy(); d.close(); }
+});

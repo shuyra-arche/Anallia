@@ -655,3 +655,20 @@ test("shared CPU pointer feedback can resume after keyboard focus without changi
   await page.mouse.move(point.x + 1, point.y);
   await page.waitForFunction(target => (window as any).__shuyra.scene.hoveredTarget === target, point.target);
 });
+
+test("a prepared stable prefix is readable while an unfinished empty list marker waits for more text", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    app.useContentSource({ async *open(id: string, presentation: string) {
+      if (id !== "a0" || presentation !== "circle") { yield { type: "replace", text: app.field.catalog.get(id).expressions[presentation] }; return; }
+      yield { type: "replace", text: "第一段已经可以阅读。\n\n[vlist]" };
+      await new Promise<void>(resolve => { (window as any).__finishMarkerStream = resolve; });
+    } });
+  });
+  await expect(page.locator("#text-a0 p").first()).toContainText("第一段已经可以阅读");
+  await page.waitForFunction(() => (window as any).__shuyra.reading.activeTask !== null);
+  expect(await page.evaluate(() => (window as any).__shuyra.reading.activeTask.firstReadable)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__shuyra.store.get("a0", "circle").complete)).toBe(false);
+  await page.evaluate(() => (window as any).__finishMarkerStream());
+});
