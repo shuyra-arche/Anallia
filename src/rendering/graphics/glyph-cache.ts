@@ -147,3 +147,9 @@ export class IconGeometryCache {
     return [];
   }
 }
+
+/** Quarter-octave buckets bound halo scale error while avoiding a texture per animation frame. */
+export function textRasterScale(scale: number): number {
+  if (!(scale > 0) || !Number.isFinite(scale)) return 1;
+  return Math.min(8, Math.max(.125, 2 ** (Math.round(Math.log2(scale) * 4) / 4)));
+}

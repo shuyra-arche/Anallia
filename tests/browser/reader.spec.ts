@@ -516,3 +516,72 @@ test("auto avoids recognized software WebGL while explicit GPU remains available
   await navigate(page, "a1");
   await expect(page.locator("#text-a1")).toBeVisible();
 });
+
+test("GPU arcs and portal echoes draw numeric dashes with matching SVG widths", async ({ page }) => {
+  await open(page, "?renderer=gpu");
+  await page.evaluate(async () => {
+    const app = (window as any).__shuyra;
+    await Promise.all(["circle", "line"].map(presentation => app.store.start("d0", presentation).done));
+    app.reading.flush(performance.now());
+  });
+  const result = await page.evaluate(() => {
+    const app = (window as any).__shuyra, gpu = app.scene.gpu;
+    const frame = { ...app.scene.frame, revision: app.scene.frame.revision + 100, background: null, portal: null, masks: [], labels: [], reading: [], layers: [{ id: "hubs", order: 30, primitives: [{ type: "arc", cx: 200, cy: 200, radius: 100, startAngle: 0, endAngle: Math.PI * 2, stroke: "#123456", strokeWidth: 2, dash: [4, 4] }] }] };
+    gpu.render(frame);
+    const root = gpu.layerRoots.get("hubs"), graphic = gpu.graphicsPools.get(root)[0];
+    const arcStroke = graphic.context.instructions.find((entry: any) => entry.action === "stroke");
+    const arcGaps = arcStroke.data.path.instructions.filter((entry: any) => entry.action === "moveTo").length;
+    app.field.dispatch({ type: "navigate", target: "d0" });
+    if (!app.field.state.passage) throw new Error("Expected color passage");
+    app.field.state.passage.kind = "remote";
+    app.field.state.passage.phase = .25;
+    app.scene.invalidateLayout(); app.scene.render(app.field.state);
+    const portal = app.scene.frame.portal;
+    const echo = gpu.graphicsPools.get(gpu.containers.get("portal-strokes"))[1];
+    const stroke = echo.context.instructions.find((entry: any) => entry.action === "stroke");
+    const echoGaps = stroke.data.path.instructions.filter((entry: any) => entry.action === "moveTo").length;
+    const echoWidth = stroke.data.style.width;
+    const z = app.field.state.camera.z;
+    app.scene.installSvgFallback(); app.scene.render(app.field.state);
+    const svg = document.querySelector(".svg-graphics .portal-echo-stroke")!;
+    return { arcGaps, echoGaps, echoWidth, expectedEchoWidth: 1.2 * z, mainWidth: portal.stroke.width, expectedMainWidth: 2.3 * z, svgWidth: Number(svg.getAttribute("stroke-width")), svgDash: svg.getAttribute("stroke-dasharray"), expectedDash: portal.echo.dash.map((n: number) => String(Math.round(n * 1000) / 1000)).join(" ") };
+  });
+  expect(result.arcGaps).toBeGreaterThan(20);
+  expect(result.echoGaps).toBeGreaterThan(20);
+  expect(result.echoWidth).toBeCloseTo(result.expectedEchoWidth, 5);
+  expect(result.mainWidth).toBeCloseTo(result.expectedMainWidth, 5);
+  expect(result.svgWidth).toBeCloseTo(result.expectedEchoWidth, 3);
+  expect(result.svgDash).toBe(result.expectedDash);
+});
+
+test("beacon fonts and halos match SVG while GPU raster buckets retain cached text", async ({ page }) => {
+  await open(page, "?renderer=gpu");
+  const result = await page.evaluate(() => {
+    const app = (window as any).__shuyra, gpu = app.scene.gpu;
+    app.field.pan({ x: 0, y: 0 }, app.field.state.camera);
+    app.field.state.settings.background = "none";
+    app.field.state.camera.z = 1;
+    app.scene.invalidateLayout(); app.scene.render(app.field.state);
+    const size = gpu.glyphs.size;
+    for (let i = 1; i <= 5; i++) { app.field.state.camera.z = 1 + i * .001; app.scene.render(app.field.state); }
+    const stable = gpu.glyphs.size === size;
+    const beacon = app.scene.frame.layers.find((layer: any) => layer.id === "hubs").primitives.find((p: any) => p.type === "text");
+    if (!beacon) throw new Error("Expected beacon");
+    const text = [...gpu.glyphs.items()].find((value: any) => value.visible && value.text === beacon.text) as any;
+    const family = getComputedStyle(document.documentElement).getPropertyValue("--font-symbol").trim();
+    const weight = text.style.fontWeight;
+    const matchedFamily = text.style.fontFamily === family;
+    const haloError = Math.abs(text.style.stroke.width * Math.hypot(text.worldTransform.a, text.worldTransform.b) - 3.5);
+    app.scene.installSvgFallback(); app.scene.render(app.field.state);
+    const node = [...document.querySelectorAll<SVGTextElement>('.svg-graphics [data-layer="hubs"] text')].find(value => value.textContent === beacon.text)!;
+    return { stable, size, matchedFamily, weight: String(weight), haloError, svgWeight: getComputedStyle(node).fontWeight, svgStroke: node.getAttribute("stroke-width"), vector: node.getAttribute("vector-effect") };
+  });
+  expect(result.stable).toBe(true);
+  expect(result.size).toBeGreaterThan(0);
+  expect(result.matchedFamily).toBe(true);
+  expect(result.weight).toBe("620");
+  expect(result.svgWeight).toBe("620");
+  expect(result.svgStroke).toBe("3.5");
+  expect(result.vector).toBe("non-scaling-stroke");
+  expect(result.haloError).toBeLessThan(.32);
+});

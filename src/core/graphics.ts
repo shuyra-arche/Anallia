@@ -73,6 +73,7 @@ export interface TextPrimitive extends ShapeStyle {
   fontSize: number;
   fontFamily?: string;
   fontWeight?: number;
+  strokeScale?: "local" | "screen";
   scale?: number;
   angle?: number;
   align?: "left" | "center" | "right";
@@ -216,12 +217,14 @@ export interface PortalFrame {
     color: string;
     opacity: number;
     width: number;
+    dash?: readonly number[];
   };
   echo?: {
     path: MaskCurve;
     color: string;
     opacity: number;
     width: number;
+    dash?: readonly number[];
   };
 }
 

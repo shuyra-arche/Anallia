@@ -366,3 +366,18 @@ test("destroyed scene initialization and drawing cannot recreate DOM or clear it
     assert.ok(successor.isConnected, "repeated disposal must not clear a successor's DOM");
   } finally { d.close(); }
 });
+
+test("text raster buckets bound screen halo error and reuse textures through small zoom changes", async () => {
+  const { textRasterScale } = await import("../src/rendering/graphics/glyph-cache.ts");
+  const buckets = new Set<number>();
+  for (let i = 0; i <= 1000; i++) {
+    const scale = .55 + (2.4 - .55) * i / 1000;
+    const bucket = textRasterScale(scale);
+    buckets.add(bucket);
+    assert.ok(Math.abs(scale / bucket - 1) * 3.5 < .32);
+  }
+  assert.ok(buckets.size < 15);
+  assert.equal(textRasterScale(0), 1);
+  assert.equal(textRasterScale(NaN), 1);
+  assert.equal(textRasterScale(Infinity), 1);
+});

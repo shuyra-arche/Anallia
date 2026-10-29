@@ -1,3 +1,4 @@
+import { arcPoints } from "../../geometry/arc-points.ts";
 import { readGraphicsDevice } from "./device.ts";
 import type { GraphicsDevice } from "./device.ts";
 import { cameraMatrix, canReuseUnderCamera } from "../../geometry/camera-reuse.ts";
@@ -12,7 +13,7 @@ import type {
   TextPrimitive,
 } from "../../core/graphics.ts";
 import type { Theme, Vec } from "../../core/types.ts";
-import { GpuGlyphCache, IconGeometryCache } from "./glyph-cache.ts";
+import { GpuGlyphCache, IconGeometryCache, textRasterScale } from "./glyph-cache.ts";
 
 type PixiModule = typeof import("pixi.js");
 type PixiContainer = InstanceType<PixiModule["Container"]>;
@@ -475,6 +476,7 @@ export class PixiGraphicsRenderer {
         portalStroke.color,
         portalStroke.width,
         portalStroke.opacity,
+        portalStroke.dash,
       );
     }
     const portalEcho = portal.echo;
@@ -486,6 +488,7 @@ export class PixiGraphicsRenderer {
         portalEcho.color,
         portalEcho.width,
         portalEcho.opacity,
+        portalEcho.dash,
       );
     }
   }
@@ -549,7 +552,7 @@ export class PixiGraphicsRenderer {
           fontWeight: label.visual === "current" ? 720 : label.visual === "background" ? 520 : label.visual === "nav" ? 620 : 560,
           fontFamily: text ? this.fontFamily : this.fontSymbol,
           fill: ink, stroke: colors.paper, strokeWidth: 4, align: "center", baseline: "middle",
-        }, frame);
+        }, frame, label.layout.scale);
       } else {
         const glyph = this.graphics(leaf);
         const symbol = label.symbolGeometry;
@@ -629,6 +632,11 @@ export class PixiGraphicsRenderer {
   private drawArc(g: PixiGraphics, p: ArcPrimitive): void {
     const start = p.startAngle;
     const end = p.endAngle;
+    if (p.dash?.length && p.stroke) {
+      if (p.fill) g.moveTo(p.cx + Math.cos(start) * p.radius, p.cy + Math.sin(start) * p.radius).arc(p.cx, p.cy, p.radius, start, end, p.anticlockwise ?? false).fill({ color: p.fill, alpha: p.opacity ?? 1 });
+      this.polyline(g, arcPoints(p), p.stroke, p.strokeWidth ?? 1, p.opacity ?? 1, p.dash, p.lineCap ?? "butt");
+      return;
+    }
     g.moveTo(
       p.cx + Math.cos(start) * p.radius,
       p.cy + Math.sin(start) * p.radius,
@@ -686,6 +694,7 @@ export class PixiGraphicsRenderer {
     width: number,
     opacity: number,
     dash?: readonly number[],
+    cap: "butt" | "round" | "square" = "round",
   ): void {
     if (points.length < 2) return;
     const pattern = dash?.filter(value => Number.isFinite(value) && value > 0) ?? [];
@@ -710,7 +719,7 @@ export class PixiGraphicsRenderer {
       color,
       width: Math.max(0.25, width),
       alpha: opacity,
-      cap: "round",
+      cap,
     });
   }
 
@@ -720,32 +729,34 @@ export class PixiGraphicsRenderer {
     color: string,
     width: number,
     opacity: number,
+    dash?: readonly number[],
   ): void {
     if (curve.kind === "circle") {
-      g.circle(curve.cx, curve.cy, curve.radius).stroke({
-        color,
-        width: Math.max(0.25, width),
-        alpha: opacity,
-      });
+      if (dash?.length) this.polyline(g, arcPoints({ cx: curve.cx, cy: curve.cy, radius: curve.radius, startAngle: Math.PI, endAngle: 3 * Math.PI }), color, width, opacity, dash, "butt");
+      else g.circle(curve.cx, curve.cy, curve.radius).stroke({ color, width: Math.max(.25, width), alpha: opacity });
       return;
     }
-    this.polyline(g, curve.points, color, width, opacity);
+    const points = (curve.closed ?? true) && curve.points.length ? [...curve.points, curve.points[0]] : curve.points;
+    this.polyline(g, points, color, width, opacity, dash, "butt");
   }
 
   private drawText(
     parent: PixiContainer,
     primitive: TextPrimitive,
     frame: SceneFrame,
+    rasterScaleHint = primitive.scale ?? 1,
   ): void {
+    const raster = textRasterScale(rasterScaleHint);
+    const family = primitive.fontFamily === "var(--font-symbol)" ? this.fontSymbol : primitive.fontFamily ?? this.fontFamily;
     let parentId = this.parentIds.get(parent);
     if (parentId === undefined) { parentId = ++this.nextParentId; this.parentIds.set(parent, parentId); }
     const slot = this.textCursors.get(parent) ?? 0;
     this.textCursors.set(parent, slot + 1);
     const key = [
-      parentId, slot,
+      parentId, slot, raster, primitive.strokeScale,
       primitive.text,
       primitive.fontSize, primitive.fontWeight, primitive.stroke, primitive.strokeWidth,
-      primitive.fontFamily, primitive.align, primitive.baseline,
+      family, primitive.align, primitive.baseline,
       primitive.fill ?? "",
       frame.visualTheme,
       this.dpr,
@@ -754,11 +765,12 @@ export class PixiGraphicsRenderer {
     const text = this.glyphs.getOrCreate(key, () => {
       const value = new this.pixi.Text({
         text: primitive.text,
+        resolution: this.dpr,
         style: {
-          fontFamily: primitive.fontFamily ?? this.fontFamily,
-          fontSize: Math.max(1, primitive.fontSize),
+          fontFamily: family,
+          fontSize: Math.max(1, primitive.fontSize * raster),
           fontWeight: String(primitive.fontWeight ?? 400) as import("pixi.js").TextStyleFontWeight,
-          stroke: primitive.stroke ? { color: primitive.stroke, width: primitive.strokeWidth ?? 1, join: "round" } : undefined,
+          stroke: primitive.stroke ? { color: primitive.stroke, width: (primitive.strokeWidth ?? 1) * (primitive.strokeScale === "screen" ? 1 : raster), join: "round" } : undefined,
           fill: colorFrom(
             primitive.fill,
             palette(frame.visualTheme).ink,
@@ -778,7 +790,7 @@ export class PixiGraphicsRenderer {
     });
     text.visible = true;
     text.position.set(primitive.x, primitive.y);
-    text.scale.set(primitive.scale ?? 1);
+    text.scale.set((primitive.scale ?? 1) / raster);
     text.rotation = ((primitive.angle ?? 0) * Math.PI) / 180;
     text.alpha = primitive.opacity ?? 1;
     parent.addChild(text);

@@ -677,3 +677,18 @@ test("full circles use two SVG arcs and wrapped short arcs preserve their sweep"
     assert.match(paths[1].getAttribute("d")!, /A40 40 0 0 1 /);
   } finally { f.close(); }
 });
+
+test("portal echoes apply and clear numeric dash and width independently of old CSS", () => {
+  const f = fixture(), renderer = new SvgGraphicsRenderer(f.root);
+  try {
+    const value = portal();
+    value.echo = { ...value.stroke!, width: 1.2, dash: [4, 4] };
+    renderer.render(frame({ layers: normalLayers(), masks: [mask()], portal: value }));
+    const echo = f.root.querySelector(".portal-echo-stroke")!;
+    assert.equal(echo.getAttribute("stroke-dasharray"), "4 4");
+    assert.equal(echo.getAttribute("stroke-width"), "1.2");
+    renderer.render(frame({ revision: 1, layers: normalLayers(), masks: [mask()], portal: { ...value, echo: undefined } }));
+    assert.equal(echo.getAttribute("stroke-dasharray"), null);
+    assert.equal(echo.getAttribute("d"), null);
+  } finally { renderer.destroy(); f.close(); }
+});

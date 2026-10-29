@@ -133,6 +133,9 @@ function paintText(node: Element, primitive: TextPrimitive): void {
   attr(node, "fill", primitive.fill && primitive.fill !== "none" ? primitive.fill : null);
   attr(node, "stroke", stroke);
   attr(node, "stroke-width", stroke ? num(Math.max(0, primitive.strokeWidth ?? 0)) : null);
+  attr(node, "vector-effect", stroke && primitive.strokeScale === "screen" ? "non-scaling-stroke" : null);
+  attr(node, "paint-order", stroke ? "stroke" : null);
+  attr(node, "stroke-linejoin", stroke ? "round" : null);
   attr(node, "opacity", primitive.opacity === undefined ? null : num(primitive.opacity));
   if (node.textContent !== primitive.text) node.textContent = primitive.text;
 }
@@ -622,6 +625,7 @@ export class SvgGraphicsRenderer implements GraphicsRenderer {
     attr(node, "stroke", curve?.color ?? null);
     attr(node, "stroke-width", curve ? num(Math.max(0.25, curve.width)) : null);
     attr(node, "opacity", curve ? num(curve.opacity) : null);
+    attr(node, "stroke-dasharray", curve?.dash?.length ? curve.dash.map(num).join(" ") : null);
   }
 
   // ── labels ───────────────────────────────────────────────────────────────

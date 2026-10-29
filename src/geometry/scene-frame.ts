@@ -192,7 +192,7 @@ export function buildSceneFrame(
     const curve = evaluateHubCurve(h, s.camera, s.viewport);
     hubPrimitives.push(
       curveToPrimitive(curve, {
-        stroke: strokeColor,
+        stroke: hubPerception.tier === "resonating" ? sig.accentColor : strokeColor,
         strokeWidth: 1.25 * hubPerception.strokeWidthScale * s.camera.z,
         opacity: hubPerception.curveOpacity,
         dash:
@@ -243,7 +243,7 @@ export function buildSceneFrame(
 
     const current = selected(h);
     const nodes = catalog.siblings(current.id, s.searchResults);
-    appendTraces(h, nodes, s, hubPerception, darkPalette, hubPrimitives);
+    appendTraces(h, nodes, s, hubPerception, darkPalette, hubPrimitives, PAPER[visualThemeForField]);
 
     if (
       !s.loading &&
@@ -427,7 +427,7 @@ export function buildSceneFrame(
         path: geometry.stroke,
         color: BOUNDARY[t.theme],
         opacity: Math.sin(t.phase * Math.PI) * 0.82,
-        width: 1.1 * s.camera.z,
+        width: 2.3 * s.camera.z,
       },
       echo:
         echoGeometry && (t.kind === "remote" || t.kind === "axis")
@@ -435,7 +435,8 @@ export function buildSceneFrame(
               path: echoGeometry.stroke,
               color: BOUNDARY[t.sourceTheme],
               opacity: Math.sin(t.phase * Math.PI) * 0.26,
-              width: 1.0 * s.camera.z,
+              width: 1.2 * s.camera.z,
+              dash: [4 * s.camera.z, 4 * s.camera.z],
             }
           : undefined,
     };
@@ -460,6 +461,7 @@ function appendTraces(
   perception: HubPerception | undefined,
   darkPalette: boolean,
   primitives: ScenePrimitive[],
+  paper: string,
 ): void {
   if (s.loading || (h.id === s.focus && !s.overview)) return;
   const sig = perception?.signature,
@@ -544,6 +546,11 @@ function appendTraces(
         y: at.y,
         text: h.glyph,
         fontSize,
+        fontWeight: 620,
+        fontFamily: "var(--font-symbol)",
+        stroke: paper,
+        strokeWidth: 3.5,
+        strokeScale: "screen",
         scale: Math.max(0.55, s.camera.z),
         fill:
           perception.tier === "resonating" && sig
