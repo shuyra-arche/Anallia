@@ -8,7 +8,7 @@ const loadOverlay = () => {
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
   window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/loading.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),

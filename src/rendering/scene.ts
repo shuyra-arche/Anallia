@@ -345,14 +345,14 @@ export class Scene {
       this.reading.append(probe);
     }
     const long = document.blocks.length > 1 || document.source.length > 220 || !document.complete;
-    probe.className = `note${long ? " is-long" : ""}`;
+    probe.className = `note note-measure${long ? " is-long" : ""}`;
     const width = readingWidth(this.lastState?.viewport ?? { width: this.host.clientWidth, height: this.host.clientHeight }, long);
     probe.style.width = `${width}px`;
     const tail = document.blocks.at(-1)!;
     const paragraph = probe.firstElementChild as HTMLElement;
     const text = tail.inline.map(inline => inline.text).join("");
     if (paragraph.textContent !== text) paragraph.textContent = text;
-    const height = this.articleRenderer.estimateArticleHeight(probe, node, presentation, width);
+    const height = this.articleRenderer.estimateArticleHeight(probe, node, presentation, width, blockId => blockId === tail.id && tail.kind === "paragraph" ? paragraph.offsetHeight : 0);
     return Number.isFinite(height) && height > 0 && (tail.stable || tail.kind === "icons" || paragraph.offsetHeight > 0);
   }
 

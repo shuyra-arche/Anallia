@@ -364,7 +364,7 @@ button {
   overflow: hidden;
   pointer-events: none;
 }
-article.note {
+:is(article.note, .note-measure) {
   position: absolute;
   left: 0;
   top: 0;
@@ -381,7 +381,7 @@ article.note {
   contain: layout style;
   color: var(--ink);
 }
-article.note.is-long::before {
+:is(article.note, .note-measure).is-long::before {
   content: "";
   position: absolute;
   left: -14px;
@@ -393,18 +393,18 @@ article.note.is-long::before {
   transform: translateY(-50%);
   pointer-events: none;
 }
-article.note[hidden] {
+:is(article.note, .note-measure)[hidden] {
   display: none !important;
   pointer-events: none !important;
 }
-article.note .eyebrow {
+:is(article.note, .note-measure) .eyebrow {
   font: 500 10px/1.5 var(--font-mono);
   letter-spacing: 0.14em;
   font-variant-numeric: tabular-nums;
   color: var(--quiet);
   margin-bottom: 10px;
 }
-article.note h2 {
+:is(article.note, .note-measure) h2 {
   font-weight: 620;
   font-size: clamp(18.5px, 1.65vw, 23.5px);
   letter-spacing: -0.028em;
@@ -414,7 +414,7 @@ article.note h2 {
   text-wrap: balance;
   overflow-wrap: break-word;
 }
-article.note p {
+:is(article.note, .note-measure) p {
   font-size: 13.8px;
   line-height: 1.84;
   text-align: left;
@@ -425,18 +425,18 @@ article.note p {
   color: var(--body-ink);
   margin: 0 0 11px;
 }
-article.note.is-long p {
+:is(article.note, .note-measure).is-long p {
   font-size: 13.4px;
   line-height: 1.82;
   margin: 0 0 10px;
 }
-article.note .tail {
+:is(article.note, .note-measure) .tail {
   font: 500 9.5px/1.5 var(--font-mono);
   letter-spacing: 0.13em;
   color: var(--quiet);
   padding-top: 4px;
 }
-article.note .inline-ref {
+:is(article.note, .note-measure) .inline-ref {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -456,7 +456,7 @@ article.note .inline-ref {
     color 0.2s ease,
     text-shadow 0.2s ease;
 }
-article.note .inline-ref .inline-svg-icon {
+:is(article.note, .note-measure) .inline-ref .inline-svg-icon {
   display: inline-block;
   width: 14px;
   height: 14px;
@@ -464,10 +464,10 @@ article.note .inline-ref .inline-svg-icon {
   transform: translateY(1.5px);
   color: currentColor;
 }
-article.note .inline-ref:hover {
+:is(article.note, .note-measure) .inline-ref:hover {
   opacity: 0.85;
 }
-article.note .inline-ref:focus-visible {
+:is(article.note, .note-measure) .inline-ref:focus-visible {
   outline: 1px solid var(--amber);
   outline-offset: 2px;
   border-radius: 2px;
@@ -710,59 +710,6 @@ article.note .inline-ref:focus-visible {
   color: var(--quiet);
 }
 
-/* Shuyra Loading V24 独立舞台层 */
-#loadingOverlay {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.32s ease;
-  z-index: 4;
-}
-#loadingOverlay.active {
-  opacity: 1;
-  pointer-events: auto;
-  cursor: pointer;
-}
-#loadingFigure {
-  display: block;
-  width: min(72vw, 320px);
-  height: auto;
-  overflow: visible;
-  transform: scale(var(--camera-scale, 1));
-  transform-origin: center;
-}
-#loadingFigure .core {
-  stroke: url(#ink-gradient);
-  stroke-width: 6;
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-#loadingFigure .mark {
-  stroke: url(#silver-gradient);
-  stroke-width: 6;
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-#loadingFigure .arc-fine {
-  stroke: var(--loader-arc-light);
-  stroke-width: 1.05;
-  stroke-opacity: 0.3;
-  fill: none;
-  stroke-linecap: round;
-}
-#loadingFigure .pen-tip {
-  stroke: var(--loader-shimmer);
-  stroke-width: 1.55;
-  stroke-opacity: 0.56;
-  fill: none;
-  stroke-linecap: round;
-}
-
 /* 仅保留左下角说明文字 */
 #descBar {
   position: fixed;
@@ -783,11 +730,11 @@ article.note .inline-ref:focus-visible {
     bottom: 14px;
     font-size: 9.5px;
   }
-  article.note h2 {
+  :is(article.note, .note-measure) h2 {
     font-size: 18px;
     margin-bottom: 6px;
   }
-  article.note p {
+  :is(article.note, .note-measure) p {
     font-size: 12.6px;
     line-height: 1.7;
   }
@@ -844,7 +791,7 @@ article.note .inline-ref:focus-visible {
   perspective: 1400px;
   perspective-origin: 50% 50%;
 }
-article.note {
+:is(article.note, .note-measure) {
   transform-origin: 0 50%;
   transform-style: preserve-3d;
   backface-visibility: hidden;
@@ -857,11 +804,11 @@ article.note {
 
 /* v4: the semantic hinge is unchanged when reading content chooses the other
    side; swap only the short visual tick, never mirror typography. */
-article.note[data-side="left"].is-long::before {
+:is(article.note, .note-measure)[data-side="left"].is-long::before {
   left: calc(100% + 5px);
 }
 @media (max-width: 700px) {
-  article.note {
+  :is(article.note, .note-measure) {
     font-size: 15px;
     line-height: 1.65;
   }

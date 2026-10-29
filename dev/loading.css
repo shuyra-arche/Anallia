@@ -1,0 +1,53 @@
+/* Shuyra Loading V24 独立舞台层 */
+#loadingOverlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.32s ease;
+  z-index: 4;
+}
+#loadingOverlay.active {
+  opacity: 1;
+  pointer-events: auto;
+  cursor: pointer;
+}
+#loadingFigure {
+  display: block;
+  width: min(72vw, 320px);
+  height: auto;
+  overflow: visible;
+  transform: scale(var(--camera-scale, 1));
+  transform-origin: center;
+}
+#loadingFigure .core {
+  stroke: url(#ink-gradient);
+  stroke-width: 6;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#loadingFigure .mark {
+  stroke: url(#silver-gradient);
+  stroke-width: 6;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#loadingFigure .arc-fine {
+  stroke: var(--loader-arc-light);
+  stroke-width: 1.05;
+  stroke-opacity: 0.3;
+  fill: none;
+  stroke-linecap: round;
+}
+#loadingFigure .pen-tip {
+  stroke: var(--loader-shimmer);
+  stroke-width: 1.55;
+  stroke-opacity: 0.56;
+  fill: none;
+  stroke-linecap: round;
+}
+

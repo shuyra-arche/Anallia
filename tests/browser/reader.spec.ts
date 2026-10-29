@@ -25,6 +25,7 @@ test("real startup, DOM reading, search and settings remain usable", async ({ pa
   await expect(page.locator("#text-a0")).toBeVisible();
   await expect(page.locator('[data-command="hud:loading"]')).toHaveCount(0);
   await expect(page.locator('[data-target="act:loading"]')).toHaveCount(0);
+  await expect(page.locator("#loadingOverlay")).toHaveCount(0);
   await page.locator('#text-a0 [data-target="a1"]').first().click();
   await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "a1");
   await navigate(page, "q0");
@@ -320,4 +321,21 @@ test("numeric SVG full-circle hubs have the expected rendered circumference", as
   });
   expect(result.compared).toBeGreaterThan(0);
   expect(result.error).toBeLessThan(0.002);
+});
+
+
+test("target preparation measures the same typography without mounting target articles", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating);
+  const result = await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    const before = document.querySelectorAll("#reading article").length;
+    app.scene.prepareContent("a0", "circle");
+    const probe = document.querySelector(".note-measure p")!;
+    const paragraph = document.querySelector("#text-a0 p")!;
+    const style = (node: Element) => { const css = getComputedStyle(node); return [css.fontFamily, css.fontSize, css.lineHeight, css.letterSpacing]; };
+    return { before, after: document.querySelectorAll("#reading article").length, expected: style(paragraph), prepared: style(probe) };
+  });
+  expect(result.after).toBe(result.before);
+  expect(result.prepared).toEqual(result.expected);
 });

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>加载几何 · 开发预览</title></head><body>
+<nav style="position:fixed;z-index:10;padding:18px"><button id="startPreview">开始几何预览</button><button id="exitPreview">从当前姿态退出</button><p>仅供开发核对几何；正式加载由内容任务驱动。</p></nav>
+<!-- Shuyra Loading V24 完整几何动效层 -->
+      <div
+        id="loadingOverlay"
+        aria-label="Shuyra 正在加载 (点击任意处结束并离场)"
+      >
+        <svg
+          id="loadingFigure"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 440 440"
+          role="img"
+        >
+          <defs>
+            <radialGradient
+              id="soft-fade"
+              gradientUnits="userSpaceOnUse"
+              cx="220"
+              cy="220"
+              r="196"
+            >
+              <stop offset="0" stop-color="white" stop-opacity="1" />
+              <stop offset=".80" stop-color="white" stop-opacity="1" />
+              <stop offset=".90" stop-color="white" stop-opacity=".92" />
+              <stop offset="1" stop-color="black" stop-opacity="0" />
+            </radialGradient>
+            <mask
+              id="soft-mask"
+              maskUnits="userSpaceOnUse"
+              x="0"
+              y="0"
+              width="440"
+              height="440"
+            >
+              <rect x="0" y="0" width="440" height="440" fill="black" />
+              <circle cx="220" cy="220" r="196" fill="url(#soft-fade)" />
+            </mask>
+            <linearGradient
+              id="ink-gradient"
+              gradientUnits="userSpaceOnUse"
+              x1="70"
+              y1="80"
+              x2="370"
+              y2="350"
+            >
+              <stop
+                offset="0"
+                stop-color="var(--loader-ink)"
+                stop-opacity=".88"
+              />
+              <stop
+                offset=".42"
+                stop-color="var(--loader-ink)"
+                stop-opacity="1"
+              />
+              <stop
+                offset=".78"
+                stop-color="var(--loader-ink)"
+                stop-opacity=".965"
+              />
+              <stop
+                offset="1"
+                stop-color="var(--loader-ink)"
+                stop-opacity=".90"
+              />
+            </linearGradient>
+            <linearGradient
+              id="silver-gradient"
+              gradientUnits="userSpaceOnUse"
+              x1="85"
+              y1="100"
+              x2="366"
+              y2="344"
+            >
+              <stop
+                offset="0"
+                stop-color="var(--loader-arc)"
+                stop-opacity=".72"
+              />
+              <stop
+                offset=".28"
+                stop-color="var(--loader-arc-light)"
+                stop-opacity=".88"
+              />
+              <stop
+                offset=".52"
+                stop-color="var(--loader-arc-light)"
+                stop-opacity=".97"
+              />
+              <stop
+                offset=".74"
+                stop-color="var(--loader-arc)"
+                stop-opacity=".90"
+              />
+              <stop
+                offset="1"
+                stop-color="var(--loader-arc)"
+                stop-opacity=".76"
+              />
+            </linearGradient>
+          </defs>
+          <g id="loadingGeometry" mask="url(#soft-mask)">
+            <path class="mark" id="mark0" />
+            <path class="mark" id="mark1" />
+            <path class="arc-fine" id="arc-fine0" />
+            <path class="arc-fine" id="arc-fine1" />
+            <path class="core" id="circle0" />
+            <path class="core" id="circle1" />
+            <path class="core" id="circle2" />
+            <g id="straight">
+              <path class="core" id="straight0" />
+              <path class="core" id="straight1" />
+              <path class="core" id="straight2" />
+            </g>
+            <path class="pen-tip" id="tip0" />
+            <path class="pen-tip" id="tip1" />
+            <path class="pen-tip" id="tip2" />
+          </g>
+        </svg>
+      </div>
+<div id="descBar"></div><script type="module" src="./loading.ts"></script></body></html>

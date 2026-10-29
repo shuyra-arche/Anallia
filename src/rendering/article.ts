@@ -1034,6 +1034,7 @@ export class ArticleRenderer {
     node: Chapter,
     presentation: ArticlePresentation,
     width: number,
+    measureUnstable?: (blockId: string) => number,
   ): number {
     const catalog = this.catalog as Catalog & ExtendedCatalog;
     let state = this.states.get(article);
@@ -1071,7 +1072,7 @@ export class ArticleRenderer {
         const rendered = state
           ? this.findRenderedBlock(state, block)
           : undefined;
-        const measuredHeight = rendered?.element.offsetHeight ?? 0;
+        const measuredHeight = rendered?.element.offsetHeight ?? (!block.stable ? measureUnstable?.(block.id) : 0) ?? 0;
         const domHeight =
           !block.stable && measuredHeight > 0 ? measuredHeight : undefined;
         height +=

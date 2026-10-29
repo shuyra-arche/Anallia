@@ -1,0 +1,13 @@
+import "../src/styles.css";
+import "./loading.css";
+import { createLoading } from "../src/effects/loading.js";
+import { startClock } from "../src/platform/clock.ts";
+const overlay = document.querySelector<HTMLElement>("#loadingOverlay")!;
+const description = document.querySelector<HTMLElement>("#descBar")!;
+const loader = createLoading(overlay, () => overlay.classList.remove("active"), text => { description.textContent = text; });
+document.querySelector("#startPreview")!.addEventListener("click", () => { overlay.classList.add("active"); loader.start(); });
+document.querySelector("#exitPreview")!.addEventListener("click", () => loader.exit());
+overlay.addEventListener("click", () => loader.exit());
+const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+const stop = startClock((_, dt) => loader.update(dt, reduced.matches ? 0 : 1));
+if (import.meta.hot) import.meta.hot.dispose(stop);

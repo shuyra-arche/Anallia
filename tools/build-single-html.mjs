@@ -1,30 +1,30 @@
-// Make an offline, single-file demo from the statically transpiled preview.
-// This is deliberately separate from the normal Vite production build.
-import { readdir, readFile, writeFile } from 'node:fs/promises';
-import { join, relative, dirname } from 'node:path';
-const root = new URL('../', import.meta.url).pathname;
-const dir = join(root, 'preview');
-const imports = {};
-async function walk(where) {
-  for (const item of await readdir(where, {withFileTypes:true})) {
-    const absolute = join(where,item.name);
-    if (item.isDirectory()) { await walk(absolute); continue; }
-    if (!item.name.endsWith('.js')) continue;
-    const id = `shuyra/${relative(dir,absolute)}`;
-    let src = await readFile(absolute, 'utf8');
-    src = src.replace(/(from\s+["'])(\.{1,2}\/[^"']+)(["'])/g, (_all,a,rel,b) => {
-      const destination = relative(dir, new URL(rel, `file://${absolute}`).pathname);
-      return `${a}shuyra/${destination}${b}`;
-    });
-    imports[id] = 'data:text/javascript;base64,' + Buffer.from(src).toString('base64');
+import "./content-manifest.mjs";
+import { build } from "vite";
+import { readFile, writeFile, rm, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+const root = fileURLToPath(new URL("../", import.meta.url));
+const outDir = await mkdtemp(join(tmpdir(), "shuyra-offline-"));
+try {
+  await build({ root, base: "./", build: {
+    outDir, emptyOutDir: true, cssCodeSplit: false, assetsInlineLimit: Infinity,
+    rollupOptions: { output: { inlineDynamicImports: true } },
+  } });
+  let html = await readFile(join(outDir, "index.html"), "utf8");
+  for (const match of [...html.matchAll(/<script\b[^>]*src="([^"]+)"[^>]*><\/script>/g)]) {
+    const code = await readFile(join(outDir, match[1]), "utf8");
+    html = html.replace(match[0], () => `<script type="module">${code.replace(/<\/script/gi, "<\\/script")}</script>`);
   }
+  for (const match of [...html.matchAll(/<link\b[^>]*href="([^"]+\.css)"[^>]*>/g)]) {
+    const css = await readFile(join(outDir, match[1]), "utf8");
+    html = html.replace(match[0], () => `<style>${css}</style>`);
+  }
+  html = html.replace(/<link\b[^>]*rel="modulepreload"[^>]*>/g, "");
+  const license = await readFile(join(root, "public/licenses/lucide.txt"), "utf8");
+  html += `\n<!-- Lucide license\n${license.replaceAll("--", "- -")}\n-->`;
+  await writeFile(join(root, "demo.html"), html);
+  console.log("Bundled offline single-file demo ready: demo.html");
+} finally {
+  await rm(outDir, { recursive: true, force: true });
 }
-await walk(join(dir,'src'));
-let html = await readFile(join(dir,'index.html'),'utf8');
-const css = await readFile(join(dir,'src/styles.css'),'utf8');
-html = html.replace('<link rel="stylesheet" href="./src/styles.css" />', `<style>${css}</style>`);
-html = html.replace('<script type="module" src="./src/main.js"></script>', '');
-html = html.replace('</head>', `<script type="importmap">${JSON.stringify({imports})}</script></head>`);
-html = html.replace('</body>', '<script type="module">import "shuyra/src/main.js";</script></body>');
-await writeFile(join(root,'demo.html'),html);
-console.log('Offline single-file demo: demo.html');

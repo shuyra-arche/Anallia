@@ -78,6 +78,9 @@ test("flow background and original V24 kernel render finite paths through a full
     0,
   );
   let finished = false;
+  const preview = readFileSync(new URL("../dev/loading.html", import.meta.url), "utf8");
+  const previewDocument = new window.DOMParser().parseFromString(preview, "text/html");
+  window.document.body.append(previewDocument.querySelector("#loadingOverlay")!);
   const overlay = window.document.querySelector("#loadingOverlay")!;
   const loader = createLoading(
     overlay as unknown as HTMLElement,
