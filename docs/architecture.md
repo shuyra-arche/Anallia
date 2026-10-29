@@ -47,4 +47,4 @@ SceneFrame 以屏幕 CSS 坐标保存曲线、裁剪、图层、标签、命中�
 背景选择通过 `core/background.ts` 声明、应用层设置命令和浏览器偏好存储连接。`effects/background.ts` 只调度当前可见效果：原流场、星轨/流星或关闭；星点与星轨分频更新，不另开动画时钟。减缓动效冻结星空并隐藏流星。操作图标使用选定的 Lucide 1.17.0 静态路径，图标形状与枢形变解耦；许可证随源码、单文件预览和生产构建交付。
 
 
-数值 SVG 与 Pixi WebGL 后端已接入同一 SceneFrame，使用同一 CPU 命中。Scene 当前仍保留旧 SVG 语义代理；场景计算、正文和代理的最终拆分尚未完成。实现和验证的具体范围以 [重构验收记录](refactor-status.md) 为准。
+数值 SVG 与 Pixi WebGL 后端已接入同一 SceneFrame，使用同一 CPU 命中。正文由 ReadingLayer 挂载并生成 ReadingFrame，反馈监听位于 semantic-feedback.ts。Scene 当前仍保留旧 SVG 语义代理；场景计算和代理的最终拆分尚未完成。实现和验证的具体范围以 [重构验收记录](refactor-status.md) 为准。

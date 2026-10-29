@@ -29,7 +29,7 @@ import {
 
 export type ArticlePresentation = Presentation;
 
-interface ArticleVisuals {
+export interface ArticleVisuals {
   inlineIcon(token: IconToken, morph: number): SVGSVGElement;
   iconShowcase(hub: Hub): HTMLElement;
 }

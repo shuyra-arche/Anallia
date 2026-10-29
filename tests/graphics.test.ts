@@ -353,3 +353,21 @@ test("a committed scene frame does not retain mutable camera or viewport objects
   assert.deepEqual(frame.camera, { x: 10, y: 20, z: 1.2, rotation: 30 });
   assert.deepEqual(frame.viewport, { width: 800, height: 600 });
 });
+
+
+test("destroyed scene initialization and drawing cannot recreate DOM or clear its successor", async () => {
+  const d = dom();
+  const field = new Field(new Catalog(hubDefinitions, rawContent), { width: 1000, height: 700 });
+  const scene = new Scene(d.host, field.catalog, { renderer: "svg" });
+  try {
+    scene.destroy();
+    await scene.initialize();
+    scene.render(field.state);
+    assert.equal(d.host.dataset.renderer, undefined);
+    assert.equal(d.host.querySelectorAll("article").length, 0);
+    const successor = d.host.ownerDocument.createElement("span");
+    d.host.querySelector("#reading")!.append(successor);
+    scene.destroy();
+    assert.ok(successor.isConnected, "repeated disposal must not clear a successor's DOM");
+  } finally { d.close(); }
+});

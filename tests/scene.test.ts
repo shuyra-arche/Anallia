@@ -401,3 +401,33 @@ test("articles mount on demand and keep an LRU of eight inactive entries with fo
     assert.ok(window.document.activeElement === focused);
   } finally { scene.destroy(); window.close(); }
 });
+
+
+test("destroy releases semantic feedback listeners on the surviving reading root", () => {
+  const window = new Window();
+  const originalDocument = globalThis.document;
+  Object.assign(globalThis, { document: window.document });
+  window.document.write(readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(/<script[^>]*>[\s\S]*?<\/script>/g, ""));
+  const host = window.document.querySelector("#scene")!;
+  const field = new Field(new Catalog(hubDefinitions, rawContent), { width: 1366, height: 820 }, true);
+  const scene = new Scene(host as unknown as HTMLElement, field.catalog, { renderer: "svg" });
+  try {
+    scene.render(field.state);
+    let calls = 0;
+    const original = scene.setHoveredTarget.bind(scene);
+    scene.setHoveredTarget = target => { calls++; original(target); };
+    const reading = host.querySelector("#reading")!;
+    const button = window.document.createElement("button");
+    button.className = "inline-ref";
+    button.dataset.target = "m3";
+    reading.append(button);
+    button.dispatchEvent(new window.Event("pointerover", { bubbles: true }));
+    assert.ok(calls > 0);
+    scene.destroy();
+    calls = 0;
+    reading.append(button);
+    button.dispatchEvent(new window.Event("pointerover", { bubbles: true }));
+    assert.equal(calls, 0, "destroyed scenes must not retain feedback listeners");
+    assert.equal(scene.readingBounds, null);
+  } finally { window.close(); Object.assign(globalThis, { document: originalDocument }); }
+});
