@@ -585,3 +585,22 @@ test("beacon fonts and halos match SVG while GPU raster buckets retain cached te
   expect(result.vector).toBe("non-scaling-stroke");
   expect(result.haloError).toBeLessThan(.32);
 });
+
+test("hidden presentation coalesces source updates and resumes without an artificial loading flash", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  const before = await page.locator("#text-a0").textContent();
+  await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    app.useContentSource({ async *open(id: string, presentation: string) {
+      if (id !== "a0" || presentation !== "circle") { yield { type: "replace", text: app.field.catalog.get(id).expressions[presentation] }; return; }
+      yield { type: "replace", text: "第一包。" }; yield { type: "append", text: "第二包。" }; yield { type: "append", text: "第三包。" };
+    } });
+  });
+  await page.waitForTimeout(250);
+  expect(await page.locator("#text-a0").textContent()).toBe(before);
+  await page.evaluate(() => { delete (document as any).hidden; document.dispatchEvent(new Event("visibilitychange")); });
+  await expect(page.locator("#text-a0")).toContainText("第一包。第二包。第三包。");
+  expect(await page.evaluate(() => (window as any).__shuyra.reading.activeTask)).toBeNull();
+});

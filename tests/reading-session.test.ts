@@ -408,3 +408,33 @@ test("loading waits 150ms from the event and commits readability and completion 
     assert.equal(readable, 1);
   } finally { reading.destroy(); }
 });
+
+test("hidden sources merge their latest body on resume without flashing a completed fast task", async () => {
+  let eventAt = 0;
+  const { source, field, reading, frame } = setup(() => eventAt);
+  reading.startup("a0", Promise.resolve()); await frame(20);
+  const before = field.catalog.get("a0").expressions.circle;
+  source.held.add("a0:circle"); eventAt = 50; reading.refresh(); reading.setVisible(false, 70);
+  await tick();
+  const channel = source.latest("a0");
+  channel.push("一", "replace"); channel.push("二"); channel.push("三"); channel.finish();
+  await frame(1000);
+  assert.equal(field.catalog.get("a0").expressions.circle, before);
+  assert.equal(reading.activeTask, null);
+  reading.setVisible(true, 1070); await frame(1070);
+  assert.equal(field.catalog.get("a0").expressions.circle, "一二三");
+  assert.equal(reading.activeTask, null);
+  reading.destroy();
+});
+
+test("tasks opened while hidden start their full wait gate only when the host resumes", async () => {
+  let eventAt = 0;
+  const { source, reading, frame } = setup(() => eventAt);
+  reading.startup("a0", Promise.resolve()); await frame(20);
+  reading.setVisible(false, 100);
+  source.held.add("a0:circle"); eventAt = 200; reading.refresh();
+  reading.setVisible(true, 500);
+  await frame(649); assert.equal(reading.activeTask, null);
+  await frame(650); assert.equal(reading.activeTask?.phase, "waiting");
+  reading.destroy();
+});

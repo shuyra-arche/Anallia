@@ -10,17 +10,14 @@ import type { Catalog } from "../content/catalog.ts";
 export class TaskGeometry {
   private taskId = "";
   private scale = 0.55;
-  private previousTime = 0;
 
-  update(snapshot: LoadingSnapshot | null, state: FieldState, catalog: Catalog, now: number): LoadingGeometry | null {
+  update(snapshot: LoadingSnapshot | null, state: FieldState, catalog: Catalog, deltaTime: number): LoadingGeometry | null {
     if (!snapshot) { this.taskId = ""; return null; }
     if (this.taskId !== snapshot.id) {
       this.taskId = snapshot.id;
       this.scale = snapshot.firstReadable ? 0.18 : 0.55;
-      this.previousTime = now;
     }
-    const dt = Math.min(50, Math.max(0, now - this.previousTime));
-    this.previousTime = now;
+    const dt = Math.min(50, Math.max(0, Number.isFinite(deltaTime) ? deltaTime : 0));
     const targetScale = snapshot.firstReadable ? 0.18 : 0.55;
     this.scale += (targetScale - this.scale) * (1 - Math.exp(-dt / 70));
     const hub = state.hubs[snapshot.hubId] ?? state.hubs[state.focus];

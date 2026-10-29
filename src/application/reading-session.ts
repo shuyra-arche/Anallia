@@ -29,6 +29,7 @@ export class ReadingSession {
   private bypassGate = false;
   private serial = 0;
   private now = 0;
+  private hiddenAt: number | null = null;
   private backendReady = false;
   private booted = false;
   private settleBoot!: () => void;
@@ -57,7 +58,18 @@ export class ReadingSession {
 
   get bootReady(): boolean { return this.booted; }
   get activeTask(): LoadingSnapshot | null {
+    if (this.hiddenAt !== null) return null;
     return this.loading.update(this.now, this.field.state.settings.reducedMotion);
+  }
+
+  setVisible(visible: boolean, now: number): void {
+    if (!Number.isFinite(now)) return;
+    if (!visible) {
+      if (this.hiddenAt === null) this.hiddenAt = now;
+    } else if (this.hiddenAt !== null) {
+      this.loading.shiftVisualTime(Math.max(0, now - this.hiddenAt));
+      this.hiddenAt = null;
+    }
   }
 
   private sourceId(id: string): string {
@@ -163,6 +175,7 @@ export class ReadingSession {
     this.error = null;
     const eventAt = this.eventTime?.();
     const startedAt = eventAt !== undefined && Number.isFinite(eventAt) ? Math.max(this.now, eventAt) : this.now;
+    if (this.hiddenAt !== null) this.hiddenAt = startedAt;
     this.loading.start({ id: job.taskId, scope, hubId: this.field.catalog.get(job.id).hub, chapterId: job.id, cancellable: scope !== "initial" }, startedAt);
   }
 
@@ -235,6 +248,7 @@ export class ReadingSession {
   }
 
   flush(now: number): readonly ContentChange[] {
+    if (this.hiddenAt !== null) return [];
     this.now = now;
     const changes = this.store.flush();
     for (const change of changes) {
@@ -273,6 +287,7 @@ export class ReadingSession {
 
   /** Called after the matching DOM content has been laid out in the host frame. */
   afterRender(isReadable: (id: string, presentation: Presentation) => boolean): void {
+    if (this.hiddenAt !== null) return;
     for (const job of this.jobs.values()) {
       const snapshot = this.store.get(this.sourceId(job.id), job.presentation);
       if (!job.prepared || job.terminal) continue;

@@ -196,3 +196,20 @@ test("completing during entrance fades from the current visibility without jumpi
   assert.equal(controller.update(220)!.enter, before.enter);
   assert.equal(after.poseTime, before.poseTime);
 });
+
+test("hidden visual time does not advance wait gates, loop posture or terminal handoff", () => {
+  const controller = new LoadController();
+  controller.start(task("hidden"), 0);
+  const shown = controller.update(250)!;
+  controller.shiftVisualTime(1000);
+  const resumed = controller.update(1250)!;
+  assert.equal(resumed.poseTime, shown.poseTime);
+  assert.equal(resumed.enter, shown.enter);
+  controller.complete("hidden", 1300);
+  controller.shiftVisualTime(500);
+  const terminal = controller.update(1800)!;
+  assert.equal(terminal.phase, "leaving");
+  assert.equal(terminal.exit, 0);
+  controller.shiftVisualTime(-1); controller.shiftVisualTime(NaN);
+  assert.equal(controller.update(2000), null);
+});

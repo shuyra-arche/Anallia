@@ -53,6 +53,9 @@ const reading = new ReadingSession(field, store, (id, presentation) => scene.pre
 const tasks = new TaskGeometry();
 const soundscape = new GeometricSoundscape();
 const lifecycle = new AbortController();
+const updateVisibility = () => reading.setVisible(!document.hidden, performance.now());
+document.addEventListener("visibilitychange", updateVisibility, { signal: lifecycle.signal });
+updateVisibility();
 host.dataset.booting = "true";
 
 const status = document.createElement("aside");
@@ -115,7 +118,7 @@ const stopClock = startClock((now, dt) => {
   if (savedFrameRate !== field.state.settings.frameRate) saveFrameRate(savedFrameRate = field.state.settings.frameRate);
   if (savedSound !== (field.state.settings.sound !== false)) saveSound(savedSound = field.state.settings.sound !== false);
   const task = reading.activeTask;
-  scene.setLoadingGeometry(tasks.update(task, field.state, catalog, now));
+  scene.setLoadingGeometry(tasks.update(task, field.state, catalog, dt));
   scene.render(field.state);
   for (const correction of scene.takeReadingCorrections()) reading.restoreReadingOffset(correction.chapterId, correction.presentation, correction.textOffset);
   reading.afterRender((id, presentation) => {

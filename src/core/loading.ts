@@ -31,7 +31,7 @@ export interface LoadingSnapshot {
   /** True only for a completed task; error and cancellation are never success. */
   succeeded: boolean;
   visible: true;
-  /** Milliseconds since start(). */
+  /** Visible host time since start(), excluding suspended intervals. */
   age: number;
   /** Milliseconds since the 150ms visibility gate opened. */
   visibleFor: number;
@@ -93,6 +93,14 @@ export class LoadController {
       terminal: null,
     };
     return null;
+  }
+
+  /** Exclude hidden host time from visibility gates, loop posture and terminal handoff. */
+  shiftVisualTime(elapsed: number): void {
+    if (!this.task || !(elapsed > 0) || !Number.isFinite(elapsed)) return;
+    this.task.startedAt += elapsed;
+    if (this.task.shownAt !== null) this.task.shownAt += elapsed;
+    if (this.task.terminal) this.task.terminal.at += elapsed;
   }
 
   readable(id: string, now: number): LoadingSnapshot | null {
