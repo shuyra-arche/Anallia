@@ -36,3 +36,16 @@
 `npm test` runs files serially in an independent Linux user-systemd unit with a 1 GiB process-group memory cap, no swap, a 256 MiB JavaScript heap per process, a 15 second test timeout and a 120 second hard wall-clock limit. Core dumps are disabled. The runner refuses to start without the user systemd bus. A test failure involving DOM objects can make assertion formatting expensive; use boolean identity assertions for DOM identity checks. These limits protect the desktop while reporting a failed run; they do not replace fixing the cause.
 
 Browser checks use `npm run test:browser`: one worker, a 3 GiB process-group cap, no swap, 150% CPU quota and a 110 second hard limit. These checks establish behavior, not timing targets. GitHub Pages uses serial tests in its isolated job, with a 256 MiB JavaScript heap and a three minute step timeout, because that runner has no desktop user-systemd session.
+
+## 2026-10-29 当前受限浏览器测量
+
+源码 `ac56117`，Vite 开发模式，Chromium 156.0.8078.4 / Linux，1366×820，DPR 1，ANGLE SwiftShader Vulkan 软件 GPU。每次测量在 3GiB、无交换、CPU 150%、110 秒全进程组限制下串行执行；这些限制也影响软件栅格化，不能与上面的无限额历史基线直接比较。
+
+| 后端 | 30 秒路线 rAF 间隔 P95 | Scene 提交 P95 | 十万字流间隔 P95 | 流式提交 P95 | 阅读漂移 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SVG | 16.8ms | 3.4ms | 16.8ms | 3.2ms | 0px |
+| 软件 WebGL（强制） | 200ms | 82.3ms | 200ms | 5.4ms | 0px |
+
+SVG 路径在本次环境达到帧间隔 ≤20ms、流式提交 ≤4ms 的目标；软件 WebGL 未达到。两项测试通过表示内容完整、节点稳定、漂移及无页面异常检查通过，不能称软件 WebGL 性能验收通过。每篇 500 段、100000 个汉字及 998 个换行符；每次动画帧注入最多 1024 字符，不模拟打字延迟。提交统计包含内容 flush、文章同步、预排版与正文高度读取，不是整个浏览器绘制耗时。
+
+原始逐帧 JSON 与日志位于仓库外 `work/refactor-20261029/performance-ac56117/`。随后 `auto` 会对明确识别到的软件渲染器选择 SVG，`renderer=gpu` 仍允许强制测试。未知设备信息不冒充硬件或软件判定。真实 GPU、真实移动设备与第二台局域网设备仍未验收；之后源码修改还需要最终重新测量。

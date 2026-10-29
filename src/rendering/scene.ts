@@ -212,6 +212,12 @@ export class Scene {
         gpu.destroy();
         return;
       }
+      if (gpu.isLost || this.options.renderer === "auto" && gpu.device.software === true) {
+        if (gpu.device.software === true) this.host.dataset.rendererFallback = "software";
+        gpu.destroy();
+        this.installSvgFallback();
+        return;
+      }
       this.gpu = gpu;
       this.resolvedKind = "webgl";
       this.host.dataset.renderer = "webgl";
@@ -646,6 +652,7 @@ export class Scene {
     this.hudControls.remove();
     this.actions.clear();
     delete this.host.dataset.renderer;
+    delete this.host.dataset.rendererFallback;
     this.currentFrame = emptySceneFrame(
       this.resolvedKind,
       { width: 0, height: 0 },

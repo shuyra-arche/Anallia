@@ -1,3 +1,5 @@
+import { readGraphicsDevice } from "./device.ts";
+import type { GraphicsDevice } from "./device.ts";
 import { cameraMatrix, canReuseUnderCamera } from "../../geometry/camera-reuse.ts";
 import type { CameraView } from "../../geometry/camera-reuse.ts";
 import type {
@@ -109,6 +111,7 @@ export interface PixiRendererOptions {
 export class PixiGraphicsRenderer {
   readonly canvas: HTMLCanvasElement;
   readonly kind = "webgl" as const;
+  readonly device: GraphicsDevice;
   private readonly pixi: PixiModule;
   private readonly renderer: PixiRenderer;
   private readonly stage: PixiContainer;
@@ -144,6 +147,7 @@ export class PixiGraphicsRenderer {
   ) {
     this.pixi = pixi;
     this.renderer = renderer;
+    this.device = readGraphicsDevice("gl" in renderer ? renderer.gl : null);
     this.canvas = renderer.canvas as HTMLCanvasElement;
     this.fontFamily = fontFamily;
     this.dpr = dpr;

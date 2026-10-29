@@ -10,7 +10,7 @@ import type { LabelContentKind } from "./icons.ts";
 import type { PagePose } from "./transitions.ts";
 import type { SymbolGeometry, SymbolKind } from "./symbol-morph.ts";
 
-/** Requested renderer. `auto` tries WebGL once and then permanently settles on SVG. */
+/** Requested renderer. `auto` tries WebGL once; software contexts and failures permanently settle on SVG. */
 export type GraphicsRendererKind = "auto" | "webgl" | "svg";
 /** Concrete renderer chosen for the current Scene instance. */
 export type ResolvedRendererKind = "webgl" | "svg";

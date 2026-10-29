@@ -502,3 +502,17 @@ test("GPU camera changes reuse numeric geometry and rebuild on shape changes", a
   expect(result.reuseCount).toBe(8);
   expect(result.shapeBuilds).toBe(1);
 });
+
+test("auto avoids recognized software WebGL while explicit GPU remains available", async ({ page }) => {
+  await open(page, "?renderer=gpu");
+  const device = await page.evaluate(() => (window as any).__shuyra.scene.gpu.device);
+  expect(device.renderer).toBeTruthy();
+  await open(page, "?renderer=auto");
+  const result = await page.evaluate(() => ({ kind: (window as any).__shuyra.scene.rendererKind, reason: document.querySelector<HTMLElement>("#scene")!.dataset.rendererFallback }));
+  if (device.software === true) {
+    expect(result.kind).toBe("svg");
+    expect(result.reason).toBe("software");
+  } else expect(result.kind).toBe("webgl");
+  await navigate(page, "a1");
+  await expect(page.locator("#text-a1")).toBeVisible();
+});
