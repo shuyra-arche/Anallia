@@ -339,3 +339,64 @@ test("target preparation measures the same typography without mounting target ar
   expect(result.after).toBe(result.before);
   expect(result.prepared).toEqual(result.expected);
 });
+
+test("source anchors survive typography and viewport changes at a nonzero reading position", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating && !(window as any).__shuyra.scene.isAnimating);
+  await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    app.useContentSource({ async *open() {
+      yield { type: "replace", text: Array.from({ length: 100 }, (_, i) => `源段落${i}。` + "这段文字用于检查宽度改变后的阅读源位置。".repeat(8)).join("\n\n") };
+    } });
+  });
+  await expect(page.locator("#text-a0 p").first()).toContainText("源段落0");
+  await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    app.field.pan({ x: 0, y: 0 }, app.field.state.camera);
+    app.field.hub.textOffset = app.field.hub.textOffsetTarget = 900;
+  });
+  await page.waitForFunction(() => ((window as any).__shuyra.scene.readingPositions.get("a0", "circle")?.source ?? 0) > 0);
+  const before = await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    (window as any).__measureSource = (source: number) => {
+      const article = document.querySelector<HTMLElement>("#text-a0")!;
+      const paragraph = [...article.querySelectorAll<HTMLElement>("p[data-source-start]")].find(node => Number(node.dataset.sourceStart) <= source && source <= Number(node.dataset.sourceEnd))!;
+      const text = paragraph.firstChild!;
+      const start = Math.max(0, Math.min((text.textContent?.length ?? 1) - 1, source - Number(paragraph.dataset.sourceStart)));
+      const range = document.createRange();
+      range.setStart(text, start); range.setEnd(text, start + 1);
+      const rect = range.getBoundingClientRect();
+      return { offset: (rect.top - article.getBoundingClientRect().top) / app.field.state.camera.z, height: rect.height, top: rect.top };
+    };
+    return { ...app.scene.readingPositions.get("a0", "circle"), camera: { ...app.field.state.camera } };
+  });
+  await page.addStyleTag({ content: ".note p { font-family: monospace !important; font-size: 18px !important; line-height: 1.9 !important; }" });
+  await page.evaluate(() => (window as any).__shuyra.scene.invalidateLayout(true));
+  await page.waitForFunction(() => !(window as any).__shuyra.scene.isAnimating);
+  const afterFont = await page.evaluate((before) => ({ ...(window as any).__measureSource(before.source), camera: (window as any).__shuyra.field.state.camera }), before);
+  expect(afterFont.camera).toEqual(before.camera);
+  expect(Math.abs(afterFont.offset - before.offset)).toBeLessThanOrEqual(2);
+  const resizedAnchor = await page.evaluate(() => (window as any).__shuyra.scene.readingPositions.get("a0", "circle"));
+  await page.setViewportSize({ width: 1000, height: 760 });
+  await page.waitForFunction(() => (window as any).__shuyra.field.state.viewport.width === 1000 && !(window as any).__shuyra.field.isAnimating && !(window as any).__shuyra.scene.isAnimating);
+  const afterResize = await page.evaluate(anchor => (window as any).__measureSource(anchor.source), resizedAnchor);
+  expect(afterResize.height).toBeGreaterThan(0);
+  expect(Math.abs(afterResize.offset - resizedAnchor.offset)).toBeLessThanOrEqual(2);
+  const replacementAnchor = await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    app.field.pan({ x: 0, y: 0 }, app.field.state.camera);
+    return { ...app.scene.readingPositions.get("a0", "circle"), camera: { ...app.field.state.camera } };
+  });
+  await page.evaluate(() => {
+    const app = (window as any).__shuyra;
+    const old = app.store.get("a0", "circle").text;
+    const text = old.slice(0, 100) + "上游替换".repeat(20) + old.slice(200);
+    app.useContentSource({ async *open() { yield { type: "replace", text }; } });
+  });
+  await expect(page.locator("#text-a0 .note-content")).toContainText("上游替换");
+  await page.waitForFunction(() => !(window as any).__shuyra.scene.isAnimating);
+  const afterReplace = await page.evaluate(anchor => ({ ...(window as any).__measureSource(anchor.source), camera: (window as any).__shuyra.field.state.camera }), replacementAnchor);
+  expect(afterReplace.height).toBeGreaterThan(0);
+  expect(afterReplace.camera).toEqual(replacementAnchor.camera);
+  expect(Math.abs(afterReplace.offset - replacementAnchor.offset)).toBeLessThanOrEqual(2);
+});

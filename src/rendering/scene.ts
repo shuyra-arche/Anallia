@@ -1,6 +1,8 @@
 import type { LoadingGeometry } from "../geometry/loading.ts";
 import { loadingShapes } from "../geometry/loading.ts";
 import { renderLoadingGeometry, loadingToneColor } from "./loading.ts";
+import { ReadingPositions, applyReadingClip } from "./reading-positions.ts";
+import type { ReadingCorrection } from "./reading-positions.ts";
 import { ArticleRenderer } from "./article.ts";
 import { LocalLabelTurns } from "./local-labels.ts";
 import {
@@ -285,6 +287,9 @@ export class Scene {
   private lastRenderKey = "";
   private lastState: FieldState | null = null;
   private heights = new Map<string, number>();
+  readonly readingPositions = new ReadingPositions();
+  private readingCorrections: ReadingCorrection[] = [];
+  private readingSettling = false;
   private readingWindows = new Map<string, { geometry: string; height: number; held: boolean }>();
   private measuredSettings = "";
   private readonly articleRenderer: ArticleRenderer;
@@ -356,7 +361,14 @@ export class Scene {
     return Number.isFinite(height) && height > 0 && (tail.stable || tail.kind === "icons" || paragraph.offsetHeight > 0);
   }
 
+  takeReadingCorrections(): ReadingCorrection[] {
+    const corrections = this.readingCorrections;
+    this.readingCorrections = [];
+    return corrections;
+  }
+
   invalidateLayout(fontsChanged = false) {
+    this.readingPositions.invalidate();
     if (fontsChanged) {
       this.articleRenderer.invalidateFonts();
       this.gpu?.invalidateGlyphs("font");
@@ -366,7 +378,7 @@ export class Scene {
   }
 
   get isAnimating(): boolean {
-    return this.lastRenderKey === "" || this.localLabelTurns.isAnimating;
+    return this.lastRenderKey === "" || this.readingSettling || this.localLabelTurns.isAnimating;
   }
 
   /** Concrete renderer chosen after `initialize` (WebGL or permanent SVG). */
@@ -1155,7 +1167,7 @@ export class Scene {
         h.path,
       ]),
     ]);
-    if (key === this.lastRenderKey) {
+    if (key === this.lastRenderKey && !this.readingSettling) {
       this.refreshBackgroundFrame(s);
       if (this.gpu) this.gpu.render(this.currentFrame);
       else this.svgRenderer.render(this.currentFrame);
@@ -1766,6 +1778,7 @@ export class Scene {
 
   private renderTexts(s: FieldState) {
     this.readingBounds = null;
+    this.readingSettling = false;
     const hub = s.hubs[s.focus],
       nodes = this.catalog.siblings(this.selected(hub).id, s.searchResults),
       morph = ease(clamp(hub.morph, 0, 1));
@@ -1792,6 +1805,7 @@ export class Scene {
           depth = 1 - surface,
           presentation = morph > 0.5 ? "line" : "circle";
         const contentChange = this.articleRenderer.syncArticle(article, node, hub, presentation);
+        this.readingPositions.changed(node.id, presentation, contentChange === "replace");
         if (node.id === this.catalog.searchRoot) {
           const input = article.querySelector<HTMLInputElement>(
             "input.hub-search-input",
@@ -1874,7 +1888,7 @@ export class Scene {
         const maxFloatStr = String(Math.round(maxFloat));
         if (article.dataset.maxFloat !== maxFloatStr)
           article.dataset.maxFloat = maxFloatStr;
-        const activeFloat =
+        let activeFloat =
           Math.abs(i - hub.scroll) < 0.6
             ? clamp(hub.textOffset, 0, maxFloat)
             : 0;
@@ -1898,33 +1912,14 @@ export class Scene {
           s.camera,
           s.viewport,
         );
-        const clip = resolveReadingClip(
+        let clip = resolveReadingClip(
           normal,
           height,
           panelHeight,
           activeFloat,
           clearancePx,
         );
-        const windowEl = article.querySelector<HTMLElement>(".note-window")!;
-        if (article.dataset.clipEdge !== clip.edge)
-          article.dataset.clipEdge = clip.edge;
-        const fadeState = clip.fadePx > 0.5 ? clip.edge : "none";
-        if (windowEl.dataset.clipFade !== fadeState)
-          windowEl.dataset.clipFade = fadeState;
-        const winMarginTop = `${clip.windowMarginTop.toFixed(1)}px`;
-        if (windowEl.style.marginTop !== winMarginTop)
-          windowEl.style.marginTop = winMarginTop;
-        const winPaddingTop = `${clip.windowPaddingTop.toFixed(1)}px`;
-        if (windowEl.style.paddingTop !== winPaddingTop)
-          windowEl.style.paddingTop = winPaddingTop;
-        const winHeight = `${clip.windowHeight.toFixed(1)}px`;
-        if (windowEl.style.height !== winHeight)
-          windowEl.style.height = winHeight;
-        if (windowEl.dataset.maskSpec !== clip.maskImage) {
-          windowEl.dataset.maskSpec = clip.maskImage;
-          windowEl.style.maskImage = clip.maskImage;
-          windowEl.style.webkitMaskImage = clip.maskImage;
-        }
+        applyReadingClip(article, clip);
         if (article.dataset.side !== placement.side)
           article.dataset.side = placement.side;
         const anchorVarStr = `${placement.originY.toFixed(1)}px`;
@@ -1957,6 +1952,19 @@ export class Scene {
         const pointerStr = inert ? "none" : "auto";
         if (article.style.pointerEvents !== pointerStr)
           article.style.pointerEvents = pointerStr;
+        if (!inert && node.id === this.selected(hub).id) {
+          const corrected = this.readingPositions.restore(article, node.id, presentation, s.camera.z, activeFloat, maxFloat);
+          if (Math.abs(corrected - activeFloat) > 0.01) {
+            activeFloat = corrected;
+            content.style.transform = `translateY(${-activeFloat.toFixed(2)}px)`;
+            clip = resolveReadingClip(normal, height, panelHeight, activeFloat, clearancePx);
+            applyReadingClip(article, clip);
+            this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: activeFloat });
+          }
+          this.readingSettling = this.readingPositions.isSettling(node.id, presentation);
+          this.readingPositions.capture(article, node.id, presentation, s.camera.z,
+            JSON.stringify([widthStr, panelHeight, activeFloat, this.articleRenderer.fontVersion]));
+        }
         this.currentFrame.reading.push({
           id: `reading:${node.id}`,
           chapterId: node.id,
@@ -2009,6 +2017,8 @@ export class Scene {
     this.reading.replaceChildren();
     this.contentProbe = null;
     this.readingWindows.clear();
+    this.readingPositions.clear();
+    this.readingCorrections = [];
     this.hudControls.remove();
     this.actions.clear();
     delete this.host.dataset.renderer;

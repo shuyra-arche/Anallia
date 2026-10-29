@@ -130,6 +130,9 @@ test("restoreReadingAnchor compensates DOM shifts through scrollTop only and ign
     assert.equal(shifted.delta, 24);
     assert.equal(shifted.adjusted, true);
     assert.equal(scroller.scrollTop, 24);
+    scroller.scrollTop = 0;
+    restoreReadingAnchor(article, anchor, { scroller, scale: 2 });
+    assert.equal(scroller.scrollTop, 12, "screen-space movement must be converted to CSS scrolling units");
 
     scroller.scrollTop = 0;
     top = 11.5;

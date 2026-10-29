@@ -116,6 +116,7 @@ const stopClock = startClock((now, dt) => {
   const task = reading.activeTask;
   scene.setLoadingGeometry(tasks.update(task, field.state, catalog, now));
   scene.render(field.state);
+  for (const correction of scene.takeReadingCorrections()) field.restoreReadingOffset(correction.chapterId, correction.presentation, correction.textOffset);
   reading.afterRender((id, presentation) => {
     const article = document.getElementById(`text-${id}`);
     return article instanceof HTMLElement && !article.hidden && article.dataset.presentation === presentation;

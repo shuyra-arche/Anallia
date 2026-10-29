@@ -93,7 +93,7 @@ export function clearIndexedRanges(root: HTMLElement, scope?: Node) {
     const withinScope =
       node === scope ||
       (scope.nodeType === 1 && (scope as Element).contains(node));
-    if (withinScope || !root.contains(node)) index.byNode.delete(node);
+    if (withinScope) index.byNode.delete(node);
   }
 }
 
@@ -393,6 +393,21 @@ export function restoreReadingSelection(
   return true;
 }
 
+/** Measure a glyph, including at text boundaries where a collapsed caret has no box. */
+export function sourceRangeRect(range: Range): DOMRect {
+  const measured = range.cloneRange();
+  const node = measured.startContainer;
+  if (node.nodeType === 3 && node.textContent?.length) {
+    const text = node.textContent;
+    let start = Math.min(measured.startOffset, text.length - 1);
+    if (start > 0 && /[\uDC00-\uDFFF]/.test(text[start]) && /[\uD800-\uDBFF]/.test(text[start - 1])) start--;
+    const length = (text.codePointAt(start) ?? 0) > 0xffff ? 2 : 1;
+    measured.setStart(node, start);
+    measured.setEnd(node, Math.min(text.length, start + length));
+  }
+  return measured.getBoundingClientRect();
+}
+
 export interface ReadingAnchor {
   article: HTMLElement;
   blockId: string | null;
@@ -472,7 +487,7 @@ export function captureReadingAnchor(
     options.scroller === undefined
       ? root.querySelector<HTMLElement>(".note-window")
       : options.scroller;
-  const rect = located.range.getBoundingClientRect();
+  const rect = sourceRangeRect(located.range);
   return {
     article: root,
     blockId: located.blockId,
@@ -486,6 +501,7 @@ export function captureReadingAnchor(
 }
 
 export interface RestoreReadingAnchorOptions {
+  scale?: number;
   scroller?: HTMLElement | null;
   tolerance?: number;
   apply?: boolean;
@@ -518,7 +534,7 @@ export function restoreReadingAnchor(
       range: null,
     };
   }
-  const rect = located.range.getBoundingClientRect();
+  const rect = sourceRangeRect(located.range);
   const delta = rect.top - anchor.top;
   const scroller = options.scroller ?? anchor.scroller;
   const tolerance = options.tolerance ?? 2;
@@ -526,7 +542,8 @@ export function restoreReadingAnchor(
   let adjusted = false;
   if (adjust && scroller && Math.abs(delta) > tolerance) {
     const before = scroller.scrollTop;
-    scroller.scrollTop = before + delta;
+    const scale = options.scale && Number.isFinite(options.scale) && options.scale > 0 ? options.scale : 1;
+    scroller.scrollTop = before + delta / scale;
     adjusted = scroller.scrollTop !== before;
   }
   return {

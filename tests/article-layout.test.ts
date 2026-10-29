@@ -515,3 +515,23 @@ test("switching both expressions repeatedly does not reuse the other expression'
     }
   } finally { dom.close(); }
 });
+
+
+test("replacing blocks retains source indexes for newly constructed detached paragraphs", async () => {
+  const { rangeAtSource } = await import("../src/rendering/reading-anchor.ts");
+  const dom = setup();
+  try {
+    const catalog = makeCatalog();
+    const renderer = makeRenderer(catalog);
+    const article = document.createElement("article");
+    document.body.append(article);
+    catalog.setDocument("circle", documentOf([textBlock("keep", "首段", 0), textBlock("remove", "旧段", 4)]));
+    renderer.syncArticle(article, node, hub, "circle");
+    catalog.setDocument("circle", documentOf([textBlock("keep", "首段", 0), textBlock("new-second", "新段落", 4), textBlock("new-third", "新的第三段", 9)]));
+    renderer.syncArticle(article, node, hub, "circle");
+    const third = article.querySelectorAll("p")[2];
+    const location = rangeAtSource(article, 11)!;
+    assert.ok(location.range.startContainer === third.firstChild, "replacement cleanup must retain the new paragraph's text index");
+    assert.equal(location.range.startOffset, 2);
+  } finally { dom.close(); }
+});

@@ -407,6 +407,10 @@ export class Field {
   setContentGate(gate: ((command: Command) => boolean) | null) {
     this.contentGate = gate;
   }
+  restoreReadingOffset(chapterId: string, presentation: "circle" | "line", offset: number): void {
+    if (this.selected().id !== chapterId || (this.hub.morph > 0.5 ? "line" : "circle") !== presentation || !Number.isFinite(offset)) return;
+    this.hub.textOffset = this.hub.textOffsetTarget = Math.max(0, offset);
+  }
   dispatch(command: Command) {
     if (this.contentGate?.(command)) return;
     const s = this.state;

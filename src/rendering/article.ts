@@ -17,12 +17,10 @@ import {
   type TextStyle,
 } from "./text-layout.ts";
 import {
-  captureReadingAnchor,
   captureReadingSelection,
   clearIndexedRanges,
   indexElementRange,
   indexTextRange,
-  restoreReadingAnchor,
   restoreReadingSelection,
   setBlockSourceRange,
   unindexRange,
@@ -420,7 +418,6 @@ export class ArticleRenderer {
       return;
 
     const selection = state?.ready ? captureReadingSelection(article) : null;
-    const anchor = state?.ready ? captureReadingAnchor(article) : null;
 
     const rawDocument =
       typeof catalog.document === "function"
@@ -466,8 +463,6 @@ export class ArticleRenderer {
     state.ready = true;
 
     if (selection) restoreReadingSelection(article, selection);
-    if (anchor)
-      restoreReadingAnchor(article, anchor, { tolerance: 2, apply: true });
     return continuation && source.length > (previousSource?.length ?? 0) ? "append" as const : source !== previousSource || !sameExpression ? "replace" as const : undefined;
   }
 
