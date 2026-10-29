@@ -172,8 +172,9 @@ test("Scene falls back permanently to SVG when WebGL cannot initialize and keeps
   try {
     await scene.initialize();
     assert.equal(scene.rendererKind, "svg");
-    assert.equal(d.host.dataset.renderer, "svg");
+    assert.equal(d.host.dataset.renderer, undefined, "renderer visibility is committed with its first frame");
     scene.render(field.state);
+    assert.equal(d.host.dataset.renderer, "svg");
     await scene.initialize();
     assert.equal(scene.rendererKind, "svg");
     assert.ok(scene.frame.labels.length > 0);
@@ -409,5 +410,40 @@ test("reading disposal removes owned articles and probe while preserving host co
     assert.ok(foreign.isConnected);
     assert.equal(d.host.querySelectorAll("#reading article, #reading .note-measure").length, 0);
     assert.equal(d.host.querySelector("#reading")!.childElementCount, 1);
+  } finally { scene.destroy(); d.close(); }
+});
+
+test("backend visibility switches only with the frame that draws its current geometry", () => {
+  const d = dom(), catalog = new Catalog(hubDefinitions, rawContent), field = new Field(catalog, { width: 1366, height: 820 });
+  const scene = new Scene(d.host, catalog, { renderer: "svg" });
+  try {
+    scene.render(field.state);
+    const path = () => d.host.querySelector('.svg-graphics [data-layer="hubs"] [data-svg-primitive="arc"]')!.getAttribute("d");
+    const oldPath = path();
+    const internal = scene as any;
+    internal.gpu = { resize() {}, render() {}, destroy() {} };
+    internal.resolvedKind = "webgl";
+    d.host.dataset.renderer = "webgl";
+    field.state.camera.x += 100;
+    scene.render(field.state);
+    assert.equal(path(), oldPath, "the hidden SVG backend has not drawn the new camera yet");
+    internal.installSvgFallback();
+    assert.equal(d.host.dataset.renderer, "webgl", "do not expose stale SVG geometry before its frame");
+    scene.render(field.state);
+    assert.equal(d.host.dataset.renderer, "svg");
+    assert.notEqual(path(), oldPath);
+  } finally { scene.destroy(); d.close(); }
+});
+
+test("an unchanged scene with no background performs no host DOM writes", () => {
+  const d = dom(), catalog = new Catalog(hubDefinitions, rawContent), field = new Field(catalog, { width: 1366, height: 820 });
+  const scene = new Scene(d.host, catalog, { renderer: "svg", background: false });
+  try {
+    for (let i = 0; i < 6; i++) scene.render(field.state);
+    const observer = new d.window.MutationObserver(() => {});
+    observer.observe(d.host, { attributes: true, subtree: true, childList: true, characterData: true });
+    scene.render(field.state);
+    assert.equal(observer.takeRecords().length, 0);
+    observer.disconnect();
   } finally { scene.destroy(); d.close(); }
 });

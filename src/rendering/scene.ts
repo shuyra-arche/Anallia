@@ -189,7 +189,6 @@ export class Scene {
   private async initializeRenderer(): Promise<void> {
     if (this.options.renderer === "svg") {
       this.resolvedKind = "svg";
-      this.host.dataset.renderer = "svg";
       return;
     }
     if (this.gpu && !this.gpu.isLost) return;
@@ -223,7 +222,6 @@ export class Scene {
       }
       this.gpu = gpu;
       this.resolvedKind = "webgl";
-      this.host.dataset.renderer = "webgl";
       this.reading.before(gpu.canvas);
       this.lastRenderKey = "";
     } catch {
@@ -234,11 +232,9 @@ export class Scene {
   private installSvgFallback(): void {
     if (this.destroyed) return;
     if (this.resolvedKind === "svg" && !this.gpu) {
-      this.host.dataset.renderer = "svg";
       return;
     }
     this.resolvedKind = "svg";
-    this.host.dataset.renderer = "svg";
     this.gpu?.destroy();
     this.gpu = null;
     this.lastRenderKey = "";
@@ -468,6 +464,7 @@ export class Scene {
       this.refreshBackgroundFrame(s);
       if (this.gpu) this.gpu.render(this.currentFrame);
       else this.svgRenderer.render(this.currentFrame);
+      if (this.host.dataset.renderer !== this.resolvedKind) this.host.dataset.renderer = this.resolvedKind;
       return;
     }
     this.lastRenderKey = key;
@@ -532,6 +529,7 @@ export class Scene {
       this.gpu.resize(s.viewport.width, s.viewport.height, dpr);
       this.gpu.render(this.currentFrame);
     } else this.svgRenderer.render(this.currentFrame);
+    if (this.host.dataset.renderer !== this.resolvedKind) this.host.dataset.renderer = this.resolvedKind;
     requireElement<HTMLElement>(this.host, "#descBar").textContent =
       s.description;
   }
