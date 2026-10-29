@@ -1,5 +1,6 @@
+import { READING_LINE_STEP } from "./geometry/circular-reading.ts";
 import { frameRateLimit } from "./core/frame-rate.ts";
-import { readReadingLayout, saveReadingLayout, readFrameRate, saveFrameRate, readBackground, saveBackground, readSound, saveSound } from "./platform/preferences.ts";
+import { readFrameRate, saveFrameRate, readBackground, saveBackground, readSound, saveSound } from "./platform/preferences.ts";
 import "./styles.css";
 import { contentManifest } from "./content/generated/manifest.ts";
 import { createLocalContentSource } from "./content/local.ts";
@@ -21,20 +22,25 @@ import { startClock } from "./platform/clock.ts";
 const host = requireElement<HTMLElement>(document, "#scene");
 const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
 const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-let source: ContentSource = createLocalContentSource();
+const params = new URLSearchParams(window.location.search);
+const leavesModule = params.get("demo") === "leaves-ix" ? await import("./demos/leaves-ix.ts") : null;
+const demo = leavesModule?.createLeavesIxDemo(contentManifest, createLocalContentSource());
+const manifest = demo?.manifest ?? contentManifest;
+let source: ContentSource = demo?.source ?? createLocalContentSource();
 const store = new ContentStore({ open: (id, presentation, signal) => source.open(id, presentation, signal) });
-const catalog = new Catalog(contentManifest.definitions, contentManifest, store);
+const catalog = new Catalog(manifest.definitions, manifest, store);
 const field = new Field(catalog, viewport(), motion.matches);
 field.state.settings.frameRate = readFrameRate();
 field.state.settings.background = readBackground();
 field.state.settings.sound = readSound();
-field.state.settings.readingLayoutMode = readReadingLayout();
-let savedReadingLayout = field.state.settings.readingLayoutMode;
+if (demo) {
+  field.state.settings.background = "none";
+  field.state.settings.sound = false;
+}
 let savedFrameRate = field.state.settings.frameRate;
 let savedBackground = field.state.settings.background;
 let savedSound = field.state.settings.sound !== false;
-const params = new URLSearchParams(window.location.search);
-const chapterId = params.get("chapter");
+const chapterId = params.get("chapter") ?? demo?.entry;
 if (chapterId && catalog.chapters.has(chapterId)) {
   const chapter = catalog.get(chapterId);
   const hub = field.state.hubs[chapter.hub];
@@ -55,13 +61,7 @@ const reading = new ReadingSession(field, store, (id, presentation) => scene.pre
 const tasks = new TaskGeometry();
 const soundscape = new GeometricSoundscape();
 const lifecycle = new AbortController();
-const layoutPanel = requireElement<HTMLElement>(document, "#readingLayoutControl");
-for (const event of ["pointerdown", "click", "wheel"])
-  layoutPanel.addEventListener(event, e => e.stopPropagation(), { signal: lifecycle.signal });
-const layoutControl = requireElement<HTMLSelectElement>(document, "#readingLayout");
-layoutControl.value = field.state.settings.readingLayoutMode;
-const layoutStatus = requireElement<HTMLElement>(document, "#readingLayoutStatus");
-layoutControl.addEventListener("change", () => field.dispatch({ type: "set-reading-layout", mode: layoutControl.value === "geometric" ? "geometric" : "window" }), { signal: lifecycle.signal });
+const demoView = leavesModule?.mountLeavesIx(host, field, lifecycle.signal);
 const updateVisibility = () => reading.setVisible(!document.hidden, performance.now());
 document.addEventListener("visibilitychange", updateVisibility, { signal: lifecycle.signal });
 updateVisibility();
@@ -92,6 +92,11 @@ const disposeInput = bindInput(host, {
   zoom: (factor, point) => reading.view(() => field.zoom(factor, point)),
   rotate: (delta, point) => reading.view(() => field.rotate(delta, point)),
   camera: () => field.state.camera,
+  geometricReading: () => {
+    const article = document.getElementById(`text-${field.selected().id}`);
+    return article?.dataset.readingLayout === "geometric" && field.hub.morph < 0.0001
+      ? { maxOffset: Number(article.dataset.maxFloat ?? 0), step: READING_LINE_STEP } : null;
+  },
   grasp: (delta) => reading.grasp(delta),
   graspGeometry: () => field.graspGeometry(),
   overview: () => field.state.overview,
@@ -125,19 +130,26 @@ const stopClock = startClock((now, dt) => {
   scene.setRetainedReading(reading.retainedReadingView);
   field.update(now, dt);
   soundscape.update(field.state, dt);
-  if (savedBackground !== field.state.settings.background) saveBackground(savedBackground = field.state.settings.background);
-  if (savedFrameRate !== field.state.settings.frameRate) saveFrameRate(savedFrameRate = field.state.settings.frameRate);
-  if (savedSound !== (field.state.settings.sound !== false)) saveSound(savedSound = field.state.settings.sound !== false);
-  if (savedReadingLayout !== field.state.settings.readingLayoutMode) {
-    saveReadingLayout(savedReadingLayout = field.state.settings.readingLayoutMode);
-    layoutControl.value = savedReadingLayout;
+  if (savedBackground !== field.state.settings.background) {
+    if (!demo) saveBackground(field.state.settings.background);
+    savedBackground = field.state.settings.background;
+  }
+  if (savedFrameRate !== field.state.settings.frameRate) {
+    if (!demo) saveFrameRate(field.state.settings.frameRate);
+    savedFrameRate = field.state.settings.frameRate;
+  }
+  if (savedSound !== (field.state.settings.sound !== false)) {
+    if (!demo) saveSound(field.state.settings.sound !== false);
+    savedSound = field.state.settings.sound !== false;
   }
   const task = reading.activeTask;
   scene.setLoadingGeometry(tasks.update(task, field.state, catalog, dt));
+  demoView?.update();
   scene.render(field.state);
-  layoutStatus.hidden = field.state.settings.readingLayoutMode !== "geometric" || field.state.overview || field.state.loading ||
-    document.getElementById(`text-${field.selected().id}`)?.dataset.readingLayout !== "window";
-  for (const correction of scene.takeReadingCorrections()) reading.restoreReadingOffset(correction.chapterId, correction.presentation, correction.textOffset);
+  for (const correction of scene.takeReadingCorrections()) {
+    if (correction.readingRows !== undefined) field.setReadingRows(correction.chapterId, correction.presentation, correction.readingRows);
+    if (correction.textOffset !== undefined) reading.restoreReadingOffset(correction.chapterId, correction.presentation, correction.textOffset);
+  }
   reading.afterRender((id, presentation) => {
     const article = document.getElementById(`text-${id}`);
     return article instanceof HTMLElement && !article.hidden && article.dataset.presentation === presentation;

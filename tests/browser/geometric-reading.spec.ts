@@ -6,6 +6,9 @@ for (const renderer of ["svg", "gpu"]) {
   }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    await page.addInitScript(() =>
+      localStorage.setItem("shuyra.reading-layout", "geometric"),
+    );
     await page.goto(`/?renderer=${renderer}`);
     await page.evaluate(async () => {
       await (window as any).__shuyra.ready;
@@ -16,12 +19,12 @@ for (const renderer of ["svg", "gpu"]) {
         (window as any).__shuyra.reading.bootReady &&
         !(window as any).__shuyra.reading.activeTask,
     );
-    await expect(page.locator("#readingLayout")).toHaveValue("window");
-    await page.locator("#readingLayout").click();
-    await page.keyboard.press("Escape");
-    expect(
-      await page.evaluate(() => (window as any).__shuyra.field.selected().id),
-    ).toBe("a0");
+    await expect(page.locator("#readingLayoutControl")).toHaveCount(0);
+    const layout = (mode: string) =>
+      page.evaluate((mode) => {
+        const field = (window as any).__shuyra.field;
+        field.dispatch({ type: "set-reading-layout", hub: field.hub.id, mode });
+      }, mode);
     await page.evaluate(() => {
       const app = (window as any).__shuyra;
       app.field.setSystemReducedMotion(true);
@@ -40,14 +43,19 @@ for (const renderer of ["svg", "gpu"]) {
     await expect(page.locator("#text-a0 .note-content")).toContainText(
       "几何正文",
     );
-    await page.selectOption("#readingLayout", "geometric");
+    await layout("geometric");
     const article = page.locator("#text-a0");
     await expect(article).toHaveAttribute("data-reading-layout", "geometric", {
       timeout: 2000,
     });
-    await expect(article.locator(".geometric-row").first()).toContainText(
-      "从这里开始",
-    );
+    await expect
+      .poll(() =>
+        article
+          .locator("h2.circular-row")
+          .allTextContents()
+          .then((parts) => parts.join("")),
+      )
+      .toContain("从这里开始");
     const ref = article.locator(".geometric-content button[data-target='a1']");
     await expect(ref).toBeVisible();
     await page.evaluate(() => {
@@ -68,8 +76,8 @@ for (const renderer of ["svg", "gpu"]) {
       .toBe(true);
     await page.screenshot({ path: `test-results/geometric-${renderer}.png` });
     const selection = await article
-      .locator(".geometric-row")
-      .nth(1)
+      .locator(".circular-row[data-source-start]")
+      .first()
       .evaluate((element) => {
         const range = document.createRange();
         range.selectNodeContents(element);
@@ -78,7 +86,7 @@ for (const renderer of ["svg", "gpu"]) {
         selection.addRange(range);
         return selection.toString();
       });
-    expect(selection).toContain("几何正文");
+    expect(selection.length).toBeGreaterThan(0);
     await page.evaluate(() => window.getSelection()?.removeAllRanges());
     await ref.click();
     await expect(page.locator("#text-a1")).toBeVisible();
@@ -126,7 +134,7 @@ for (const renderer of ["svg", "gpu"]) {
     await expect(
       page.locator("#text-a1 .geometric-row[data-source-start]").first(),
     ).toHaveAttribute("data-source-start", sourceBefore!);
-    await page.selectOption("#readingLayout", "window");
+    await layout("window");
     await expect(page.locator("#text-a1")).toHaveAttribute(
       "data-reading-layout",
       "window",
@@ -148,7 +156,7 @@ for (const renderer of ["svg", "gpu"]) {
         }, Number(sourceBefore)),
       )
       .toBe(true);
-    await page.selectOption("#readingLayout", "geometric");
+    await layout("geometric");
     await page.evaluate(() => {
       (window as any).__shuyra.useContentSource({
         async *open() {

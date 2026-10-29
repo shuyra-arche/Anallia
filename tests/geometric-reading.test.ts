@@ -6,6 +6,7 @@ import { layoutGeometricText } from "../src/rendering/geometric-text-layout.ts";
 import { R } from "../src/geometry/field.ts";
 
 const hub: Hub = {
+  readingLayoutMode: "geometric",
   id: "static", glyph: "A", theme: "dark", root: "a", center: { x: 0, y: 0 },
   angle: 0, morph: 0, targetMorph: 0, fold: 0, scroll: 0, scrollTarget: 0,
   textOffset: 0, textOffsetTarget: 0, path: ["a"], anchorOffset: 0,

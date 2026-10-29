@@ -14,6 +14,7 @@ interface InputPort {
   zoom(factor: number, point: Vec): void;
   rotate?(deltaDeg: number, point?: Vec): void;
   camera(): Camera;
+  geometricReading?(): { maxOffset: number; step?: number } | null;
   grasp(delta: number | null): void;
   graspGeometry(): {
     mode: "circle" | "line";
@@ -328,6 +329,12 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
         return;
       }
       const note = element(e.target)?.closest<HTMLElement>("article.note");
+      const geometric = note?.dataset.readingLayout === "geometric" ? port.geometricReading?.() : null;
+      if (geometric) {
+        e.preventDefault();
+        port.dispatch({ type: "float-text", delta: e.deltaY * (geometric.step ?? 30) / 100, maxOffset: geometric.maxOffset });
+        return;
+      }
       if (note) {
         const maxFloat = Number(note.dataset.maxFloat || 0);
         if (maxFloat > 0) {

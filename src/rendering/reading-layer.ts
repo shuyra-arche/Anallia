@@ -268,9 +268,9 @@ export class ReadingLayer {
           (s.camera.rotation * Math.PI) / 180,
         );
         const wasGeometric = article.dataset.readingLayout === "geometric";
-        const geometric = s.settings.readingLayoutMode === "geometric" && node.id !== this.catalog.searchRoot && this.catalog.sourceChapterId(node.id) === node.id
+        const geometric = hub.readingLayoutMode !== "window" && node.id !== this.catalog.searchRoot && this.catalog.sourceChapterId(node.id) === node.id
           ? this.geometric.render(article, this.catalog.document(node.id, presentation), node.title,
-            { hub, camera: s.camera, viewport: s.viewport, startS: position },
+            { hub, camera: s.camera, viewport: s.viewport, startS: position, bottomInset: Number(this.host.dataset.readingBottomInset ?? 0) },
             readingWidth(s.viewport, true), hub.textOffset, this.articleRenderer.fontVersion,
             wasGeometric ? undefined : this.readingPositions.get(node.id, presentation)?.source)
           : null;
@@ -288,6 +288,8 @@ export class ReadingLayer {
           article.style.opacity = String(surface ** 1.2);
           article.style.pointerEvents = "none";
           article.dataset.maxFloat = String(geometric.maxFloat);
+          if (geometric.readingRows !== undefined && node.id === this.selected(hub).id)
+            this.readingCorrections.push({ chapterId: node.id, presentation, readingRows: geometric.readingRows });
           if (Math.abs(hub.textOffset - geometric.textOffset) > 0.01) this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: geometric.textOffset });
           frames.push({ id: `reading:${node.id}`, chapterId: node.id, hubId: hub.id,
             presentation, visible: true, inert, left: 0, top: 0, width: s.viewport.width,

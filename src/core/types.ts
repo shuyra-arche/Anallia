@@ -40,7 +40,10 @@ export interface Chapter {
   children: string[];
   hub: string;
 }
+export type ReadingLayoutMode = "window" | "geometric";
+
 export interface HubDefinition {
+  readingLayoutMode?: ReadingLayoutMode;
   kind?: "search";
   layout?: "anchored";
   recommendations?: readonly string[];
@@ -55,6 +58,7 @@ export interface HubDefinition {
   parentHub?: string;
 }
 export interface Hub extends HubDefinition {
+  readingLayoutMode: ReadingLayoutMode;
   /** Screen-space outward bearing chosen when approaching this hub. */
   readingBearing?: number;
   readingStart?: number;
@@ -70,10 +74,7 @@ export interface Hub extends HubDefinition {
   localScroll: number;
   localScrollTarget: number;
 }
-export type ReadingLayoutMode = "window" | "geometric";
-
 export interface Settings {
-  readingLayoutMode: ReadingLayoutMode;
   background: BackgroundMode;
   frameRate: FrameRate;
   speed: number;
@@ -170,7 +171,7 @@ export interface FieldState {
   searchResults: string[];
 }
 export type Command =
-  | { type: "set-reading-layout"; mode: ReadingLayoutMode }
+  | { type: "set-reading-layout"; hub: string; mode: ReadingLayoutMode }
   | { type: "navigate"; target: string }
   | { type: "focus"; hub: string }
   | { type: "morph" }

@@ -297,6 +297,12 @@ export function frameFor(
   const z = Math.min(1.12, Math.max(1, w - 2 * margin) / width);
   const settled = { ...hub, scroll, morph: hub.targetMorph };
   const s = nodeS(settled, scroll, count, camera, viewport);
+  if (hub.readingLayoutMode === "geometric" && hub.targetMorph === 0 && hub.fold === 0) {
+    const normal = outwardNormal(settled, s);
+    const centerX = Math.min(w * .32, w - margin - (R + 76 + width) * z);
+    return cameraPinnedToPoint(hub.center, V(centerX, h / 2), { ...camera, z }, viewport,
+      -Math.atan2(normal.y, normal.x) * 180 / Math.PI);
+  }
   const p = material(settled, s, 76);
   const rotation = readingRotation(settled, scroll, count, camera, viewport);
   const normal = rot(outwardNormal(settled, s), (rotation * Math.PI) / 180);

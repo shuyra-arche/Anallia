@@ -1,3 +1,4 @@
+import { circularReadingCamera, circularReadingPose, circularReadingSlots, READING_LINE_STEP, READING_RING_CAPACITY } from "../geometry/circular-reading.ts";
 import type { GraspReadingSnapshot } from "../core/types.ts";
 import { frameRateFromAction, frameRateLabel } from "../core/frame-rate.ts";
 import {
@@ -65,6 +66,8 @@ export class Field {
   private autoFit = true;
   private graspStart: number | null = null;
   private queuedCommand: Command | null = null;
+  private readingReference: { chapterId: string; bearing: number } | null = null;
+  private readonly readingRows = new Map<string, number>();
   private now = 0;
   private systemReducedMotion: boolean;
   readonly catalog: Catalog;
@@ -78,6 +81,7 @@ export class Field {
           h.id,
           {
             ...h,
+            readingLayoutMode: h.readingLayoutMode ?? "window",
             center: { ...h.center },
             readingBearing: h.angle,
             readingStart: 0,
@@ -100,7 +104,6 @@ export class Field {
       camera: { x: 0, y: 0, z: 1, rotation: 0 },
       viewport,
       settings: {
-        readingLayoutMode: "window",
         background: "flow",
         speed: 1,
         range: 0.62,
@@ -409,6 +412,10 @@ export class Field {
   setContentGate(gate: ((command: Command) => boolean) | null) {
     this.contentGate = gate;
   }
+  setReadingRows(chapterId: string, presentation: "circle" | "line", count: number): void {
+    if (presentation === "circle" && Number.isSafeInteger(count) && count > 0 && this.catalog.chapters.has(chapterId))
+      this.readingRows.set(chapterId, count);
+  }
   restoreReadingOffset(chapterId: string, presentation: "circle" | "line", offset: number): void {
     if (this.selected().id !== chapterId || (this.hub.morph > 0.5 ? "line" : "circle") !== presentation || !Number.isFinite(offset)) return;
     this.hub.textOffset = this.hub.textOffsetTarget = Math.max(0, offset);
@@ -417,7 +424,8 @@ export class Field {
     if (this.contentGate?.(command)) return;
     const s = this.state;
     if (command.type === "set-reading-layout") {
-      s.settings.readingLayoutMode = command.mode;
+      const hub = s.hubs[command.hub];
+      if (hub) hub.readingLayoutMode = command.mode;
       return;
     }
     if (command.type === "search") {
@@ -733,7 +741,6 @@ export class Field {
       return;
     }
     if (action === "reset_defaults") {
-      settings.readingLayoutMode = "window";
       settings.background = "flow";
       settings.range = 0.62;
       settings.blur = 1;
@@ -917,6 +924,14 @@ export class Field {
       this.state.morphTurn
     )
       return;
+    if (this.hub.readingLayoutMode !== "window") {
+      this.tween = null;
+      this.follow = false;
+      this.autoFit = false;
+      this.state.camera.rotation += deltaDeg;
+      // Manual orientation stays authoritative until reading advances again.
+      return;
+    }
     this.tween = null;
     this.follow = false;
     this.autoFit = false;
@@ -949,6 +964,16 @@ export class Field {
         s.camera.rotation + (Math.atan2(n.y, n.x) * 180) / Math.PI;
     }
   }
+  private geometricReadingActive(): boolean {
+    const s = this.state, hub = this.hub;
+    if (hub.readingLayoutMode === "window" || hub.morph > 0.0001 || hub.fold !== 0 ||
+        s.overview || s.loading || s.passage || s.morphTurn || s.contentTurn || this.graspStart !== null) return false;
+    const id = this.selected().id;
+    if (id === this.catalog.searchRoot || this.catalog.sourceChapterId(id) !== id) return false;
+    const document = this.catalog.document(id, "circle");
+    return document.blocks.length > 0 && document.blocks.every(block => block.kind === "paragraph");
+  }
+
   get isAnimating(): boolean {
     return !!(
       this.tween ||
@@ -1118,6 +1143,17 @@ export class Field {
       this.queuedCommand = null;
       this.dispatch(queued);
     }
+    if (this.geometricReadingActive() && !this.tween && !this.follow) {
+      const h = this.hub, chapterId = this.selected().id;
+      const along = nodeS(h, h.scroll, this.siblings().length, s.camera, s.viewport);
+      const slots = circularReadingSlots(this.readingRows.get(chapterId) ?? READING_RING_CAPACITY);
+      const pose = circularReadingPose(h, along, h.textOffset / READING_LINE_STEP, 1, 2 * Math.PI / slots);
+      const previous = this.readingReference;
+      const fromBearing = previous?.chapterId === chapterId ? previous.bearing : -s.camera.rotation;
+      if (Math.abs(fromBearing - pose.baselineAngle) > 1e-9)
+        Object.assign(s.camera, circularReadingCamera(h, fromBearing, pose.baselineAngle, s.camera));
+      this.readingReference = { chapterId, bearing: pose.baselineAngle };
+    } else this.readingReference = null;
     while (this.impulses.length && s.elapsed - this.impulses[0].started >= 2200)
       this.impulses.shift();
   }

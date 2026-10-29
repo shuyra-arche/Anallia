@@ -11,7 +11,8 @@ export interface ReadingPosition {
 export interface ReadingCorrection {
   chapterId: string;
   presentation: "circle" | "line";
-  textOffset: number;
+  textOffset?: number;
+  readingRows?: number;
 }
 interface SavedPosition { value: ReadingPosition; signature: string }
 

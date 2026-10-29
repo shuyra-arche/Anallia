@@ -1,7 +1,15 @@
+import {
+  circularReadingPose,
+  circularReadingOpacity,
+  circularReadingSlots,
+  READING_LINE_STEP,
+} from "../geometry/circular-reading.ts";
 import { isContentAction } from "../core/content-actions.ts";
 import { prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 import type { ContentBlock, ContentDocument, Inline } from "../core/content.ts";
 import type { Camera, Hub, Viewport } from "../core/types.ts";
+import { R } from "../geometry/field.ts";
+import { worldToScreen } from "../geometry/field.ts";
 import { geometricReadingLines } from "../geometry/geometric-reading.ts";
 import {
   captureReadingSelection,
@@ -22,12 +30,13 @@ export interface BrokenRow {
   runs: GeometricRun[];
   blockId: string;
   heading: boolean;
+  width?: number;
 }
 export type BreakText = (
   text: string,
   font: string,
   width: number,
-) => { start: number; end: number }[];
+) => { start: number; end: number; width?: number }[];
 
 /** Pretext cursors count graphemes within segments, while source ranges count UTF-16 units. */
 export const breakGeometricText: BreakText = (text, font, width) => {
@@ -55,6 +64,7 @@ export const breakGeometricText: BreakText = (text, font, width) => {
   return layoutWithLines(prepared, width, 26).lines.map((line) => ({
     start: offsetAt(line.start),
     end: offsetAt(line.end),
+    width: line.width,
   }));
 };
 
@@ -84,9 +94,33 @@ export class GeometricTextCache {
       spans.push({ inline, start: offset, end: offset + inline.text.length });
       offset += inline.text.length;
     }
-    const rows = this.breakText(text, font, width).map(({ start, end }) => ({
+    let consumed = 0;
+    const ranges = this.breakText(text, font, width).flatMap((range) => {
+      const start = Math.max(consumed, range.start);
+      let end = range.end;
+      if (end <= start) return [];
+      for (const span of spans)
+        if (
+          span.inline.type === "reference" &&
+          span.start < end &&
+          end < span.end
+        )
+          end = span.end;
+      consumed = end;
+      const measuredWidth =
+        start === range.start && end === range.end
+          ? range.width
+          : this.breakText(
+              text.slice(start, end),
+              font,
+              Number.MAX_SAFE_INTEGER,
+            )[0]?.width;
+      return [{ start, end, width: measuredWidth }];
+    });
+    const rows = ranges.map(({ start, end, width }) => ({
       blockId: block.id,
       heading: false,
+      width,
       runs: spans.flatMap((span) => {
         const lo = Math.max(start, span.start),
           hi = Math.min(end, span.end);
@@ -120,6 +154,14 @@ interface ArticleRows {
   title: string;
   titleBlock: ContentBlock;
   layoutKey: string;
+  activeSource?: number;
+  circleActive?: boolean;
+  circle?: {
+    document: ContentDocument;
+    key: string;
+    rows: BrokenRow[];
+    nodes: Map<number, HTMLElement>;
+  };
 }
 
 export class GeometricArticle {
@@ -131,20 +173,186 @@ export class GeometricArticle {
   }
 
   firstSource(article: HTMLElement): number | undefined {
-    return this.states.get(article)?.rows.find((row) => !row.heading)?.runs[0]
-      ?.start;
+    const state = this.states.get(article);
+    return (
+      state?.activeSource ??
+      state?.rows.find((row) => !row.heading)?.runs[0]?.start
+    );
+  }
+
+  private renderCircle(
+    article: HTMLElement,
+    state: ArticleRows,
+    document: ContentDocument,
+    geometry: {
+      hub: Hub;
+      camera: Camera;
+      viewport: Viewport;
+      startS: number;
+      bottomInset?: number;
+    },
+    family: string,
+    fontVersion: string,
+    width: number,
+    offset: number,
+    source?: number,
+  ): { maxFloat: number; textOffset: number; readingRows?: number } | null {
+    const key = JSON.stringify([family, fontVersion, width, state.title]);
+    let readingSource = source;
+    if (
+      !state.circle ||
+      state.circle.document !== document ||
+      state.circle.key !== key
+    ) {
+      readingSource ??= state.activeSource;
+      let rows: BrokenRow[];
+      try {
+        rows = [
+          ...this.cache
+            .layout(state.titleBlock, `600 16px ${family}`, width, fontVersion)
+            .map((row) => ({ ...row, heading: true })),
+          ...document.blocks.flatMap((block) =>
+            this.cache.layout(block, `14px ${family}`, width, fontVersion),
+          ),
+        ];
+      } catch {
+        return null;
+      }
+      clearIndexedRanges(state.root);
+      state.root.replaceChildren();
+      state.circle = { document, key, rows, nodes: new Map() };
+      state.signature = "";
+    }
+    const { rows, nodes } = state.circle;
+    if (!state.circleActive) {
+      clearIndexedRanges(state.root);
+      state.root.replaceChildren();
+      nodes.clear();
+    }
+    state.circleActive = true;
+    const maxFloat = Math.max(0, rows.length - 1) * READING_LINE_STEP;
+    const sourceRow =
+      readingSource === undefined
+        ? -1
+        : readingSource === 0
+          ? 0
+          : rows.findIndex(
+              (row) =>
+                !row.heading &&
+                row.runs.some((run) => run.end > readingSource!),
+            );
+    const textOffset = Math.max(
+      0,
+      Math.min(
+        maxFloat,
+        sourceRow >= 0 ? sourceRow * READING_LINE_STEP : offset,
+      ),
+    );
+    const progress = textOffset / READING_LINE_STEP;
+    const { hub, camera, viewport, startS } = geometry;
+    const slots = circularReadingSlots(Math.max(1, rows.length));
+    const lineAngle = 2 * Math.PI / slots;
+    const first = Math.max(0, Math.floor(progress) - 1),
+      last = Math.min(rows.length - 1, Math.floor(progress) + slots);
+    const visible = new Set<number>();
+    let order = 0;
+    for (let index = first; index <= last; index++) {
+      const opacity = circularReadingOpacity(index, progress, slots);
+      if (opacity <= 0.001) continue;
+      visible.add(index);
+      const row = rows[index],
+        pose = circularReadingPose(hub, startS, index, R + 76 + width / 2, lineAngle);
+      const anchor = worldToScreen(pose.point, camera, viewport);
+      let element = nodes.get(index);
+      if (!element) {
+        element = article.ownerDocument.createElement(
+          row.heading ? "h2" : "div",
+        );
+        element.className = "geometric-row circular-row";
+        if (!row.heading)
+          setBlockSourceRange(
+            element,
+            row.blockId,
+            row.runs[0]?.start ?? 0,
+            row.runs.at(-1)?.end ?? 0,
+          );
+        for (const run of row.runs) {
+          if (
+            run.target &&
+            (isContentAction(run.target) || this.chapterExists(run.target))
+          ) {
+            const button = article.ownerDocument.createElement("button");
+            button.type = "button";
+            button.className = "inline-ref";
+            button.dataset.target = button.dataset.refId = run.target;
+            button.textContent = run.text;
+            element.append(button);
+            indexElementRange(
+              state.root,
+              button,
+              run.start,
+              run.end,
+              row.blockId,
+            );
+          } else {
+            const text = article.ownerDocument.createTextNode(run.text);
+            element.append(text);
+            if (!row.heading)
+              indexTextRange(state.root, text, run.start, run.end, row.blockId);
+          }
+        }
+        nodes.set(index, element);
+      }
+      const at = state.root.children[order++] ?? null;
+      if (at !== element) state.root.insertBefore(element, at);
+      const angle =
+        ((((pose.baselineAngle + camera.rotation + 90) % 180) + 180) % 180) -
+        90;
+      element.style.width = `${width}px`;
+      element.style.transform = `translate(${anchor.x}px,${anchor.y}px) rotate(${angle}deg) scale(${camera.z}) translate(-50%,-50%)`;
+      element.style.opacity = String(opacity);
+      element.inert = opacity < 0.45;
+      element.dataset.baselineAngle = String(angle);
+      element.dataset.readingRow = String(index);
+    }
+    for (const [index, node] of nodes)
+      if (!visible.has(index)) {
+        clearIndexedRanges(state.root, node);
+        node.remove();
+        nodes.delete(index);
+      }
+    state.rows = [...visible].map((index) => rows[index]);
+    state.activeSource =
+      rows.slice(Math.floor(progress)).find((row) => !row.heading)?.runs[0]
+        ?.start ?? 0;
+    state.root.style.fontFamily = family;
+    state.root.style.position = "absolute";
+    state.root.style.width = `${viewport.width}px`;
+    state.root.style.height = `${viewport.height}px`;
+    state.root.style.clipPath = `inset(0 0 ${geometry.bottomInset ?? 0}px 0)`;
+    state.root.dataset.readingSource = String(state.activeSource);
+    state.root.dataset.readingProgress = String(progress);
+    state.root.dataset.readingSlots = String(slots);
+    state.root.dataset.readingRows = String(rows.length);
+    return { maxFloat, textOffset, readingRows: rows.length };
   }
 
   render(
     article: HTMLElement,
     document: ContentDocument,
     title: string,
-    geometry: { hub: Hub; camera: Camera; viewport: Viewport; startS: number },
+    geometry: {
+      hub: Hub;
+      camera: Camera;
+      viewport: Viewport;
+      startS: number;
+      bottomInset?: number;
+    },
     width: number,
     offset: number,
     fontVersion: string,
     source?: number,
-  ): { maxFloat: number; textOffset: number } | null {
+  ): { maxFloat: number; textOffset: number; readingRows?: number } | null {
     if (
       !document.blocks.length ||
       document.blocks.some((block) => block.kind !== "paragraph")
@@ -190,6 +398,27 @@ export class GeometricArticle {
     );
     const family = computed?.fontFamily || "sans-serif";
     const font = `14px ${family}`;
+    if (hub.morph < 0.0001 && hub.fold === 0)
+      return this.renderCircle(
+        article,
+        state,
+        document,
+        geometry,
+        family,
+        fontVersion,
+        width,
+        offset,
+        source,
+      );
+    if (state.circleActive) {
+      state.circleActive = false;
+      clearIndexedRanges(state.root);
+      state.root.replaceChildren();
+      state.circle?.nodes.clear();
+      state.signature = "";
+      state.activeSource = undefined;
+      state.root.style.clipPath = "none";
+    }
     const lineHeight = 30;
     let rows: BrokenRow[];
     try {

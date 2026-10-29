@@ -300,3 +300,37 @@ test("list settings keep their structure and invalidate height after active opti
     dom.close();
   }
 });
+
+test("geometric reading consumes only article wheel events and preserves blank, ordinary and local label scrolling", () => {
+  const dom = setupDOM(), commands: Command[] = [], rotations: number[] = [];
+  const article=dom.window.document.createElement("article");
+  article.className="note"; article.dataset.readingLayout="geometric"; article.dataset.maxFloat="900";
+  const row=dom.window.document.createElement("div"); row.className="circular-row"; article.append(row);
+  const label=dom.window.document.createElement("span"); label.className="tag-group";
+  const local=dom.window.document.createElement("span"); local.dataset.localScroll="true";
+  dom.host.append(article, label, local);
+  let readingCalls=0;
+  const dispose=bindInput(dom.host, {
+    dispatch: command=>commands.push(command), pan:()=>{},zoom:()=>{},rotate:angle=>rotations.push(angle),
+    camera:()=>({x:0,y:0,z:1,rotation:0}), geometricReading:()=>{readingCalls++;return {maxOffset:900,step:30};},
+    grasp:()=>{},graspGeometry:()=>null,overview:()=>false,loading:()=>false,exitLoading:()=>{},resolve:()=>undefined,
+  });
+  const wheel=(target: Element, deltaY: number)=>target.dispatchEvent(new dom.window.WheelEvent("wheel",{bubbles:true,cancelable:true,deltaY}));
+  try {
+    wheel(row as unknown as Element,100);
+    wheel(dom.host,100);
+    wheel(row as unknown as Element,-100);
+    wheel(dom.host,-100);
+    wheel(label as unknown as Element,100);
+    wheel(local as unknown as Element,45);
+    assert.deepEqual(commands,[
+      {type:"float-text",delta:30,maxOffset:900},{type:"step",delta:1},
+      {type:"float-text",delta:-30,maxOffset:900},{type:"step",delta:-1},
+      {type:"step",delta:1},{type:"scroll-local",delta:1},
+    ]);
+    assert.equal(readingCalls,2);
+    const alt=new dom.window.WheelEvent("wheel",{bubbles:true,cancelable:true,deltaY:150});
+    Object.defineProperty(alt,"altKey",{value:true}); row.dispatchEvent(alt);
+    assert.deepEqual(rotations,[18]); assert.equal(readingCalls,2);
+  } finally { dispose(); dom.close(); }
+});

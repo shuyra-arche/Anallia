@@ -458,6 +458,7 @@ export class Scene {
       ]),
       Object.values(s.hubs).map((h) => [
         h.id,
+        h.readingLayoutMode,
         h.angle,
         h.anchorOffset,
         h.readingBearing,
