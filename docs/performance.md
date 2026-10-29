@@ -37,7 +37,7 @@
 
 Browser checks use `npm run test:browser`: one worker, a 3 GiB process-group cap, no swap, 150% CPU quota and a 110 second hard limit. These checks establish behavior, not timing targets. GitHub Pages uses serial tests in its isolated job, with a 256 MiB JavaScript heap and a three minute step timeout, because that runner has no desktop user-systemd session.
 
-## 2026-10-29 当前受限浏览器测量
+## 2026-10-29 相机复用检查点测量（历史）
 
 源码 `ac56117`，Vite 开发模式，Chromium 156.0.8078.4 / Linux，1366×820，DPR 1，ANGLE SwiftShader Vulkan 软件 GPU。每次测量在 3GiB、无交换、CPU 150%、110 秒全进程组限制下串行执行；这些限制也影响软件栅格化，不能与上面的无限额历史基线直接比较。
 
@@ -49,3 +49,16 @@ Browser checks use `npm run test:browser`: one worker, a 3 GiB process-group cap
 SVG 路径在本次环境达到帧间隔 ≤20ms、流式提交 ≤4ms 的目标；软件 WebGL 未达到。两项测试通过表示内容完整、节点稳定、漂移及无页面异常检查通过，不能称软件 WebGL 性能验收通过。每篇 500 段、100000 个汉字及 998 个换行符；每次动画帧注入最多 1024 字符，不模拟打字延迟。提交统计包含内容 flush、文章同步、预排版与正文高度读取，不是整个浏览器绘制耗时。
 
 原始逐帧 JSON 与日志位于仓库外 `work/refactor-20261029/performance-ac56117/`。随后 `auto` 会对明确识别到的软件渲染器选择 SVG，`renderer=gpu` 仍允许强制测试。未知设备信息不冒充硬件或软件判定。真实 GPU、真实移动设备与第二台局域网设备仍未验收；之后源码修改还需要最终重新测量。
+
+## 2026-10-29 最终源码测量
+
+验证提交 `75886f1`，运行时源码 `1087ee7`。仍使用 Chromium 156.0.8078.4 / Linux、1366×820、DPR 1、ANGLE SwiftShader Vulkan，Vite 开发模式；单工作者、3GiB、禁用交换、CPU 150%、110 秒整组时限。默认和强制 GPU 串行测量，环境中没有 `/dev/dri`，不代表真实硬件 GPU 性能。
+
+| 请求 / 实际后端 | 30 秒路线 rAF 间隔 P95 | Scene 提交 P95 | 十万字流间隔 P95 | 流式提交 P95 | 阅读漂移 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| auto / SVG | 16.8ms | 3.6ms | 16.8ms | 3.2ms | 0px |
+| gpu / 软件 WebGL | 200ms | 85.5ms | 200ms | 3.5ms | 0px |
+
+默认路径达到本次 ≤20ms / ≤4ms 目标；强制软件 WebGL 的帧间隔未达到目标。两项功能检查都完整接收 100000 个汉字加 998 个换行符，均提交 100 批、稳定文字节点仍连接、没有页面异常。统计方法与上述检查点相同，流式提交只计内容发布、文章同步、预排版及正文高度读取，rAF 间隔也不等于完成绘制帧率。
+
+原始 JSON、日志、浏览器身份及资源范围保存在 `/home/anreonyr/Documents/shuyra/work/refactor-20261029/final-75886f1/browser-performance/` 和同目录的 `browser-performance.log`、`manifest.json`。正式默认 auto 尝试 WebGL，明确识别软件设备后在本会话保持 SVG；初始化失败或上下文丢失同样回退。保留强制 GPU 参数用于对照。真实硬件 GPU、第二台局域网设备及真实手机仍待验收。

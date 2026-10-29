@@ -9,7 +9,7 @@
 | geometry    | Möbius 变换、投影、曲线裁剪、镜头构图 | 仅依赖 core；所有镜头和视口参数显式传入                      |
 | application | 阅读状态、命令、返回快照、过场推进    | 依赖 core / content / geometry；不访问 DOM、事件或浏览器时间 |
 | rendering   | 数值场景、GPU / SVG 后端、正文与语义代理 | 后端只消费 SceneFrame；正文用 DOM，不执行导航 |
-| effects     | 背景场、独立 V24 动画                 | 接收镜头、时间、配置；不修改阅读路径                         |
+| effects     | 背景场与开发用 V24 兼容内核                 | 接收镜头、时间、配置；不修改阅读路径                         |
 | platform    | 浏览器输入适配、帧时钟                | 输入面向端口，时钟面向回调；不依赖应用实现                   |
 
 数据流：浏览器事件 → Command → Field → FieldState → SceneFrame → WebGL / SVG；ContentSource → ContentStore 网络快照 → 主帧发布版本 → 正文 DOM。已发布正文和请求快照分开，刷新不会清空可读版本；Catalog 委派正文读取，只维护元数据与完成版全文索引。
@@ -26,7 +26,7 @@ SceneFrame 以屏幕 CSS 坐标保存曲线、裁剪、图层、标签、命中�
 
 添加文章只需修改内容定义。修改投影或圆线模型只需修改 geometry。修改输入手势只需修改 platform/input。更换 DOM 渲染方式时可保留内容、几何和应用状态机。
 
-加载内核保留原蓝图的 JavaScript 实现，作为局部兼容边界；只通过 `start / exit / update` 和两个回调通信。入口保留新版的 `window.__shuyra` 调试对象和章节、形态、主题 URL 参数，用于关键帧检查。正文构建保留在 `rendering/article.ts`，图标和示例由场景渲染器注入。局部标签的入退场由 `rendering/local-labels.ts` 以统一逻辑时间推进：保留旧标签身份直到退场结束，新组随后展开；动画期间不注册点击动作，稳定后恢复静态零 DOM 改动。
+正式加载由 ReadingSession 和 LoadController 维护任务，TaskGeometry 把数值三圆姿态放到目标材料锚点，随 SceneFrame 交给后端；原蓝图的 JavaScript 内核仅保留开发预览和兼容测试。入口保留 `window.__shuyra` 调试对象和章节、形态、主题 URL 参数，用于关键帧检查；内容源注入只在开发模式存在。正文构建保留在 `rendering/article.ts`，图标和示例由场景渲染器注入。局部标签的入退场由 `rendering/local-labels.ts` 以统一逻辑时间推进：保留旧标签身份直到退场结束，新组随后展开；动画期间不注册点击动作，稳定后恢复静态零 DOM 改动。
 
 ## 测试
 
@@ -48,3 +48,7 @@ SceneFrame 以屏幕 CSS 坐标保存曲线、裁剪、图层、标签、命中�
 
 
 数值 SVG 与 Pixi WebGL 后端已接入同一 SceneFrame，使用同一 CPU 命中。正文由 ReadingLayer 挂载并生成 ReadingFrame，标签数值与命中计算位于 geometry/labels.ts，SemanticLabels 消费帧维护稳定语义代理，反馈监听位于 semantic-feedback.ts。geometry/scene-frame.ts 纯计算数值场景，Scene 负责组合、主机状态与提交；旧隐藏 SVG 枢、关联线和过场已停止重复绘制，标签语义代理暂保留兼容子元素。实现和验证的具体范围以 [重构验收记录](refactor-status.md) 为准。
+
+HoverFeedback 统一仲裁指针与键盘焦点；semantic-feedback 只适配 DOM 事件，CPU 命中使用相同端口。释放一方恢复另一方，条件清理避免旧事件覆盖新目标。后端异步选择不直接切换可见性，主帧完成当前相机绘制后才更新宿主标记。
+
+未缓存抓握期间，ReadingSession 保留旧正文的路径、源位置与视图；首批排版可读后仅交接一次。用户主动平移、缩放、旋转投影到保留正文，自动导航取景不会拖动它；取消保持最新手动相机和阅读位置。页面隐藏暂停展示并合并源更新，加载姿态扣除隐藏时间，TaskGeometry 只使用主帧 dt。
