@@ -293,6 +293,7 @@ export class Scene {
   private lastRenderKey = "";
   private lastState: FieldState | null = null;
   private heights = new Map<string, number>();
+  private readingWindows = new Map<string, { geometry: string; height: number; held: boolean }>();
   private measuredSettings = "";
   private readonly articleRenderer: ArticleRenderer;
   private readonly localLabelTurns = new LocalLabelTurns();
@@ -312,6 +313,7 @@ export class Scene {
   private loadingGeometry: LoadingGeometry | null = null;
   private loadingRoot: SVGGElement;
   private contentRevision = 0;
+  private contentProbe: HTMLElement | null = null;
   private readonly amberColors = new Map<Theme, string>();
 
   setLoadingGeometry(geometry: LoadingGeometry | null): void { this.loadingGeometry = geometry; }
@@ -338,11 +340,36 @@ export class Scene {
     this.currentFrame.layers.push(sceneLayer("loading", 70, primitives));
   }
 
+  prepareContent(id: string, presentation: "circle" | "line"): boolean {
+    const node = this.catalog.get(id);
+    const document = this.catalog.document(id, presentation);
+    if (!document.blocks.length) return document.complete;
+    const probe = this.contentProbe ??= this.host.ownerDocument.createElement("div");
+    if (!probe.parentNode) {
+      probe.setAttribute("aria-hidden", "true");
+      probe.style.cssText = "position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;transform:none;height:auto;filter:none";
+      probe.append(this.host.ownerDocument.createElement("p"));
+      this.reading.append(probe);
+    }
+    const long = document.blocks.length > 1 || document.source.length > 220 || !document.complete;
+    probe.className = `note${long ? " is-long" : ""}`;
+    const width = readingWidth(this.lastState?.viewport ?? { width: this.host.clientWidth, height: this.host.clientHeight }, long);
+    probe.style.width = `${width}px`;
+    const tail = document.blocks.at(-1)!;
+    const paragraph = probe.firstElementChild as HTMLElement;
+    const text = tail.inline.map(inline => inline.text).join("");
+    if (paragraph.textContent !== text) paragraph.textContent = text;
+    const height = this.articleRenderer.estimateArticleHeight(probe, node, presentation, width);
+    return Number.isFinite(height) && height > 0 && (tail.stable || tail.kind === "icons" || paragraph.offsetHeight > 0);
+  }
+
   invalidateLayout(fontsChanged = false) {
-    if (fontsChanged) this.articleRenderer.invalidateFonts();
+    if (fontsChanged) {
+      this.articleRenderer.invalidateFonts();
+      this.gpu?.invalidateGlyphs("font");
+    }
     this.heights.clear();
     this.lastRenderKey = "";
-    this.gpu?.invalidateGlyphs("font");
   }
 
   get isAnimating(): boolean {
@@ -1809,7 +1836,7 @@ export class Scene {
       : undefined;
     const visualTheme =
       s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
-    const bucket = Math.floor(s.elapsed / 40);
+    const bucket = s.settings.background === "none" || s.settings.reducedMotion ? 0 : Math.floor(s.elapsed / 40);
     const key = JSON.stringify([
       s.settings.background,
       visualTheme,
@@ -1901,6 +1928,7 @@ export class Scene {
       this.articleRenderer.releaseArticle(article);
       article.remove();
       this.articles.delete(id);
+      this.readingWindows.delete(id);
       excess--;
     }
   }
@@ -1932,7 +1960,7 @@ export class Scene {
         const article = this.articleFor(node.id),
           depth = 1 - surface,
           presentation = morph > 0.5 ? "line" : "circle";
-        this.articleRenderer.syncArticle(article, node, hub, presentation);
+        const contentChange = this.articleRenderer.syncArticle(article, node, hub, presentation);
         if (node.id === this.catalog.searchRoot) {
           const input = article.querySelector<HTMLInputElement>(
             "input.hub-search-input",
@@ -1996,10 +2024,18 @@ export class Scene {
           height = article.querySelector<HTMLElement>(".note-content")!.offsetHeight || preparedHeight;
           this.heights.set(heightKey, height);
         }
-        const panelHeight = Math.min(
+        const windowGeometry = JSON.stringify([
+          presentation, widthStr, s.viewport.height, s.camera.z,
+          anchorPt.x, anchorPt.y, normal.x, normal.y, depth, page?.angle ?? 0,
+        ]);
+        const previousWindow = this.readingWindows.get(node.id);
+        const held = previousWindow?.geometry === windowGeometry &&
+          contentChange !== "replace" && (previousWindow.held || contentChange === "append");
+        const panelHeight = held ? previousWindow.height : Math.min(
           height,
           readingHeight(s.viewport, s.camera.z, normal.y),
         );
+        this.readingWindows.set(node.id, { geometry: windowGeometry, height: panelHeight, held });
         const panelHeightStr = `${panelHeight.toFixed(1)}px`;
         if (article.style.height !== panelHeightStr)
           article.style.height = panelHeightStr;
@@ -2145,6 +2181,8 @@ export class Scene {
     for (const article of this.articles.values()) this.articleRenderer.releaseArticle(article);
     this.articles.clear();
     this.reading.replaceChildren();
+    this.contentProbe = null;
+    this.readingWindows.clear();
     this.hudControls.remove();
     this.actions.clear();
     delete this.host.dataset.renderer;

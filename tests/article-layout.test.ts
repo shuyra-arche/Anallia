@@ -197,7 +197,11 @@ test("syncArticle updates stable block ids in place and keeps focus, input and u
     const windowElement = article.querySelector(".note-window")!;
     const first = article.querySelector<HTMLElement>('[data-block-id="p1"]')!;
     const firstText = first.firstChild!;
+    const observer = new dom.window.MutationObserver(() => {});
+    observer.observe(first, { attributes: true, characterData: true, childList: true, subtree: true });
     const second = article.querySelector<HTMLElement>('[data-block-id="p2"]')!;
+    const blockObserver = new dom.window.MutationObserver(() => {});
+    blockObserver.observe(content, { childList: true });
     const input = article.querySelector<HTMLInputElement>(".hub-search-input")!;
     input.value = "检索正文";
     input.focus();
@@ -213,10 +217,15 @@ test("syncArticle updates stable block ids in place and keeps focus, input and u
     );
     renderer.syncArticle(article, node, hub, "circle");
 
+    const removals = blockObserver.takeRecords().flatMap(record => [...record.removedNodes]);
+    blockObserver.disconnect();
+    assert.ok(!removals.includes(first) && !removals.includes(second));
     assert.ok(article.querySelector(".note-window") === windowElement);
     assert.ok(article.querySelector(".note-content") === content);
     assert.ok(article.querySelector('[data-block-id="p1"]') === first);
     assert.ok(first.firstChild === firstText);
+    assert.equal(observer.takeRecords().length, 0);
+    observer.disconnect();
     assert.equal(firstText.textContent, "Alpha");
     assert.ok(article.querySelector('[data-block-id="p2"]') === second);
     assert.equal(second.textContent, "Beta and more");
@@ -488,5 +497,21 @@ test("closed references become buttons only when their chapter or action target 
     renderer.syncArticle(article, node, hub, "circle");
     assert.equal(article.querySelectorAll(".inline-ref").length, 0);
     assert.equal(article.querySelector("p")?.textContent, raw);
+  } finally { dom.close(); }
+});
+
+test("switching both expressions repeatedly does not reuse the other expression's version", () => {
+  const dom = setup(), catalog = makeCatalog();
+  const article = document.createElement("article");
+  document.body.append(article);
+  const renderer = makeRenderer(catalog);
+  try {
+    catalog.setDocument("circle", documentOf([textBlock("p", "圆表达", 0)]));
+    catalog.setDocument("line", documentOf([textBlock("p", "线表达", 0)]));
+    for (const presentation of ["circle", "line", "circle", "line"] as const) {
+      renderer.syncArticle(article, node, hub, presentation);
+      assert.equal(article.dataset.presentation, presentation);
+      assert.equal(article.querySelector("p")?.textContent, presentation === "circle" ? "圆表达" : "线表达");
+    }
   } finally { dom.close(); }
 });

@@ -140,3 +140,72 @@ test("refresh keeps the old body on failure and explicit retry replaces it witho
     assert.equal(field.catalog.get("a0").expressions.circle, "重试正文");
   } finally { reading.destroy(); }
 });
+
+test("a failed expression switch retries the failed presentation and its original morph intent", async () => {
+  const { source, field, reading, frame } = setup();
+  source.held.add("a0:line");
+  reading.startup("a0", Promise.resolve());
+  await frame(20);
+  try {
+    field.dispatch({ type: "morph" });
+    await frame(200);
+    source.latest("a0", "line").finish(new Error("line offline"));
+    await frame(220);
+    assert.equal(reading.error?.presentation, "line");
+    assert.equal(field.hub.targetMorph, 0);
+    field.dispatch({ type: "navigate", target: "act:retry_content" });
+    await tick();
+    source.latest("a0", "line").push("线表达", "replace");
+    source.latest("a0", "line").finish();
+    await frame(250);
+    assert.equal(field.hub.targetMorph, 1);
+    assert.equal(field.catalog.get("a0").expressions.line, "线表达");
+  } finally { reading.destroy(); }
+});
+
+test("new cached navigation clears an error attached to the old chapter", async () => {
+  const { source, store, field, reading, frame } = setup();
+  reading.startup("a0", Promise.resolve());
+  await frame(20);
+  await store.start("a1", "circle").done;
+  reading.flush(30);
+  source.held.add("a0:circle");
+  try {
+    reading.refresh();
+    await tick();
+    source.latest("a0").finish(new Error("offline"));
+    await frame(200);
+    assert.ok(reading.error);
+    field.dispatch({ type: "navigate", target: "a1" });
+    await frame(220);
+    assert.equal(reading.error, null);
+    assert.equal(field.selected().id, "a1");
+  } finally { reading.destroy(); }
+});
+
+
+test("history return reopens a cancelled partial body without consuming history before it is readable", async () => {
+  const { source, field, reading, frame } = setup();
+  source.held.add("a0:circle");
+  reading.startup("a0", Promise.resolve());
+  await tick();
+  source.latest("a0").push("先前可读的正文");
+  await frame(20);
+  await frame(40);
+  try {
+    field.dispatch({ type: "navigate", target: "a1" });
+    await frame(60);
+    assert.equal(field.selected().id, "a1");
+    const historyLength = field.state.history.length;
+    field.dispatch({ type: "back" });
+    await frame(220);
+    assert.equal(field.selected().id, "a1");
+    assert.equal(field.state.history.length, historyLength);
+    source.latest("a0").push("重新订阅的正文", "replace");
+    source.latest("a0").finish();
+    await frame(240);
+    assert.equal(field.selected().id, "a0");
+    assert.equal(field.state.history.length, historyLength - 1);
+    assert.equal(field.catalog.get("a0").expressions.circle, "重新订阅的正文");
+  } finally { reading.destroy(); }
+});

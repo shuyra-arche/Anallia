@@ -352,9 +352,10 @@ export function updateContent(previous: ContentDocument, source: string, complet
   while (count < previous.blocks.length - 1 && previous.blocks[count].stable) count++;
   if (!count) return parseContent(source, complete);
   const prefix = previous.blocks.slice(0, count);
-  const suffix = parseContent(source, complete, previous.blocks[count].sourceStart);
+  const tailStart = previous.blocks[count].sourceStart;
+  const suffix = parseContent(source, complete, tailStart);
   const blocks = [...prefix, ...suffix.blocks];
-  const references = [...prefix.flatMap(block => block.inline.filter((inline): inline is ReferenceInline => inline.type === "reference")), ...suffix.references];
+  const references = [...previous.references.filter(reference => reference.sourceEnd <= tailStart), ...suffix.references];
   const document = { blocks, references } as ContentDocument;
   Object.defineProperties(document, { source: { value: source }, complete: { value: complete } });
   return document;

@@ -29,14 +29,16 @@ export class ReadingSession {
   private booted = false;
   private settleBoot!: () => void;
   readonly ready = new Promise<void>((resolve) => { this.settleBoot = resolve; });
-  error: { chapterId: string; message: string } | null = null;
+  error: { chapterId: string; presentation: Presentation; message: string; command?: Command } | null = null;
+  private readonly prepare?: (id: string, presentation: Presentation) => boolean;
 
   readonly field: Field;
   readonly store: ContentStore;
 
-  constructor(field: Field, store: ContentStore) {
+  constructor(field: Field, store: ContentStore, prepare?: (id: string, presentation: Presentation) => boolean) {
     this.field = field;
     this.store = store;
+    this.prepare = prepare;
     field.setContentGate((command) => this.gate(command));
   }
 
@@ -73,20 +75,31 @@ export class ReadingSession {
   private gate(command: Command): boolean {
     if (this.bypassGate) return false;
     if (command.type === "navigate" && command.target === "act:retry_content") {
-      if (this.error) this.open(this.error.chapterId, this.presentation(this.error.chapterId), "navigation", { type: "navigate", target: this.error.chapterId }, true);
+      if (this.error) {
+        const { chapterId, presentation, command } = this.error;
+        this.open(chapterId, presentation, !this.booted ? "initial" : command ? "navigation" : "refresh", command, true);
+      }
       return true;
     }
     if (command.type === "navigate" && command.target === "act:refresh_content") {
       this.refresh();
       return true;
     }
-    if (command.type === "back" || command.type === "overview") this.cancel();
+    if (command.type === "back" || command.type === "overview") { this.cancel(); this.error = null; }
     let id: string;
     let presentation: Presentation;
     if (command.type === "navigate" && !command.target.startsWith("act:")) {
       if (!this.field.catalog.chapters.has(command.target)) return false;
       id = command.target;
+      this.error = null;
       presentation = this.presentation(id);
+    } else if (command.type === "back") {
+      const previous = this.field.state.history.at(-1);
+      if (!previous || previous.overview) return false;
+      const target = previous.hubs[previous.focus];
+      id = target.path.at(-1)!;
+      presentation = previous.focus === this.field.state.focus && !this.field.state.overview
+        ? this.presentation(id) : target.morph > 0.5 ? "line" : "circle";
     } else if (command.type === "morph") {
       id = this.field.selected().id;
       presentation = this.field.hub.targetMorph > 0.5 ? "circle" : "line";
@@ -99,8 +112,8 @@ export class ReadingSession {
     if (this.foreground && this.foreground.key !== this.key(id, presentation)) this.cancel();
     if (snapshot.complete) return false;
     if (snapshot.text.length > 0 && existing && !existing.terminal) {
+      if (existing.id !== id) { existing.prepared = false; existing.readable = false; }
       existing.id = id;
-      existing.readable = false;
       if (!existing.taskId || this.foreground !== existing) this.promote(existing, "navigation");
       return false;
     }
@@ -128,6 +141,8 @@ export class ReadingSession {
   }
 
   private promote(job: ReadingJob, scope: string): void {
+    job.prepared = false;
+    job.readable = false;
     job.taskId = `content-${++this.serial}`;
     this.foreground = job;
     this.error = null;
@@ -164,13 +179,18 @@ export class ReadingSession {
       if (snapshot.status === "error") {
         if (!job.terminal && job.taskId) {
           this.loading.fail(job.taskId, snapshot.error, now);
-          this.error = { chapterId: job.id, message: snapshot.error?.message ?? "内容暂时无法打开" };
+          this.error = { chapterId: job.id, presentation: job.presentation, command: job.command, message: snapshot.error?.message ?? "内容暂时无法打开" };
         }
         job.terminal = true;
         continue;
       }
       if (!job.prepared && (snapshot.text.length > 0 || snapshot.complete)) {
+        if (job.taskId && this.prepare && !this.prepare(job.id, job.presentation)) continue;
         job.prepared = true;
+        if (job.taskId && this.prepare && (this.booted || this.backendReady)) {
+          job.readable = true;
+          this.loading.readable(job.taskId, now);
+        }
         if (job.command) { this.dispatch(job.command); job.command = undefined; }
       }
     }
@@ -182,7 +202,7 @@ export class ReadingSession {
     for (const job of this.jobs.values()) {
       const snapshot = this.store.get(this.sourceId(job.id), job.presentation);
       if (!job.prepared || job.terminal) continue;
-      if (!job.readable && isReadable(job.id, job.presentation)) {
+      if (!job.readable && (this.booted || this.backendReady) && (job.taskId && this.prepare || isReadable(job.id, job.presentation))) {
         job.readable = true;
         if (job.taskId) this.loading.readable(job.taskId, this.now);
       }
@@ -195,11 +215,11 @@ export class ReadingSession {
       this.booted = true;
       this.settleBoot();
     }
-    const selected = this.field.selected();
     if (this.booted && !this.field.state.overview) {
       const siblings = this.field.siblings();
-      const index = siblings.findIndex((chapter) => chapter.id === selected.id);
-      for (let i = Math.max(0, index - 1); i <= Math.min(siblings.length - 1, index + 1); i++) {
+      const index = Math.round(this.field.hub.scroll);
+      const radius = Math.max(1, Math.ceil(this.field.state.settings.range));
+      for (let i = Math.max(0, index - radius); i <= Math.min(siblings.length - 1, index + radius); i++) {
         for (const presentation of ["circle", "line"] as const) {
           const id = siblings[i].id;
           if (this.store.get(this.sourceId(id), presentation).status === "idle") this.open(id, presentation, "prefetch");

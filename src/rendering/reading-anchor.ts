@@ -103,9 +103,11 @@ export function setBlockSourceRange(
   start: number,
   end: number,
 ) {
-  element.dataset.blockId = blockId;
-  element.dataset.sourceStart = String(finite(start, 0));
-  element.dataset.sourceEnd = String(Math.max(start, finite(end, start)));
+  const sourceStart = String(finite(start, 0));
+  const sourceEnd = String(Math.max(start, finite(end, start)));
+  if (element.dataset.blockId !== blockId) element.dataset.blockId = blockId;
+  if (element.dataset.sourceStart !== sourceStart) element.dataset.sourceStart = sourceStart;
+  if (element.dataset.sourceEnd !== sourceEnd) element.dataset.sourceEnd = sourceEnd;
 }
 
 function closestBlock(node: Node | null, root: HTMLElement): HTMLElement | null {
@@ -360,6 +362,8 @@ export function restoreReadingSelection(
   const document = root.ownerDocument;
   const browserSelection = document.getSelection?.();
   if (!browserSelection) return false;
+  const current = captureReadingSelection(root);
+  if (current?.anchorSource === selection.anchorSource && current.focusSource === selection.focusSource) return true;
   const start = rangeAtSource(
     root,
     Math.min(selection.anchorSource, selection.focusSource),

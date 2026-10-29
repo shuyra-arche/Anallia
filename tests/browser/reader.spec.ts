@@ -208,3 +208,62 @@ test("GPU label transforms match SVG proxies within half a CSS pixel across them
   expect(result.compared).toBeGreaterThan(100);
   expect(result.error).toBeLessThanOrEqual(0.5);
 });
+
+test("GPU display order follows the scene layers with portal strokes before labels and loading last", async ({ page }) => {
+  await open(page, "?renderer=gpu");
+  const order = await page.evaluate(async () => {
+    const app = (window as any).__shuyra;
+    const { evaluateLoadingGeometry } = await import("/src/geometry/loading.ts");
+    const hub = app.field.state.hubs.D;
+    await app.store.start("d0", hub.targetMorph > 0.5 ? "line" : "circle").done;
+    app.reading.flush(performance.now());
+    app.field.dispatch({ type: "navigate", target: "d0" });
+    if (!app.field.state.passage) throw new Error("Expected a portal passage");
+    app.field.state.passage.phase = 0.5;
+    app.scene.setLoadingGeometry(evaluateLoadingGeometry(2.4, { placement: { anchor: { x: 350, y: 350 }, scale: 0.4, angle: 0, theme: "light" } }));
+    app.scene.render(app.field.state);
+    return app.scene.gpu.stage.children.filter((child: any) => child.visible && child.children.length).map((child: any) => child.label);
+  });
+  for (const [before, after] of [["base", "portal"], ["portal", "hubs"], ["hubs", "portal-strokes"], ["portal-strokes", "labels"], ["labels", "loading"]]) {
+    expect(order).toContain(before);
+    expect(order).toContain(after);
+    expect(order.indexOf(before), `${before} before ${after}: ${order.join(",")}`).toBeLessThan(order.indexOf(after));
+  }
+});
+
+test("fast uncached content finishes loading before the normal navigation transition ends", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating);
+  await page.evaluate(() => (window as any).__shuyra.useContentSource({ async *open() { yield { type: "replace", text: "快速正文" }; } }));
+  await expect(page.locator("#text-a0 .note-content")).toContainText("快速正文");
+  await page.evaluate(() => (window as any).__shuyra.field.dispatch({ type: "navigate", target: "a1" }));
+  await page.waitForTimeout(200);
+  expect(await page.evaluate(() => (window as any).__shuyra.reading.activeTask)).toBeNull();
+  await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "a1");
+});
+
+test("appending below a small readable article keeps its first stable text within two pixels", async ({ page }) => {
+  await open(page, "?renderer=svg");
+  await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating);
+  await page.evaluate(() => {
+    let release!: () => void;
+    (window as any).__appendSmall = () => release();
+    (window as any).__shuyra.useContentSource({ async *open() {
+      yield { type: "replace", text: "稳定的第一段。\n\n接收中" };
+      await new Promise<void>(resolve => { release = resolve; });
+      yield { type: "append", text: "\n\n" + "更多正文。\n\n".repeat(80) };
+    } });
+  });
+  await expect(page.locator("#text-a0 p").first()).toHaveText("稳定的第一段。");
+  const before = await page.evaluate(() => {
+    const range = document.createRange();
+    const node = document.querySelector("#text-a0 p")!.firstChild!;
+    range.setStart(node, 0); range.setEnd(node, 1);
+    (window as any).__smallRange = range;
+    return range.getBoundingClientRect().top;
+  });
+  await page.evaluate(() => (window as any).__appendSmall());
+  await expect(page.locator("#text-a0 .note-content")).toContainText("更多正文");
+  const after = await page.evaluate(() => (window as any).__smallRange.getBoundingClientRect().top);
+  expect(Math.abs(after - before)).toBeLessThanOrEqual(2);
+});

@@ -366,6 +366,7 @@ export class ArticleRenderer {
   private readonly visuals: ArticleVisuals;
   private readonly layouts = new TextLayoutCache();
   private readonly states = new WeakMap<HTMLElement, ArticleState>();
+  private readonly sources = new WeakMap<HTMLElement, string>();
   private readonly blocksByKey = new WeakMap<RenderedBlock, NormalizedBlock>();
 
   constructor(catalog: Catalog, visuals: ArticleVisuals) {
@@ -438,23 +439,28 @@ export class ArticleRenderer {
           : "document:empty"),
     );
 
+    const sameExpression = state?.nodeId === node.id && state.presentation === presentation;
+    const previousSource = this.sources.get(article);
+    const source = rawDocument?.source ?? "";
+    const continuation = Boolean(sameExpression && previousSource && source.startsWith(previousSource));
     state = this.ensureShell(article, node, presentation, state);
     this.states.set(article, state);
+    this.sources.set(article, source);
+    state.nodeId = node.id;
+    state.presentation = presentation;
     state.version = version;
     state.document = document;
-    state.isLong = document.blocks.length > 1 || document.sourceLength > 220;
+    if (!continuation) state.isLong = document.blocks.length > 1 || document.sourceLength > 220 || (!document.complete && source.length > 0);
     article.classList.toggle("is-long", state.isLong);
     article.dataset.presentation = presentation;
     article.dataset.nodeId = node.id;
     article.dataset.contentVersion = version;
 
-    state.eyebrow.textContent = `${hub.glyph} / ${node.name} · DEPTH ${String(
-      hub.path.length - 1,
-    ).padStart(2, "0")}`;
-    state.heading.textContent = node.title;
-    state.tail.textContent = `${node.name} · ${
-      presentation === "circle" ? "RADIAL TO CENTER" : "LINEAR SPINE"
-    }`;
+    const eyebrow = `${hub.glyph} / ${node.name} · DEPTH ${String(hub.path.length - 1).padStart(2, "0")}`;
+    const tail = `${node.name} · ${presentation === "circle" ? "RADIAL TO CENTER" : "LINEAR SPINE"}`;
+    if (state.eyebrow.textContent !== eyebrow) state.eyebrow.textContent = eyebrow;
+    if (state.heading.textContent !== node.title) state.heading.textContent = node.title;
+    if (state.tail.textContent !== tail) state.tail.textContent = tail;
 
     this.syncBlocks(article, state, document, hub);
     state.ready = true;
@@ -462,6 +468,7 @@ export class ArticleRenderer {
     if (selection) restoreReadingSelection(article, selection);
     if (anchor)
       restoreReadingAnchor(article, anchor, { tolerance: 2, apply: true });
+    return continuation && source.length > (previousSource?.length ?? 0) ? "append" as const : source !== previousSource || !sameExpression ? "replace" as const : undefined;
   }
 
   private ensureShell(
@@ -580,14 +587,12 @@ export class ArticleRenderer {
       this.blocksByKey.delete(rendered);
     }
 
-    const orderChanged =
-      state.order.length !== desired.length ||
-      state.order.some((key, index) => key !== desired[index]);
-    if (orderChanged) {
-      for (const key of desired) {
-        const rendered = nextBlocks.get(key)!;
-        state.contentElement.insertBefore(rendered.element, state.tail);
-      }
+    let cursor: ChildNode | null = state.order.map(key => state.blocks.get(key)?.element)
+      .find(element => element?.parentNode === state.contentElement) ?? state.tail;
+    for (const key of desired) {
+      const element = nextBlocks.get(key)!.element;
+      if (element === cursor) cursor = cursor.nextSibling;
+      else state.contentElement.insertBefore(element, cursor ?? state.tail);
     }
     state.blocks = nextBlocks;
     state.order = desired;
@@ -607,6 +612,7 @@ export class ArticleRenderer {
       existing = undefined;
     }
     if (existing) {
+      if (this.blocksByKey.get(existing) === block) return existing;
       setBlockSourceRange(
         existing.element,
         block.id,
@@ -640,8 +646,8 @@ export class ArticleRenderer {
           );
         }
         existing.signature = signature;
-        this.blocksByKey.set(existing, block);
       }
+      this.blocksByKey.set(existing, block);
       return existing;
     }
 
@@ -732,14 +738,12 @@ export class ArticleRenderer {
         clearIndexedRanges(article, item.element);
         item.element.remove();
       }
-    const orderChanged =
-      list.order.length !== desired.length ||
-      list.order.some((key, index) => key !== desired[index]);
-    if (orderChanged)
-      for (const key of desired) {
-        const item = nextItems.get(key)!;
-        list.element.append(item.element);
-      }
+    let cursor = list.element.firstChild;
+    for (const key of desired) {
+      const element = nextItems.get(key)!.element;
+      if (element === cursor) cursor = cursor.nextSibling;
+      else list.element.insertBefore(element, cursor);
+    }
     list.items = nextItems;
     list.order = desired;
     list.signature = signature;
@@ -1017,6 +1021,7 @@ export class ArticleRenderer {
     const state = this.states.get(article);
     if (state) this.layouts.evict(`${state.nodeId}:`);
     this.states.delete(article);
+    this.sources.delete(article);
     clearIndexedRanges(article);
   }
 
@@ -1109,6 +1114,8 @@ export class ArticleRenderer {
   }
 
   private findRenderedBlock(state: ArticleState, block: NormalizedBlock) {
+    const direct = state.blocks.get(block.id);
+    if (direct && this.blocksByKey.get(direct)?.start === block.start) return direct;
     for (const key of state.order) {
       const rendered = state.blocks.get(key);
       if (

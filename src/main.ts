@@ -49,7 +49,7 @@ const renderer = params.get("renderer");
 const scene = new Scene(host, catalog, { renderer: renderer === "svg" ? "svg" : renderer === "gpu" ? "webgl" : "auto" });
 let source: ContentSource = createLocalContentSource();
 const store = new ContentStore({ open: (id, presentation, signal) => source.open(id, presentation, signal) });
-const reading = new ReadingSession(field, store);
+const reading = new ReadingSession(field, store, (id, presentation) => scene.prepareContent(id, presentation));
 const tasks = new TaskGeometry();
 const soundscape = new GeometricSoundscape();
 const lifecycle = new AbortController();

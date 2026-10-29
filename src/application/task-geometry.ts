@@ -27,7 +27,7 @@ export class TaskGeometry {
     const selected = snapshot.chapterId ?? hub.path.at(-1)!;
     const siblings = catalog.siblings(selected, state.searchResults);
     const count = siblings.length;
-    const index = snapshot.firstReadable ? hub.scroll : Math.max(0, siblings.findIndex(node => node.id === selected));
+    const index = Math.max(0, siblings.findIndex(node => node.id === selected));
     const along = nodeS(hub, index, count, state.camera, state.viewport);
     const tangentPoint = hubToScreen(hub, material(hub, along), state.camera, state.viewport);
     const normal = rot(outwardNormal(hub, along), state.camera.rotation * Math.PI / 180);

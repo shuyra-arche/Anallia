@@ -144,6 +144,7 @@ export class PixiGraphicsRenderer {
     this.fontFamily = fontFamily;
     this.dpr = dpr;
     this.stage = new pixi.Container();
+    this.stage.sortableChildren = true;
     this.canvas.style.position = "absolute";
     this.canvas.style.inset = "0";
     this.canvas.style.width = "100%";
@@ -239,7 +240,8 @@ export class PixiGraphicsRenderer {
       this.graphicsCursors.clear();
       this.drawBackground(frame, false);
       this.lastBackground = frame.background;
-      this.renderer.render(this.stage);
+      this.stage.sortChildren();
+    this.renderer.render(this.stage);
       return;
     }
     this.lastFrame = frame;
@@ -267,6 +269,7 @@ export class PixiGraphicsRenderer {
     const addLayer = (id: string, primitives: SceneFrame["layers"][number]["primitives"]) => {
       const root = this.container(`layer:${id}`, this.stage);
       root.label = id;
+      root.zIndex = frame.layers.find(layer => layer.id === id)?.order ?? 0;
       this.layerRoots.set(id, root);
       this.stage.addChild(root);
       for (const primitive of primitives) {
@@ -284,6 +287,7 @@ export class PixiGraphicsRenderer {
         addLayer(layer.id, layer.primitives);
     this.drawPortalStrokes(frame);
     this.drawLabels(frame);
+    this.stage.sortChildren();
     this.renderer.render(this.stage);
   }
 
@@ -306,6 +310,7 @@ export class PixiGraphicsRenderer {
     let container = this.containers.get(key);
     if (!container) {
       container = new this.pixi.Container();
+      container.label = key;
       container.eventMode = "none";
       this.containers.set(key, container);
       parent.addChild(container);
@@ -338,6 +343,7 @@ export class PixiGraphicsRenderer {
       return;
     const root = this.container("background", this.stage);
     root.label = "background";
+    root.zIndex = frame.layers.find(layer => layer.id === "background")?.order ?? 20;
     root.alpha = background.opacity;
     if (reorder) this.stage.addChild(root);
     const flow = this.graphics(root);
@@ -405,6 +411,7 @@ export class PixiGraphicsRenderer {
     if (!portal || !portal.visible || portal.opacity <= 0) return;
     const root = this.container("portal", this.stage);
     root.label = "portal";
+    root.zIndex = frame.layers.find(layer => layer.id === "portal")?.order ?? 10;
     root.alpha = portal.opacity;
     this.stage.addChild(root);
     const mask = this.container("portal-mask", root);
@@ -447,9 +454,11 @@ export class PixiGraphicsRenderer {
   private drawPortalStrokes(frame: SceneFrame): void {
     const portal = frame.portal;
     if (!portal || !portal.visible || portal.opacity <= 0) return;
+    const root = this.container("portal-strokes", this.stage);
+    root.zIndex = (frame.layers.find(layer => layer.id === "labels")?.order ?? 50) - 0.5;
     const portalStroke = portal.stroke;
     if (portalStroke && portalStroke.opacity > 0) {
-      const stroke = this.graphics(this.stage);
+      const stroke = this.graphics(root);
       stroke.alpha = 1;
       this.drawCurve(
         stroke,
@@ -461,7 +470,7 @@ export class PixiGraphicsRenderer {
     }
     const portalEcho = portal.echo;
     if (portalEcho && portalEcho.opacity > 0) {
-      const echo = this.graphics(this.stage);
+      const echo = this.graphics(root);
       this.drawCurve(
         echo,
         portalEcho.path,
@@ -474,6 +483,7 @@ export class PixiGraphicsRenderer {
 
   private drawLabels(frame: SceneFrame): void {
     const root = this.container("labels", this.stage);
+    root.zIndex = frame.layers.find(layer => layer.id === "labels")?.order ?? 50;
     this.stage.addChild(root);
     const colors = palette(frame.visualTheme);
     for (const label of frame.labels) {
@@ -493,6 +503,7 @@ export class PixiGraphicsRenderer {
       page.alpha = label.page?.opacity ?? 1;
       if (label.page && label.visual === "current") {
         const pin = this.graphics(group);
+        group.setChildIndex(pin, 0);
         pin.circle(0, 0, 2.6).fill({ color: colors.amber }).stroke({ color: colors.paper, width: 1.1 });
       }
       if (distance > 0.0001) {
