@@ -1,4 +1,5 @@
 import type { Chapter, Hub } from "../core/types.ts";
+import { isContentAction } from "../core/content-actions.ts";
 import { resolveIconToken } from "../core/icons.ts";
 import type { IconToken } from "../core/icons.ts";
 import { Catalog } from "../content/catalog.ts";
@@ -895,7 +896,7 @@ export class ArticleRenderer {
     inlines: NormalizedInline[],
     hubMorph = 0,
   ): InlineContainer {
-    inlines = inlines.map(inline => inline.kind === "reference" && !inline.target.startsWith("act:") && !this.catalog.chapters.has(inline.target)
+    inlines = inlines.map(inline => inline.kind === "reference" && !isContentAction(inline.target) && !this.catalog.chapters.has(inline.target)
       ? { kind: "text" as const, text: `{${inline.text}|${inline.target}}`, start: inline.start, end: inline.end }
       : inline);
     const state: InlineContainer = existing ?? { element: container, records: [] };

@@ -472,3 +472,21 @@ test("estimateArticleHeight reports a positive stable estimate without DOM measu
     dom.close();
   }
 });
+
+test("closed references become buttons only when their chapter or action target exists", () => {
+  const dom = setup(), catalog = makeCatalog();
+  const article = document.createElement("article");
+  document.body.append(article);
+  const renderer = makeRenderer(catalog);
+  try {
+    const raw = "{不存在的章节|missing} {不存在的动作|act:missing}";
+    catalog.setDocument("circle", documentOf([{ id: "p", kind: "paragraph", sourceStart: 0, sourceEnd: raw.length, stable: true, inline: [
+      { type: "reference", text: "不存在的章节", target: "missing", sourceStart: 0, sourceEnd: 15 },
+      { type: "text", text: " ", sourceStart: 15, sourceEnd: 16 },
+      { type: "reference", text: "不存在的动作", target: "act:missing", sourceStart: 16, sourceEnd: raw.length },
+    ] }], raw));
+    renderer.syncArticle(article, node, hub, "circle");
+    assert.equal(article.querySelectorAll(".inline-ref").length, 0);
+    assert.equal(article.querySelector("p")?.textContent, raw);
+  } finally { dom.close(); }
+});

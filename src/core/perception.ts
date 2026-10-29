@@ -175,9 +175,8 @@ export function collectChapterTargetIds(
     if (catalog.chapters.has(ref.target)) targets.add(ref.target);
   }
   const presentation = hub.morph > 0.5 ? "line" : "circle";
-  const text = chapter.expressions[presentation] ?? "";
-  for (const match of text.matchAll(/\{[^{}|]+\|([^{}]+)\}/g)) {
-    const id = match[1];
+  for (const reference of catalog.document(chapter.id, presentation).references) {
+    const id = reference.target;
     if (!id.startsWith("act:") && catalog.chapters.has(id)) {
       targets.add(id);
     }

@@ -207,3 +207,27 @@ test("missing preferred blocks fall back to the nearest clamped source position"
     dom.close();
   }
 });
+
+test("replacement preserves the absolute source position when the old block shrinks across that position", () => {
+  const dom = setup();
+  const article = document.createElement("article");
+  const first = block("p1", "A long first paragraph", 0);
+  const second = block("p2", "Following text", 24);
+  article.append(first.element, second.element);
+  document.body.append(article);
+  indexTextRange(article, first.node, 0, 22, "p1");
+  indexTextRange(article, second.node, 24, 38, "p2");
+  try {
+    const anchor = captureReadingAnchor(article, { source: 6, scroller: null })!;
+    first.node.data = "Hi";
+    first.element.dataset.sourceEnd = "2";
+    updateIndexedRange(article, first.node, 0, 2);
+    second.element.dataset.sourceStart = "4";
+    second.element.dataset.sourceEnd = "18";
+    updateIndexedRange(article, second.node, 4, 18);
+    const restored = restoreReadingAnchor(article, anchor, { scroller: null });
+    assert.equal(restored.source, 6);
+    assert.ok(restored.range?.startContainer === second.node);
+    assert.equal(restored.range?.startOffset, 2);
+  } finally { clearIndexedRanges(article); dom.close(); }
+});

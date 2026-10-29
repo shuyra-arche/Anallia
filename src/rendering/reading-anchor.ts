@@ -143,7 +143,8 @@ function blockAtSource(
   const preferred = preferredBlockId
     ? blocks.find((block) => block.dataset.blockId === preferredBlockId)
     : undefined;
-  let block = preferred;
+  const preferredBounds = preferred ? blockBounds(preferred) : null;
+  let block = preferred && preferredBounds && source >= preferredBounds.start && source <= preferredBounds.end ? preferred : undefined;
   if (!block) {
     block =
       blocks.find((candidate) => {
@@ -159,10 +160,7 @@ function blockAtSource(
         )[0];
   }
   const bounds = blockBounds(block);
-  const clampedSource =
-    preferred && (source < bounds.start || source > bounds.end)
-      ? Math.min(bounds.end, Math.max(bounds.start, source))
-      : source;
+  const clampedSource = Math.min(bounds.end, Math.max(bounds.start, source));
   return {
     block,
     start: bounds.start,
@@ -380,11 +378,12 @@ export function restoreReadingSelection(
     typeof browserSelection.setBaseAndExtent === "function" &&
     !selection.collapsed
   ) {
+    const backwards = selection.anchorSource > selection.focusSource;
     browserSelection.setBaseAndExtent(
-      range.startContainer,
-      range.startOffset,
-      range.endContainer,
-      range.endOffset,
+      backwards ? range.endContainer : range.startContainer,
+      backwards ? range.endOffset : range.startOffset,
+      backwards ? range.startContainer : range.endContainer,
+      backwards ? range.startOffset : range.endOffset,
     );
   }
   return true;
@@ -422,6 +421,26 @@ export function captureReadingAnchor(
         root,
       );
       preferredBlockId = blockIdOf(block);
+    }
+  }
+  if (source === undefined) {
+    const view = options.scroller ?? root.querySelector<HTMLElement>(".note-window");
+    const bounds = view?.getBoundingClientRect();
+    if (bounds && bounds.width > 0 && bounds.height > 0) {
+      const document = root.ownerDocument as Document & {
+        caretRangeFromPoint?(x: number, y: number): Range | null;
+        caretPositionFromPoint?(x: number, y: number): { offsetNode: Node; offset: number } | null;
+      };
+      const y = Math.max(0, bounds.top) + 3;
+      for (const x of [Math.max(0, bounds.left) + 12, (bounds.left + bounds.right) / 2]) {
+        const point = document.caretPositionFromPoint?.(x, y);
+        const range = point ? null : document.caretRangeFromPoint?.(x, y);
+        const node = point?.offsetNode ?? range?.startContainer;
+        if (node && root.contains(node)) {
+          const at = pointSource(node, point?.offset ?? range?.startOffset ?? 0, root);
+          if (at !== null) { source = at; break; }
+        }
+      }
     }
   }
   if (source === undefined) {
