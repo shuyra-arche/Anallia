@@ -135,7 +135,7 @@ function useContentSource(next: ContentSource): void {
   source = next;
   reading.refresh();
 }
-(window as unknown as Record<string, unknown>).__shuyra = { field, scene, soundscape, reading, store, ready: reading.ready, useContentSource };
+(window as unknown as Record<string, unknown>).__shuyra = { field, scene, soundscape, reading, store, ready: reading.ready, ...(import.meta.env.DEV ? { useContentSource } : {}) };
 document.fonts?.ready.then(() => scene.invalidateLayout(true));
 document.fonts?.addEventListener("loadingdone", () => scene.invalidateLayout(true), { signal: lifecycle.signal });
 if (import.meta.hot) import.meta.hot.dispose(() => {

@@ -185,3 +185,13 @@ test("cancellation is safe at every phase boundary", () => {
     assert.equal(controller.update(cancelAt + LOADING_EXIT_MS, false), null);
   }
 });
+
+test("completing during entrance fades from the current visibility without jumping to a full spinner", () => {
+  const controller = new LoadController();
+  controller.start({ id: "early", scope: "navigation", hubId: "A", cancellable: true }, 0);
+  const before = controller.update(170)!;
+  const after = controller.complete("early", 170)!;
+  assert.equal(after.enter, before.enter);
+  assert.equal(controller.update(220)!.enter, before.enter);
+  assert.equal(after.poseTime, before.poseTime);
+});

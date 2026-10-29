@@ -215,7 +215,7 @@ export class LoadController {
       outcome: terminal.outcome,
       succeeded: terminal.outcome === "complete",
       poseTime: state.frozenPoseTime,
-      enter: 1,
+      enter: clamp((terminal.at - state.shownAt) / LOADING_ENTER_MS, 0, 1),
       exit,
       error: terminal.error,
     };

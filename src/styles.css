@@ -1047,7 +1047,7 @@ article.note[data-side="left"].is-long::before {
   color: var(--quiet);
   font: 12px/1.6 var(--font-sans);
 }
-#contentStatus button { margin-left: 12px; color: var(--accent); }
+#contentStatus button { margin-left: 12px; padding: 2px 0; border: 0; background: none; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 #contentStatus[hidden] { display: none; }
 
 #scene[data-shared-input="true"] #world { pointer-events: none; }
