@@ -87,10 +87,13 @@ node tools/build-single-html.mjs
 
 ## 验证边界
 
-GPU 裁切优化检查点 `9fd6652` 通过类型检查、260 项单元测试、33 项开发浏览器回归及 4 项发布产物检查，四种构建已重新生成并验证。RTX 5070 Ti 上的 GPU 场景提交 P95 从 8.8ms 降为 5.0ms，同期 SVG 为 3.4ms。默认策略随后按用户选择恢复为 auto，GPU 裁切优化保留。范围、统计口径及结果见 [重构验收记录](docs/refactor-status.md) 和 [性能记录](docs/performance.md)。第二台局域网设备、真实移动端、高 DPR 与大视口仍待验收。
+当前版本通过类型检查、262 项单元测试、35 项开发浏览器回归及 4 项发布产物检查，四种构建已重新生成并验证。新版受控流式基准各重复三次：SVG / GPU 正文处理 P95 的三轮中位数由 3.0 / 3.0ms 降为 1.9 / 2.0ms，每轮都是相同的 99 个数据包，阅读漂移 0px；此口径不与旧基准直接混比。默认保持 auto。范围与数据见 [重构验收记录](docs/refactor-status.md) 和 [性能记录](docs/performance.md)。已补浏览器高 DPR 与大视口检查，实体手机及第二台局域网设备仍待验收。
 
 本机检查使用进程组内存和超时硬限制；`npm test` 为 1GiB / 120s、浏览器为 3GiB / 110s 且单工作者。需要 Linux 用户 systemd 会话，缺少限制能力时拒绝启动。CI 在独立运行器中串行执行有堆限制和逐项超时的测试。
 
 端口和 Host 行为可在构建后执行 `node tools/server-test.mjs` 检查，需要默认端口空闲；它只停止自己启动的服务器。桌面显卡的分段对照使用 `SHUYRA_PERF=1 npm run test:browser -- tests/browser/performance.spec.ts --headed --grep="(svg|gpu)"`。性能记录需显式启用：`SHUYRA_PERF=1 npm run test:browser -- tests/browser/performance.spec.ts --grep="(auto|gpu)"` 检查显式自动选择与强制 GPU；单独运行 `--grep="performance \(svg\)"` 检查 SVG。每批最多两个后端，避免超过整组时限；原始 JSON 写入 test-results，下次浏览器检查前另存。功能断言通过不表示 P95 性能目标达标。
 
 不带参数或参数无效时使用 auto，优先尝试 WebGL；初始化失败、上下文丢失或识别到软件渲染器时，在本会话保持 SVG。`renderer=gpu` 强制使用 WebGL 对照；`renderer=auto` 显式选择自动检测；`renderer=svg` 固定使用 SVG。未知设备信息不触发软件判定。需要深入定位时可加 `SHUYRA_CPU_PROFILE=1`，性能测试会另存 V8 CPU 采样文件；该诊断有额外开销，正式性能对照时关闭。
+
+
+重复测量正文处理时使用 `SHUYRA_PERF=1 SHUYRA_STREAM_ONLY=1 npm run test:browser -- tests/browser/performance.spec.ts --headed --grep="(svg|gpu)" --repeat-each=3`。它省略每组 30 秒路线，只测相同的 1024 UTF-16 单位分包（末包 646）、25ms 目标间隔和最多一个未确认包；实际发送时间与每批字数都写入报告。完成事件单独确认，测试页暂时隔离输入。完整路线模式不要在一个 110 秒检查组内重复三轮。

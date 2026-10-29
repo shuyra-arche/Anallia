@@ -557,3 +557,53 @@ test("binding another store invalidates an equal-numbered article version", asyn
     assert.equal(article.querySelector("p")!.textContent, "绑定后正文");
   } finally { dom.close(); }
 });
+
+
+test("stable paragraph preparation never reads paragraph DOM height while the unstable tail does", () => {
+  const dom = setup(), catalog = makeCatalog(), renderer = makeRenderer(catalog);
+  const article = document.createElement("article"); document.body.append(article);
+  let stableReads = 0, tailReads = 0;
+  try {
+    catalog.setDocument("circle", documentOf([
+      textBlock("p1", "已完成的稳定段落。", 0), textBlock("p2", "正在流入的末段。", 10, false),
+    ]));
+    renderer.syncArticle(article, node, hub, "circle");
+    const paragraphs = article.querySelectorAll("p");
+    Object.defineProperty(paragraphs[0], "offsetHeight", { get() { stableReads++; return 25; } });
+    Object.defineProperty(paragraphs[1], "offsetHeight", { get() { tailReads++; return 30; } });
+    assert.ok(renderer.estimateArticleHeight(article, node, "circle", 320) > 0);
+    assert.equal(stableReads, 0);
+    assert.equal(tailReads, 1);
+  } finally { dom.close(); }
+});
+
+test("stable paragraph height is reused across tail updates and invalidated by font, width, style and content", () => {
+  const dom = setup(), catalog = makeCatalog(), renderer = makeRenderer(catalog);
+  const article = document.createElement("article"); document.body.append(article);
+  const stable = textBlock("p1", "保持不变的正文段落。", 0);
+  let stableLayouts = 0;
+  const layouts = (renderer as any).layouts, original = layouts.layout.bind(layouts);
+  layouts.layout = (key: string, ...args: any[]) => { if (key.endsWith(":p1")) stableLayouts++; return original(key, ...args); };
+  try {
+    catalog.setDocument("circle", documentOf([stable, textBlock("p2", "末段", 12, false)]));
+    renderer.syncArticle(article, node, hub, "circle");
+    renderer.estimateArticleHeight(article, node, "circle", 320);
+    renderer.estimateArticleHeight(article, node, "circle", 320);
+    catalog.setDocument("circle", documentOf([stable, textBlock("p2", "末段继续流入", 12, false)]));
+    renderer.syncArticle(article, node, hub, "circle");
+    renderer.estimateArticleHeight(article, node, "circle", 320);
+    assert.equal(stableLayouts, 1);
+    renderer.invalidateFonts("new-font");
+    renderer.estimateArticleHeight(article, node, "circle", 320);
+    assert.equal(stableLayouts, 2);
+    renderer.estimateArticleHeight(article, node, "circle", 360);
+    assert.equal(stableLayouts, 3);
+    article.querySelector("p")!.style.font = "18px serif";
+    renderer.estimateArticleHeight(article, node, "circle", 360);
+    assert.equal(stableLayouts, 4);
+    catalog.setDocument("circle", documentOf([textBlock("p1", "替换后的稳定正文。", 0), textBlock("p2", "末段", 12, false)]));
+    renderer.syncArticle(article, node, hub, "circle");
+    renderer.estimateArticleHeight(article, node, "circle", 360);
+    assert.equal(stableLayouts, 5);
+  } finally { dom.close(); }
+});

@@ -365,6 +365,7 @@ export class ArticleRenderer {
   private readonly catalog: Catalog;
   private readonly visuals: ArticleVisuals;
   private readonly layouts = new TextLayoutCache();
+  private readonly stableHeights = new WeakMap<NormalizedBlock, { key: string; height: number }>();
   private readonly states = new WeakMap<HTMLElement, ArticleState>();
   private readonly sources = new WeakMap<HTMLElement, string>();
   private readonly contentIdentities = new WeakMap<HTMLElement, object>();
@@ -1088,6 +1089,7 @@ export class ArticleRenderer {
     const isLong =
       document.blocks.length > 1 || document.sourceLength > 220;
     const style = this.resolveStyle(article, isLong);
+    const layoutKey = JSON.stringify([width, this.layouts.fontVersion, style]);
     let height = 25 + estimateTextHeight(node.title, width, {
       ...style,
       font: `620 23.5px ${fontFamilyOf(style.font)}`,
@@ -1105,15 +1107,16 @@ export class ArticleRenderer {
         continue;
       }
       if (block.kind === "paragraph") {
+        const cached = block.stable ? this.stableHeights.get(block) : undefined;
+        if (cached?.key === layoutKey) { height += cached.height + 11; continue; }
         const text = inlineText(block.inlines);
-        const rendered = state
-          ? this.findRenderedBlock(state, block)
-          : undefined;
-        const measuredHeight = rendered?.element.offsetHeight ?? (!block.stable ? measureUnstable?.(block.id) : 0) ?? 0;
-        const domHeight =
-          !block.stable && measuredHeight > 0 ? measuredHeight : undefined;
-        height +=
-          this.layouts.layout(
+        let domHeight: number | undefined;
+        if (!block.stable) {
+          const rendered = state ? this.findRenderedBlock(state, block) : undefined;
+          const measured = rendered?.element.offsetHeight ?? measureUnstable?.(block.id) ?? 0;
+          if (measured > 0) domHeight = measured;
+        }
+        const paragraphHeight = this.layouts.layout(
             `${node.id}:${presentation}:${block.id}`,
             text,
             width,
@@ -1123,7 +1126,9 @@ export class ArticleRenderer {
               stable: block.stable,
               domHeight,
             },
-          ).height + 11;
+          ).height;
+        if (block.stable) this.stableHeights.set(block, { key: layoutKey, height: paragraphHeight });
+        height += paragraphHeight + 11;
         continue;
       }
       height += 12;
