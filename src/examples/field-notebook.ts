@@ -1,7 +1,7 @@
-import type { ContentManifest, ReaderDefinition } from "../core/content.ts";
+import type { ReaderDefinition } from "../core/content.ts";
 import type { ContentRow, HubDefinition } from "../core/types.ts";
 import { LocalContentSource } from "../content/source.ts";
-import { buildSearchEntry } from "../content/search.ts";
+import { buildStaticReader } from "../content-builder.ts";
 
 // Fictional field notes: a content-only integration, with no renderer or Field access.
 const observations = [
@@ -44,21 +44,26 @@ export const notebookRows: Record<string, ContentRow[]> = {
   FIND: [same("find-start", "⌕", null, "查找手册", "试着搜索「砖缝」或「连续记录」，从结果返回原来的观察位置。")],
 };
 
-export function createFieldNotebook(): ReaderDefinition {
+export function createStaticFieldNotebook(): ReaderDefinition {
   const definitions: HubDefinition[] = [
     { id: "OBS", glyph: "迹", root: "obs-start", center: { x: 3000, y: 1500 }, angle: -12, morph: 0, theme: "celadon" },
     { id: "LOG", glyph: "录", root: "log-start", center: { x: 4500, y: 1900 }, angle: 24, morph: 1, theme: "parchment", parentHub: "OBS" },
     { id: "ATLAS", glyph: "尺", root: "atlas-start", center: { x: 3500, y: 400 }, angle: -34, morph: 0, theme: "ivory", readingLayoutMode: "geometric" },
     { id: "FIND", glyph: "⌕", root: "find-start", kind: "search", layout: "anchored", recommendations: ["obs-start", "obs-mark", "log-day", "atlas-scale"], center: { x: 4900, y: 600 }, angle: 0, morph: 0, theme: "ivory" },
   ];
-  const manifest: ContentManifest = {
-    format: 1, definitions,
+  return buildStaticReader({
+    title: "雨后观察手册 · Anallia", entry: "obs-start",
+    hubs: definitions.map(({ morph, ...hub }) => ({ ...hub, presentation: morph > 0.5 ? "line" : "circle" })),
     chapters: Object.entries(notebookRows).flatMap(([hub, rows]) => rows.map(([id, name, parent, title, circle, line, refs]) => ({
-      id, name, parent, title, hub, refs: refs.map(([glyph, target]) => ({ glyph, target })),
-      inlineTargets: [...new Set(Array.from((circle + line).matchAll(/\{[^{}|]+\|([^{}]+)\}/g), match => match[1]))],
+      id, name, parent, title, hub, body: circle === line ? circle : { circle, line },
+      refs: refs.map(([label, target]) => ({ label, target })),
     }))),
-    searchIndex: Object.values(notebookRows).flat().map(([id, name, , title, circle, line]) => buildSearchEntry({ id, name, title, circle, line })),
-  };
+  });
+}
+
+/** The advanced chunked source remains available; authoring uses the same builder. */
+export function createFieldNotebook(): ReaderDefinition {
+  const definition = createStaticFieldNotebook();
   const loaders = Object.fromEntries(Object.entries(notebookRows).map(([hub, rows]) => [hub, async () => Object.fromEntries(rows.map(([id, , , , circle, line]) => [id, { circle, line }]))]));
-  return { manifest, source: new LocalContentSource(manifest, loaders, { chunkSize: 96 }), entry: "obs-start", title: "雨后观察手册 · Anallia" };
+  return { ...definition, source: new LocalContentSource(definition.manifest, loaders, { chunkSize: 96 }) };
 }

@@ -19,6 +19,7 @@ const entries = {
   embedded: "embedded-reader.ts",
   document: "reader.ts",
   examples: "examples/readers.ts",
+  content: "content-builder.ts",
 };
 const bundled = await build({
   configFile: false,
@@ -143,6 +144,7 @@ try {
     join(out, "README.md"),
   );
   await copyFile(join(root, "docs/reader-contract.md"), join(out, "reader-contract.md"));
+  await copyFile(join(root, "docs/static-content.md"), join(out, "static-content.md"));
   await writeFile(
     join(out, "package.json"),
     JSON.stringify(
@@ -155,6 +157,7 @@ try {
           "./embedded": { types: "./embedded.d.ts", import: "./embedded.js" },
           "./document": { types: "./document.d.ts", import: "./document.js" },
           "./examples": { types: "./examples.d.ts", import: "./examples.js" },
+          "./content": { types: "./content.d.ts", import: "./content.js" },
           "./styles.css": "./styles.css",
           "./reader-frame.html": "./reader-frame.html",
         },

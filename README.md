@@ -22,3 +22,5 @@ npm run test:reader    # 回环地址上的独立消费者验证
 原单文档离线导出仍可用：`node tools/build-single-html.mjs`。尚未发布 npm 包或提供 SSR。
 
 [阅读器语义契约](docs/reader-contract.md) 说明设计语言、状态所有权、只读订阅及显式快照恢复。恢复由挂载选项 `restore` 请求，不自动保存数据。
+
+[静态内容入门](docs/static-content.md)：用 `buildStaticReader` 从稳定 ID、正文、父章节和显式引用生成清单、索引与静态内容源；无需手写底层 manifest。高级流式接口继续保留。

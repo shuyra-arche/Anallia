@@ -28,6 +28,12 @@ try {
 import { mountReader, type ReaderDefinition, type ReaderOptions } from './vendor/anallia/document.js';
 import { mountEmbeddedReader, type EmbeddedReaderOptions } from './vendor/anallia/embedded.js';
 import { createGeometryReader, createFieldNotebook } from './vendor/anallia/examples.js';
+import { buildStaticReader, ContentBuildError, type StaticReaderInput } from './vendor/anallia/content.js';
+const author: StaticReaderInput = { entry: 'start', hubs: [{ id: 'NOTES' }], chapters: [{ id: 'start', hub: 'NOTES', title: 'Start', body: 'Body' }] };
+const built: ReaderDefinition = buildStaticReader(author); void built; void ContentBuildError;
+// @ts-expect-error Both explicit presentations are required.
+const badBody: StaticReaderInput['chapters'][number]['body'] = { circle: 'only' };
+void badBody;
 const definition: ReaderDefinition = createGeometryReader();
 const options: ReaderOptions = { renderer: 'svg', settings: { sound: false } };
 const embedded: EmbeddedReaderOptions = { ...options, frameUrl: './vendor/anallia/reader-frame.html' };
@@ -154,11 +160,13 @@ reader.destroy(); second.destroy();
     embedded: Object.keys(await import("./vendor/anallia/embedded.js")).sort(),
     document: Object.keys(await import("./vendor/anallia/document.js")).sort(),
     examples: Object.keys(await import("./vendor/anallia/examples.js")).sort(),
+    content: Object.keys(await import("./vendor/anallia/content.js")).sort(),
   }));
   assert.deepEqual(exports, {
     embedded: ["mountEmbeddedReader"],
     document: ["mountReader"],
-    examples: ["createFieldNotebook", "createGeometryReader"],
+    examples: ["createFieldNotebook", "createGeometryReader", "createStaticFieldNotebook"],
+    content: ["ContentBuildError", "buildStaticReader"],
   });
   assert.equal(
     await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
@@ -217,29 +225,40 @@ reader.destroy(); second.destroy();
     "The complete custom-content quickstart works without loading either bundled example",
   );
   await writeFile(join(consumer, "session.html"), '<!doctype html><link rel="stylesheet" href="./vendor/anallia/styles.css"><div id="scene"></div>');
-  await page.goto(base + "session.html");
-  await page.evaluate(async () => {
-    const { mountReader } = await import("./vendor/anallia/document.js");
-    const { createFieldNotebook } = await import("./vendor/anallia/examples.js");
-    window.sessionProbe = { mountReader, createFieldNotebook, host: document.getElementById("scene") };
-    const t = window.sessionProbe;
-    t.reader = mountReader(t.host, createFieldNotebook(), { renderer: "svg", chapter: "log-day", settings: { sound: false } });
-    t.events = []; t.reader.subscribe(state => t.events.push(state));
-    await t.reader.ready;
-  });
-  await page.waitForFunction(() => window.sessionProbe.reader.snapshot() !== null);
-  await page.evaluate(() => {
-    const t = window.sessionProbe;
-    t.saved = JSON.parse(JSON.stringify(t.reader.snapshot())); t.reader.destroy();
-    t.reader = t.mountReader(t.host, t.createFieldNotebook(), { renderer: "svg", restore: t.saved, settings: { sound: false } });
-  });
-  await page.waitForFunction(() => window.sessionProbe.reader.getState().restoration === "matched");
-  assert.deepEqual(await page.evaluate(() => {
-    const t = window.sessionProbe;
-    return { sameLocation: JSON.stringify(t.saved.location) === JSON.stringify(t.reader.getState().location),
-      terminal: t.events.at(-1).status, frozen: Object.isFrozen(t.reader.getState().location) };
-  }), { sameLocation: true, terminal: "destroyed", frozen: true });
-  checks.push("Compiled public session API subscribes, serializes and restores after destruction without source access");
+  for (const example of ["custom", "notebook"]) {
+    await page.goto(base + "session.html");
+    await page.evaluate(async example => {
+      const { mountReader } = await import("./vendor/anallia/document.js");
+      const create = example === "custom" ? (await import("./custom-content.js")).createCustomReader
+        : (await import("./vendor/anallia/examples.js")).createStaticFieldNotebook;
+      const definition = create();
+      window.sessionProbe = { mountReader, create, host: document.getElementById("scene"),
+        chapter: example === "custom" ? "detail" : "log-day", searchRoot: definition.manifest.definitions.find(hub => hub.kind === "search").root };
+      const t = window.sessionProbe;
+      t.reader = mountReader(t.host, definition, { renderer: "svg", chapter: t.chapter, settings: { sound: false } });
+      t.events = []; t.reader.subscribe(state => t.events.push(state));
+      await t.reader.ready;
+    }, example);
+    await page.waitForFunction(() => window.sessionProbe.reader.snapshot() !== null);
+    await page.evaluate(() => {
+      const t = window.sessionProbe; t.saved = JSON.parse(JSON.stringify(t.reader.snapshot()));
+      t.reader.dispatch({ type: "navigate", target: t.searchRoot });
+    });
+    await page.locator('.hub-search-input').fill(example === "custom" ? "第二页" : "砖缝");
+    await page.locator('[data-command="hud:next"]').click();
+    await page.locator('article[id^="text-q_hit_"]:not([hidden])').first().waitFor({state: "visible"});
+    await page.evaluate(() => {
+      const t = window.sessionProbe; t.reader.destroy();
+      t.reader = t.mountReader(t.host, t.create(), { renderer: "svg", restore: t.saved, settings: { sound: false } });
+    });
+    await page.waitForFunction(() => window.sessionProbe.reader.getState().restoration === "matched");
+    assert.deepEqual(await page.evaluate(() => {
+      const t = window.sessionProbe;
+      return { sameLocation: JSON.stringify(t.saved.location) === JSON.stringify(t.reader.getState().location),
+        terminal: t.events.at(-1).status, frozen: Object.isFrozen(t.reader.getState().location) };
+    }), { sameLocation: true, terminal: "destroyed", frozen: true });
+  }
+  checks.push("Both authored static consumers support generated search indexes and serialized session restore through compiled public entries");
   const phoneContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,

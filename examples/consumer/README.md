@@ -40,7 +40,7 @@ import { createGeometryReader } from './vendor/anallia/examples.js';
 const reader = mountReader(document.querySelector('#scene'), createGeometryReader());
 ```
 
-`examples.js` 是可选内容，不是核心运行时的前提。它提供已有的几何阅读和雨后手册两份 `ReaderDefinition`。
+`examples.js` 是可选内容，不是核心运行时的前提。它提供几何阅读、分块手册 `createFieldNotebook()` 和静态手册 `createStaticFieldNotebook()`；独立消费者页面采用静态手册。
 
 ## 公共接口
 
@@ -77,9 +77,26 @@ if (saved) {
 
 ## 接入自己的内容
 
+普通静态内容优先使用 `content.js` 的 `buildStaticReader`。`custom-content.js` 已给出完整的两页正文及搜索枢示例，作者只维护普通数据：
+
+```js
+import { buildStaticReader } from './vendor/anallia/content.js';
+const definition = buildStaticReader({
+  entry: 'start', hubs: [{ id: 'NOTES', glyph: '记' }],
+  chapters: [
+    { id: 'start', hub: 'NOTES', title: '开始', body: '读{下一页|detail}。' },
+    { id: 'detail', hub: 'NOTES', parent: 'start', title: '第二页', body: '同一份正文供圆线共享。' },
+  ],
+});
+```
+
+ID 必须显式、稳定；正文也可写为 `{circle, line}`。构建器提供可覆盖的坐标、主题等默认值，生成完整索引和一次 replace 的静态源。重复 ID、坏引用、错误归属或父链环路抛 `ContentBuildError`，其 issues 包含字段路径和正文行列。搜索入口需要作者显式声明搜索枢及根章节，不自动生成身份。完整字段、默认值和限制见分发目录 `static-content.md`。
+
+下面是继续使用高级内容接入时的底层约定：
+
 `manifest` 使用 format 1，包含枢 `definitions`、章节 `chapters` 和 `searchIndex`；`entry` 必须存在。每个枢需要 ID、显示符号、主题、中心坐标、角度、圆线形态和根章节。章节包含 ID、名称、标题、所属枢、父章节与引用；无父章节填 null。只做普通阅读时 searchIndex 可为空。
 
-`source.open(chapterId, presentation, signal)` 返回 `AsyncIterable<{type:'append'|'replace', text:string}>`；presentation 是 circle 或 line。内容源应响应 signal 取消，异步迭代完成表示内容收齐。无需流式加载时，yield 一次 replace 即可。随示例提供的 `custom-content.js` 展示了一枢两章的完整最小定义，可直接替换工厂返回值。
+`source.open(chapterId, presentation, signal)` 返回 `AsyncIterable<{type:'append'|'replace', text:string}>`；presentation 是 circle 或 line。内容源应响应 signal 取消，异步迭代完成表示内容收齐。可以保留 builder 生成的清单与索引，替换 source 来提供分块或远程内容。
 
 可选能力按数据声明：枢的 `kind: 'search' | 'settings'` 指定相应入口，每种最多一个；不依赖符号或 s0/q0 等 ID。检索应提供作者生成的完整 searchIndex；设置能力不会自动生成设置正文。章节的 `boundaryRoutes: {previous?, next?}` 指定同级步进到边界后的额外路径。未声明时使用通用导航规则。
 

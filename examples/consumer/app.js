@@ -1,7 +1,7 @@
 import { mountEmbeddedReader } from './vendor/anallia/embedded.js';
-import { createGeometryReader, createFieldNotebook } from './vendor/anallia/examples.js';
+import { createGeometryReader, createStaticFieldNotebook } from './vendor/anallia/examples.js';
 
-const definitions = { geometry: createGeometryReader, notebook: createFieldNotebook };
+const definitions = { geometry: createGeometryReader, notebook: createStaticFieldNotebook };
 const handles = new Map();
 const renderer = new URLSearchParams(location.search).get('renderer') === 'webgl' ? 'webgl' : 'svg';
 const mount = id => {
