@@ -187,7 +187,8 @@ export class ReadingLayer {
     this.readingBounds = null;
     this.readingSettling = false;
     const hub = s.hubs[s.focus],
-      nodes = this.catalog.siblings(this.selected(hub).id, s.searchResults),
+      selectedNode = this.selected(hub),
+      nodes = this.catalog.siblings(selectedNode.id, s.searchResults),
       morph = ease(clamp(hub.morph, 0, 1));
     const p = s.passage?.phase,
       fold = p === undefined ? 1 : readingEnvelope(p),
@@ -203,6 +204,7 @@ export class ReadingLayer {
     const visible = new Set<string>();
     if (!s.overview && !s.loading)
       nodes.forEach((node, i) => {
+        if (hub.readingLayoutMode !== "window" && node.id !== selectedNode.id) return;
         const surface =
           ease(clamp(1 - Math.abs(i - hub.scroll) / s.settings.range, 0, 1)) *
           fold *
@@ -288,9 +290,14 @@ export class ReadingLayer {
           article.style.opacity = String(surface ** 1.2);
           article.style.pointerEvents = "none";
           article.dataset.maxFloat = String(geometric.maxFloat);
-          if (geometric.readingRows !== undefined && node.id === this.selected(hub).id)
+          if (geometric.readingRows !== undefined && node.id === selectedNode.id)
             this.readingCorrections.push({ chapterId: node.id, presentation, readingRows: geometric.readingRows });
-          if (Math.abs(hub.textOffset - geometric.textOffset) > 0.01) this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: geometric.textOffset });
+          if (
+            node.id === selectedNode.id &&
+            Math.abs(hub.textOffset - geometric.textOffset) > 0.01 &&
+            (!wasGeometric || Math.abs(hub.textOffset - hub.textOffsetTarget) < 0.05)
+          )
+            this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: geometric.textOffset });
           frames.push({ id: `reading:${node.id}`, chapterId: node.id, hubId: hub.id,
             presentation, visible: true, inert, left: 0, top: 0, width: s.viewport.width,
             height: s.viewport.height, scale: s.camera.z, opacity: surface ** 1.2,
@@ -378,7 +385,7 @@ export class ReadingLayer {
         const transformStr = `translate3d(${(targetLeft + (s.camera.z - 1) * placement.originX).toFixed(2)}px,${(targetTop + (s.camera.z - 1) * placement.originY).toFixed(2)}px,0) scale(${s.camera.z}) rotateY(${turnY.toFixed(2)}deg)`;
         if (article.style.transform !== transformStr)
           article.style.transform = transformStr;
-        if (node.id === this.selected(hub).id)
+        if (node.id === selectedNode.id)
           this.readingBounds = {
             left: targetLeft,
             top: targetTop,
@@ -396,7 +403,7 @@ export class ReadingLayer {
         const pointerStr = inert ? "none" : "auto";
         if (article.style.pointerEvents !== pointerStr)
           article.style.pointerEvents = pointerStr;
-        if (!inert && node.id === this.selected(hub).id) {
+        if (!inert && node.id === selectedNode.id) {
           profile?.mark("reading.place");
           const corrected = this.readingPositions.restore(article, node.id, presentation, s.camera.z, activeFloat, maxFloat);
           profile?.mark("reading.anchor");
@@ -406,7 +413,10 @@ export class ReadingLayer {
             clip = resolveReadingClip(normal, height, panelHeight, activeFloat, clearancePx);
             applyReadingClip(article, clip);
           }
-          if (Math.abs(activeFloat - hub.textOffset) > 0.01)
+          if (
+            Math.abs(activeFloat - hub.textOffset) > 0.01 &&
+            Math.abs(hub.textOffset - hub.textOffsetTarget) < 0.05
+          )
             this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: activeFloat });
           this.readingSettling = this.readingPositions.isSettling(node.id, presentation);
           profile?.mark("reading.place");

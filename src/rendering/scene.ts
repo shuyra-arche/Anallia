@@ -19,7 +19,6 @@ import type {
   FieldState,
   GraspReadingSnapshot,
   Hub,
-  Theme,
   Vec,
 } from "../core/types.ts";
 import { BOUNDARY } from "../core/palette.ts";
@@ -85,7 +84,7 @@ export class Scene {
   private backgroundCache: BackgroundFrame | null = null;
   private loadingGeometry: LoadingGeometry | null = null;
   private contentRevision = 0;
-  private readonly amberColors = new Map<Theme, string>();
+  private readonly amberColors = new Map<string, string>();
 
   setLoadingGeometry(geometry: LoadingGeometry | null): void {
     this.loadingGeometry = geometry;
@@ -225,7 +224,13 @@ export class Scene {
       }
       this.gpu = gpu;
       this.resolvedKind = "webgl";
+      if (this.currentFrame.viewport.width > 0 && this.currentFrame.viewport.height > 0) {
+        this.currentFrame.rendererKind = "webgl";
+        gpu.resize(this.currentFrame.viewport.width, this.currentFrame.viewport.height, dpr);
+        gpu.render(this.currentFrame);
+      }
       this.reading.before(gpu.canvas);
+      this.host.dataset.renderer = "webgl";
       this.lastRenderKey = "";
     } catch {
       this.installSvgFallback();
@@ -436,6 +441,7 @@ export class Scene {
       s.camera,
       s.viewport,
       this.contentRevision,
+      this.host.ownerDocument.documentElement.dataset.circleReadingMode,
       this.loadingGeometry,
       s.focus,
       s.overview,
@@ -487,19 +493,21 @@ export class Scene {
     this.lastRenderKey = key;
     const visualTheme =
       s.passage && s.passage.phase >= 0.5 ? s.passage.theme : s.theme;
-    this.host.ownerDocument.documentElement.dataset.theme = visualTheme;
-    if (!this.amberColors.has(visualTheme)) {
+    const docEl = this.host.ownerDocument.documentElement;
+    docEl.dataset.theme = visualTheme;
+    const demoKey = `${visualTheme}:${docEl.dataset.demo ?? ""}`;
+    if (!this.amberColors.has(demoKey)) {
       const color = this.host.ownerDocument.defaultView
-        ?.getComputedStyle(this.host.ownerDocument.documentElement)
+        ?.getComputedStyle(docEl)
         .getPropertyValue("--amber")
         .trim();
-      this.amberColors.set(visualTheme, color || BOUNDARY[visualTheme]);
+      this.amberColors.set(demoKey, color || BOUNDARY[visualTheme]);
     }
     profile?.mark("scene.host");
     const built = buildSceneFrame(s, this.catalog, {
       renderer: this.resolvedKind,
       revision: ++this.frameRevision,
-      relationColor: this.amberColors.get(visualTheme)!,
+      relationColor: this.amberColors.get(demoKey)!,
       focusedEntries,
       locals,
       feedback: this.symbolFeedback,
@@ -652,21 +660,36 @@ export class Scene {
     svgEl.append(g);
     return svgEl;
   }
-  private buildIconShowcase(_hub: Hub): HTMLElement {
+  private buildIconShowcase(hub: Hub): HTMLElement {
+    const wrapper = document.createElement("div");
+    wrapper.className = "symbol-morph-showcase";
     const grid = document.createElement("div");
     grid.className = "icon-showcase-grid";
     for (const token of Object.values(ICON_TOKENS)) {
       const card = document.createElement("div");
       card.className = "icon-showcase-card";
-      card.append(this.createInlineIconSvg(token));
-      const label = document.createElement("span");
-      label.textContent = token.label;
-      card.append(label);
+      const stage = document.createElement("div");
+      stage.className = "icon-showcase-stage";
+      const svgEl = this.createInlineIconSvg(token, hub.morph);
+      svgEl.setAttribute("class", "icon-showcase-svg");
+      svgEl.setAttribute("width", "20");
+      svgEl.setAttribute("height", "20");
+      stage.append(svgEl);
+      const meta = document.createElement("div");
+      meta.className = "icon-showcase-meta";
+      const title = document.createElement("div");
+      title.className = "icon-showcase-title";
+      title.textContent = `${token.glyph} · ${token.label}`;
+      const spec = document.createElement("div");
+      spec.className = "icon-showcase-spec";
+      spec.textContent = `${token.sizePx}×${token.sizePx} · s=${token.opticalScale}`;
+      meta.append(title, spec);
+      card.append(stage, meta);
       grid.append(card);
     }
-    return grid;
+    wrapper.append(grid);
+    return wrapper;
   }
-
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;

@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Hub } from "../src/core/types.ts";
-import { geometricReadingLines } from "../src/geometry/geometric-reading.ts";
+import {
+  geometricReadingLines,
+  spineContourPoses,
+  circularContourPullIn,
+} from "../src/geometry/geometric-reading.ts";
 import { layoutGeometricText } from "../src/rendering/geometric-text-layout.ts";
 import { R } from "../src/geometry/field.ts";
 
@@ -126,4 +130,62 @@ test("invalid geometry and unordered source ranges fail explicitly", () => {
     { content: "a", sourceRange: { start: 0, end: 2 } },
     { content: "b", sourceRange: { start: 1, end: 3 } },
   ], request), RangeError);
+});
+
+test("spineContourPoses tracks tilted line spines horizontally and indents smoothly around the focused label badge", () => {
+  const posesVertical = spineContourPoses({
+    hub: { ...hub, morph: 1, angle: 0 },
+    camera: { x: 0, y: 0, z: 1, rotation: 0 },
+    viewport: { width: 1200, height: 800 },
+    startS: 0,
+    lineCount: 6,
+    lineHeight: 26,
+    maxWidth: 360,
+  });
+  assert.equal(posesVertical.length, 6);
+  // Row 0 is aligned near the focused badge at the top of the column, so its edgeX indents further right than row 5
+  assert.ok(posesVertical[0].edgeX > posesVertical[5].edgeX);
+  // Tilted spine at 36 degrees shifts row spineX and edgeX along the tilted spine
+  const posesTilted = spineContourPoses({
+    hub: { ...hub, morph: 1, angle: 0 },
+    camera: { x: 0, y: 0, z: 1, rotation: 36 },
+    viewport: { width: 1200, height: 800 },
+    startS: 0,
+    lineCount: 6,
+    lineHeight: 26,
+    maxWidth: 360,
+  });
+  assert.equal(posesTilted.length, 6);
+  assert.notEqual(posesTilted[5].spineX, posesTilted[2].spineX);
+  assert.ok(posesTilted.every(pose => pose.availableWidth > 120 && pose.availableWidth <= 360));
+});
+
+test("circularContourPullIn preserves exact zero offset at the active gaze row while pulling bare arc segments closer to the circle", () => {
+  const stepAngle = (2 * Math.PI) / 80;
+  for (const progress of [0, 1, 2, 5]) {
+    assert.equal(circularContourPullIn(progress, progress, stepAngle), 0);
+  }
+  // At row 0 (origin badge), pull-in is suppressed even when progress has advanced
+  assert.equal(circularContourPullIn(0, 12, stepAngle), 0);
+  // Far from the gaze ray and away from local/peer badges, rows pull inward toward the circle ring
+  const bareArcPullIn = circularContourPullIn(28, 0, stepAngle);
+  assert.ok(bareArcPullIn > 20 && bareArcPullIn <= 34, `expected pull-in > 20, got ${bareArcPullIn}`);
+});
+
+test("spineContourPoses envelopes a circle hub with horizontal baselines that curve along upper and lower arcs around the focal anchor", () => {
+  const posesCircle = spineContourPoses({
+    hub: { ...hub, morph: 0, angle: 0 },
+    camera: { x: 0, y: 0, z: 1, rotation: 0 },
+    viewport: { width: 1200, height: 800 },
+    startS: 0,
+    lineCount: 10,
+    capacity: 10,
+    lineHeight: 30,
+    maxWidth: 320,
+  });
+  assert.equal(posesCircle.length, 10);
+  assert.ok(posesCircle.every((pose) => pose.baselineAngle === 0));
+  // Anchor row (slot 3) clears the focused chapter badge on the circle equator, while top (slot 0) and bottom (slot 9) rows tuck inward along the circular arc
+  assert.ok(posesCircle[3].edgeX > posesCircle[0].edgeX, `expected anchor row edgeX (${posesCircle[3].edgeX}) > top row (${posesCircle[0].edgeX})`);
+  assert.ok(posesCircle[3].edgeX > posesCircle[9].edgeX, `expected anchor row edgeX (${posesCircle[3].edgeX}) > bottom row (${posesCircle[9].edgeX})`);
 });

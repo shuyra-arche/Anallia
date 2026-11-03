@@ -149,3 +149,32 @@ test("IX mobile route stays navigable and exit restores the ordinary entry", asy
     "leaves-ix",
   );
 });
+
+test("IX portal, alias exit and browser history replace sessions without reloading", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/?renderer=svg");
+  await page.evaluate(async () => {
+    await (window as any).__shuyra.ready;
+    (window as any).__sessionMarker = {};
+  });
+  await page.locator("[data-enter-leaves-ix]").click();
+  await expect(page.locator("#text-ix-entry")).toBeVisible();
+  await expect(page.locator("#contentStatus")).toHaveCount(1);
+  await page.locator(".ix-exit").click();
+  await expect(page.locator("#text-a0")).toBeVisible();
+  await expect(page.locator("#leavesIxPortal")).toHaveCount(1);
+  await page.goBack();
+  await expect(page.locator("#text-ix-entry")).toBeVisible();
+  await page.goForward();
+  await expect(page.locator("#text-a0")).toBeVisible();
+  expect(await page.evaluate(() => Boolean((window as any).__sessionMarker))).toBe(true);
+  await expect(page.locator("#hudControls")).toHaveCount(1);
+  await expect(page.locator("#contentStatus")).toHaveCount(1);
+  await page.goto("/?ix&renderer=svg");
+  await expect(page.locator("#text-ix-entry")).toBeVisible();
+  await page.locator(".ix-exit").click();
+  await expect(page.locator("#text-a0")).toBeVisible();
+  expect(new URL(page.url()).searchParams.has("ix")).toBe(false);
+  expect(errors).toEqual([]);
+});

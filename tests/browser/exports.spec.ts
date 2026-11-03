@@ -49,7 +49,13 @@ for (const form of ["normal", "pages", "preview", "single-file"]) {
     await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "m3" && !(window as any).__shuyra.field.isAnimating);
     await expect(page.locator("#text-m3")).toBeVisible();
     expect(errors).toEqual([]);
-    if (form === "single-file") expect(requests).toEqual([]);
+    if (form === "single-file") {
+      await page.locator("[data-enter-leaves-ix]").click();
+      await expect(page.locator("#text-ix-entry")).toBeVisible();
+      await page.locator(".ix-exit").click();
+      await expect(page.locator("#text-a0")).toBeVisible();
+      expect(requests).toEqual([]);
+    }
     else expect(requests.every(request => request.startsWith(origin))).toBe(true);
   });
 }

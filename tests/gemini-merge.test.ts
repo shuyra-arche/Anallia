@@ -324,8 +324,8 @@ test("geometric reading consumes only article wheel events and preserves blank, 
     wheel(label as unknown as Element,100);
     wheel(local as unknown as Element,45);
     assert.deepEqual(commands,[
-      {type:"float-text",delta:30,maxOffset:900},{type:"step",delta:1},
-      {type:"float-text",delta:-30,maxOffset:900},{type:"step",delta:-1},
+      {type:"float-text",delta:30,maxOffset:900,clampOnly:true},{type:"step",delta:1},
+      {type:"float-text",delta:-30,maxOffset:900,clampOnly:true},{type:"step",delta:-1},
       {type:"step",delta:1},{type:"scroll-local",delta:1},
     ]);
     assert.equal(readingCalls,2);

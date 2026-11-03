@@ -174,3 +174,29 @@ for (const renderer of ["svg", "gpu"]) {
     expect(errors).toEqual([]);
   });
 }
+
+test("geometric text selection survives font layout invalidation in circle and line modes", async ({ page }) => {
+  for (const morph of [0, 1]) {
+    await page.goto(`/?demo=leaves-ix&renderer=svg&morph=${morph}`);
+    await page.evaluate(async () => {
+      await (window as any).__shuyra.ready;
+      await document.fonts.ready;
+    });
+    const root = page.locator("#text-ix-entry .geometric-content");
+    const selected = await root.locator(".geometric-row[data-source-start]").first().evaluate(el => {
+      const text = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode()!;
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, Math.min(5, text.textContent!.length));
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      (window as any).__selectedRow = el;
+      return selection.toString();
+    });
+    expect(selected.length).toBeGreaterThan(0);
+    await page.evaluate(() => (window as any).__shuyra.scene.invalidateLayout(true));
+    await expect.poll(() => page.evaluate(() => (window as any).__selectedRow.isConnected)).toBe(false);
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(selected);
+  }
+});

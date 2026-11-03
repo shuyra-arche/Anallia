@@ -177,7 +177,7 @@ export type Command =
   | { type: "morph" }
   | { type: "step"; delta: number }
   | { type: "scroll-local"; delta: number }
-  | { type: "float-text"; delta: number; maxOffset?: number }
+  | { type: "float-text"; delta: number; maxOffset?: number; clampOnly?: boolean }
   | { type: "search"; query: string }
   | { type: "up" | "back" | "overview" };
 

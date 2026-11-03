@@ -69,6 +69,9 @@ export class Field {
   private readingReference: { chapterId: string; bearing: number } | null = null;
   private readonly readingRows = new Map<string, number>();
   private now = 0;
+  private lastBoundaryStepAt = -Infinity;
+  private lastFloatMoveAt = -Infinity;
+  private boundaryStepFromText = false;
   private systemReducedMotion: boolean;
   readonly catalog: Catalog;
   constructor(catalog: Catalog, viewport: Viewport, reducedMotion = false) {
@@ -416,6 +419,10 @@ export class Field {
     if (presentation === "circle" && Number.isSafeInteger(count) && count > 0 && this.catalog.chapters.has(chapterId))
       this.readingRows.set(chapterId, count);
   }
+  clearReadingRows(): void {
+    this.readingRows.clear();
+    this.readingReference = null;
+  }
   restoreReadingOffset(chapterId: string, presentation: "circle" | "line", offset: number): void {
     if (this.selected().id !== chapterId || (this.hub.morph > 0.5 ? "line" : "circle") !== presentation || !Number.isFinite(offset)) return;
     this.hub.textOffset = this.hub.textOffsetTarget = Math.max(0, offset);
@@ -464,7 +471,27 @@ export class Field {
       if (s.overview || s.loading) return;
       const h = this.hub;
       const limit = Math.max(0, command.maxOffset ?? 600);
-      h.textOffsetTarget = clamp(h.textOffsetTarget + command.delta, 0, limit);
+      const clock = this.now > 0 ? this.now : (typeof performance !== "undefined" ? performance.now() : 0);
+      const atTop = command.delta < 0 && h.textOffset <= 0.5 && h.textOffsetTarget <= 0.5;
+      const atBottom = command.delta > 0 && h.textOffset >= limit - 0.5 && h.textOffsetTarget >= limit - 0.5;
+      if ((atTop || atBottom) && Math.abs(command.delta) >= 1) {
+        if (command.clampOnly) return;
+        if (clock - this.lastBoundaryStepAt >= 180 && clock - this.lastFloatMoveAt >= 110) {
+          this.lastBoundaryStepAt = clock;
+          this.boundaryStepFromText = true;
+          try {
+            this.dispatch({ type: "step", delta: Math.sign(command.delta) });
+          } finally {
+            this.boundaryStepFromText = false;
+          }
+        }
+        return;
+      }
+      const nextTarget = clamp(h.textOffsetTarget + command.delta, 0, limit);
+      if (Math.abs(nextTarget - h.textOffsetTarget) > 1e-4) {
+        this.lastFloatMoveAt = clock;
+      }
+      h.textOffsetTarget = nextTarget;
       return;
     }
     if (command.type === "navigate" && command.target.startsWith("act:")) {
@@ -642,6 +669,27 @@ export class Field {
           next = clamp(index + command.delta, 0, nodes.length - 1);
         if (next !== index) {
           this.dispatch({ type: "navigate", target: nodes[next].id });
+          return;
+        }
+        if (here.id.startsWith("ix-")) {
+          const fallbackTarget =
+            command.delta > 0
+              ? here.refs[0]?.target
+              : (here.parent ?? (here.id === "ix-entry" ? "ix-exit" : here.refs[1]?.target ?? here.refs[0]?.target));
+          if (fallbackTarget && fallbackTarget !== here.id) {
+            this.dispatch({ type: "navigate", target: fallbackTarget });
+          }
+          return;
+        }
+        if (this.boundaryStepFromText) {
+          if (nodes.length > 1) {
+            const wrapped = command.delta > 0 ? 0 : nodes.length - 1;
+            this.dispatch({ type: "navigate", target: nodes[wrapped].id });
+          } else if (command.delta > 0 && here.children.length > 0) {
+            this.dispatch({ type: "navigate", target: here.children[0] });
+          } else if (command.delta < 0 && here.parent) {
+            this.dispatch({ type: "navigate", target: here.parent });
+          }
         }
         return;
       }
@@ -969,9 +1017,17 @@ export class Field {
     if (hub.readingLayoutMode === "window" || hub.morph > 0.0001 || hub.fold !== 0 ||
         s.overview || s.loading || s.passage || s.morphTurn || s.contentTurn || this.graspStart !== null) return false;
     const id = this.selected().id;
+    if (!this.readingRows.has(id)) return false;
     if (id === this.catalog.searchRoot || this.catalog.sourceChapterId(id) !== id) return false;
     const document = this.catalog.document(id, "circle");
-    return document.blocks.length > 0 && document.blocks.every(block => block.kind === "paragraph");
+    return (
+      document.blocks.length > 0 &&
+      document.blocks.every(
+        (block) =>
+          block.kind === "paragraph" ||
+          (block.kind === "horizontal-list" && Boolean(block.items?.length)),
+      )
+    );
   }
 
   get isAnimating(): boolean {
@@ -995,6 +1051,7 @@ export class Field {
   update(now: number, dt: number) {
     this.now = now;
     const s = this.state;
+    const prevTextOffset = this.hub.textOffset;
     dt = Math.min(dt, 50);
     s.elapsed += dt * s.settings.speed;
     const k = s.settings.reducedMotion
@@ -1057,22 +1114,30 @@ export class Field {
     if (this.follow && !s.overview && !s.passage && !s.morphTurn) {
       const hub = this.hub;
       const count = this.siblings().length;
-      const rotation = unwrapAngle(
-        s.camera.rotation,
-        readingRotation(hub, hub.scroll, count, s.camera, s.viewport),
-      );
-      const along = nodeS(hub, hub.scroll, count, s.camera, s.viewport);
-      if (!this.readingPin) this.pinReading();
-      Object.assign(
-        s.camera,
-        cameraPinnedToPoint(
-          material(hub, along, 48),
-          this.readingPin!,
+      if (hub.readingLayoutMode === "geometric" && hub.targetMorph < 0.0001 && hub.fold === 0) {
+        const along = nodeS(hub, hub.scroll, count, s.camera, s.viewport);
+        const normal = outwardNormal(hub, along);
+        const targetRotation = (-Math.atan2(normal.y, normal.x) * 180) / Math.PI;
+        const rotation = unwrapAngle(s.camera.rotation, targetRotation);
+        Object.assign(s.camera, orbitCamera(s.camera, hub.center, rotation));
+      } else {
+        const rotation = unwrapAngle(
+          s.camera.rotation,
+          readingRotation(hub, hub.scroll, count, s.camera, s.viewport),
+        );
+        const along = nodeS(hub, hub.scroll, count, s.camera, s.viewport);
+        if (!this.readingPin) this.pinReading();
+        Object.assign(
           s.camera,
-          s.viewport,
-          rotation,
-        ),
-      );
+          cameraPinnedToPoint(
+            material(hub, along, 48),
+            this.readingPin!,
+            s.camera,
+            s.viewport,
+            rotation,
+          ),
+        );
+      }
       if (hub.scroll === hub.scrollTarget) {
         this.follow = false;
         this.readingPin = null;
@@ -1149,7 +1214,8 @@ export class Field {
       const slots = circularReadingSlots(this.readingRows.get(chapterId) ?? READING_RING_CAPACITY);
       const pose = circularReadingPose(h, along, h.textOffset / READING_LINE_STEP, 1, 2 * Math.PI / slots);
       const previous = this.readingReference;
-      const fromBearing = previous?.chapterId === chapterId ? previous.bearing : -s.camera.rotation;
+      const initialPose = circularReadingPose(h, along, prevTextOffset / READING_LINE_STEP, 1, 2 * Math.PI / slots);
+      const fromBearing = previous?.chapterId === chapterId ? previous.bearing : initialPose.baselineAngle;
       if (Math.abs(fromBearing - pose.baselineAngle) > 1e-9)
         Object.assign(s.camera, circularReadingCamera(h, fromBearing, pose.baselineAngle, s.camera));
       this.readingReference = { chapterId, bearing: pose.baselineAngle };

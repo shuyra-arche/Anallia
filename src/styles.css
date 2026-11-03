@@ -710,6 +710,72 @@ button {
   color: var(--quiet);
 }
 
+/* 叶之屋 · IX 迷宫习作常驻入口 (#leavesIxPortal) */
+.ix-portal {
+  position: fixed;
+  top: 20px;
+  left: 28px;
+  z-index: 8;
+  pointer-events: auto;
+}
+.ix-portal-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 13px 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--low) 58%, transparent);
+  background: color-mix(in srgb, var(--paper) 84%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--ink);
+  text-decoration: none;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    transform 0.2s ease;
+}
+.ix-portal-link:hover {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--paper-swept) 92%, transparent);
+  transform: translateY(-1px);
+}
+.ix-portal-link:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 3px;
+}
+.ix-portal-badge {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #254aa8;
+  color: #254aa8;
+  font: italic 600 12.5px/1 Georgia, "Noto Serif CJK SC", serif;
+  letter-spacing: -0.03em;
+  flex-shrink: 0;
+}
+html[data-theme="dark"] .ix-portal-badge,
+html[data-theme="abyss"] .ix-portal-badge,
+html[data-theme="obsidian"] .ix-portal-badge {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.ix-portal-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ix-portal-copy strong {
+  font: 600 12px/1.3 "Noto Serif CJK SC", "Songti SC", var(--font-sans);
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+.ix-portal-copy small {
+  font: 9.5px/1.3 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--quiet);
+}
+
 /* 仅保留左下角说明文字 */
 #descBar {
   position: fixed;
@@ -725,6 +791,13 @@ button {
 }
 
 @media (max-width: 700px) {
+  .ix-portal {
+    top: 14px;
+    left: 14px;
+  }
+  .ix-portal-copy small {
+    display: none;
+  }
   #descBar {
     left: 14px;
     bottom: 14px;
@@ -1011,11 +1084,67 @@ button {
 .note[data-reading-layout="geometric"] { contain: style; }
 .note[data-reading-layout="geometric"]::before { display: none; }
 .note[data-reading-layout="geometric"] > .note-window { display: none; }
-.note[data-reading-layout="geometric"] > .geometric-content { display: block; }
+.note[data-reading-layout="geometric"] > .geometric-content { display: block; pointer-events: none; }
 .note .geometric-row {
   position: absolute; left: 0; top: 0; margin: 0; transform-origin: 0 0;
   white-space: pre; font-size: 14px; font-weight: 400; line-height: 30px;
   letter-spacing: 0; color: var(--body-ink); pointer-events: auto;
+  transition: color 0.18s ease;
+}
+.note .geometric-row.circular-row {
+  transition: opacity 0.16s ease-out, color 0.18s ease;
+  will-change: transform, opacity;
+  cursor: pointer;
+}
+.note .geometric-row.circular-row[data-active-row="true"]:not(h2) {
+  color: var(--ink, #1b2326);
+  font-weight: 520;
+}
+.note .geometric-row.circular-row[data-active-row="true"]::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber, #b26c2d);
+  opacity: 0.88;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.note .geometric-row.circular-row[data-hub-side="left"][data-active-row="true"]::before {
+  left: -12px;
+}
+.note .geometric-row.circular-row[data-hub-side="right"][data-active-row="true"]::before {
+  right: -12px;
+}
+.note .geometric-row::after {
+  content: "";
+  position: absolute;
+  inset: -5px -8px;
+  z-index: -1;
+  pointer-events: auto;
+}
+.note .geometric-row[data-active-row="true"]:not(h2) {
+  color: var(--ink);
+  font-weight: 480;
+}
+.note .geometric-row.spine-row[data-active-row="true"]::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 1.5px;
+  background: var(--amber);
+  opacity: 0.72;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.note .geometric-row.spine-row[data-hub-side="left"][data-active-row="true"]::before {
+  left: -13px;
+}
+.note .geometric-row.spine-row[data-hub-side="right"][data-active-row="true"]::before {
+  right: -13px;
 }
 .note h2.geometric-row { font-size: 16px; font-weight: 600; color: var(--ink); }
-.note .geometric-row .inline-ref { font: inherit; letter-spacing: 0; padding: 0; display: inline; }
+.note .geometric-row .inline-ref { position: relative; z-index: 1; font: inherit; letter-spacing: 0; padding: 0; display: inline; }

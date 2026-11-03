@@ -355,3 +355,25 @@ test("long text floats smoothly along label horizontal line and resets on chapte
   f.dispatch({ type: "step", delta: -1 });
   assert.equal(f.hub.textOffsetTarget, 0);
 });
+
+test("scrolling past top or bottom boundary of a long article switches chapters", () => {
+  const f = create();
+  f.dispatch({ type: "navigate", target: "a4" });
+  settle(f);
+  assert.equal(f.selected().id, "a4");
+  assert.equal(f.hub.textOffset, 0);
+  // At top of a4 (textOffset === 0), wheeling up (delta < 0) steps to previous sibling a3
+  f.dispatch({ type: "float-text", delta: -60, maxOffset: 260 });
+  settle(f, 3200);
+  assert.equal(f.selected().id, "a3");
+  // Navigate to m3, scroll to bottom, then wheel down past bottom to step to m4
+  f.dispatch({ type: "navigate", target: "m3" });
+  settle(f, 5000);
+  assert.equal(f.selected().id, "m3");
+  f.dispatch({ type: "float-text", delta: 300, maxOffset: 300 });
+  settle(f, 7000);
+  near(f.hub.textOffset, 300);
+  f.dispatch({ type: "float-text", delta: 60, maxOffset: 300 });
+  settle(f, 9000);
+  assert.equal(f.selected().id, "m4");
+});

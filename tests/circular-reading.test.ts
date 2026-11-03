@@ -8,6 +8,9 @@ import {
   READING_LINE_ANGLE,
   circularReadingSlots,
   READING_RING_CAPACITY,
+  circularLyricsLayout,
+  circularLyricsPose,
+  circularLyricsOpacity,
 } from "../src/geometry/circular-reading.ts";
 import { worldToScreen } from "../src/geometry/field.ts";
 import { Field } from "../src/application/field.ts";
@@ -159,4 +162,57 @@ test("reading advance uses the gaze after free rotation and keeps the hub center
     beforeRead.rotation -
       (((2 * Math.PI) / circularReadingSlots(8)) * 180) / Math.PI,
   );
+});
+
+test("circularLyricsLayout provides compact readable spacing (~5.0 deg) and detects full-turn overlap", () => {
+  const short7 = circularLyricsLayout(7);
+  assert.equal(short7.slots, 72);
+  near(short7.lineAngle, (5.0 * Math.PI) / 180);
+  assert.equal(short7.hasOverlap, false);
+
+  const medium22 = circularLyricsLayout(22);
+  assert.equal(medium22.slots, 72);
+  near(medium22.lineAngle, (5.0 * Math.PI) / 180);
+  assert.equal(medium22.hasOverlap, false);
+
+  const long100 = circularLyricsLayout(100);
+  assert.equal(long100.slots, 72);
+  near(long100.lineAngle, (5.0 * Math.PI) / 180);
+  assert.equal(long100.hasOverlap, true);
+});
+
+test("circularLyricsPose rotates rows radially around the hub so active row sits at focal anchor with stationary camera", () => {
+  const hub = create().hub;
+  const layout = circularLyricsLayout(7);
+  const pose0 = circularLyricsPose(hub, 0, 0, 0, 450, layout.lineAngle);
+  near(Math.hypot(pose0.point.x - hub.center.x, pose0.point.y - hub.center.y), 450);
+  const anchorAngleDeg = (hub.angle * Math.PI) / 180 * (180 / Math.PI);
+  near(pose0.baselineAngle, anchorAngleDeg);
+
+  const pose1AtProgress1 = circularLyricsPose(hub, 0, 1, 1, 450, layout.lineAngle);
+  near(pose1AtProgress1.point.x, pose0.point.x);
+  near(pose1AtProgress1.point.y, pose0.point.y);
+  near(pose1AtProgress1.baselineAngle, pose0.baselineAngle);
+
+  const pose0AtProgress1 = circularLyricsPose(hub, 0, 0, 1, 450, layout.lineAngle);
+  near(pose0AtProgress1.baselineAngle, pose0.baselineAngle - (layout.lineAngle * 180) / Math.PI);
+});
+
+test("circularLyricsOpacity preserves all non-overlapping text and only dissolves overlapping text at back of circle", () => {
+  assert.equal(circularLyricsOpacity(0, 0, 7), 1.0);
+  assert.equal(circularLyricsOpacity(3, 3, 22), 1.0);
+
+  assert.ok(circularLyricsOpacity(1, 0, 7) >= 0.85);
+  assert.ok(circularLyricsOpacity(2, 3, 22) >= 0.85);
+
+  for (let r = 0; r < 7; r++) {
+    assert.ok(circularLyricsOpacity(r, 0, 7) >= 0.72);
+  }
+  for (let r = 0; r < 22; r++) {
+    assert.ok(circularLyricsOpacity(r, 0, 22) >= 0.72);
+  }
+
+  assert.equal(circularLyricsOpacity(36, 0, 100), 0.0);
+  assert.equal(circularLyricsOpacity(40, 0, 100), 0.0);
+  assert.ok(circularLyricsOpacity(20, 0, 100) >= 0.72);
 });
