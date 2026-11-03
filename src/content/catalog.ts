@@ -48,6 +48,11 @@ export class Catalog {
 
   get contentIdentity(): object { return this.content; }
 
+  get settingsRoot() {
+    return this.definitions.find((hub) => hub.kind === "settings")?.root;
+  }
+  boundaryRoutes(id: string) { return this.manifestChapter(id)?.boundaryRoutes; }
+
   get searchHub() {
     return this.definitions.find((hub) => hub.kind === "search");
   }
@@ -58,6 +63,9 @@ export class Catalog {
   constructor(definitions: HubDefinition[], rows: CatalogRowsInput, store?: ContentStore) {
     this.definitions = definitions;
     this.content = store ?? new ContentStore();
+    for (const kind of ["search", "settings"] as const) {
+      if (definitions.filter(hub => hub.kind === kind).length > 1) throw new Error(`Duplicate utility capability: ${kind}`);
+    }
     const hubs = new Set(definitions.map((h) => h.id));
     if (hubs.size !== definitions.length) throw new Error("Duplicate hub");
     const manifest = isManifest(rows) ? rows : undefined;
@@ -98,6 +106,7 @@ export class Catalog {
       }
       for (const ref of node.refs) this.get(ref.target);
       if (manifest) {
+        for (const target of Object.values(this.boundaryRoutes(node.id) ?? {})) this.get(target);
         for (const target of this.manifestChapter(node.id)?.inlineTargets ?? [])
           if (!target.startsWith("act:")) this.get(target);
       } else {
@@ -177,6 +186,11 @@ export class Catalog {
       const entry = this.searchIndex.get(id);
       if (entry && state.complete) updateSearchEntry(entry, presentation, state.text);
     });
+  }
+
+  destroy(): void {
+    this.unsubscribeContent?.();
+    this.unsubscribeContent = null;
   }
 
   bindContentStore(store: ContentStore): void {

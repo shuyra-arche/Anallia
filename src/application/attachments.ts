@@ -205,9 +205,11 @@ export function globalAttachments(
     state.viewport,
   );
   const roots = new Map(
-    catalog.definitions.map((def) => [def.glyph, def.root]),
+    catalog.definitions.filter(def => def.kind).map((def) => [def.kind!, def.root]),
   );
-  const operations: FieldAttachment[] = GLOBAL_OPERATIONS.map((op) => {
+  const operations: FieldAttachment[] = GLOBAL_OPERATIONS.filter(op =>
+    op.action.kind === "command" || roots.has(op.action.capability),
+  ).map((op) => {
     return {
       id: `global:${op.id}`,
       glyph: op.glyph,

@@ -6,3 +6,5 @@ demo.html
 
 test-results/
 playwright-report/
+
+dist-reader/

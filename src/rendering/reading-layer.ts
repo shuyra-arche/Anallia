@@ -10,6 +10,7 @@ import { themeFromAction } from "../core/palette.ts";
 import { placeReading, readingHeight, readingWidth, resolveReadingClip } from "../core/layout.ts";
 import { readingEnvelope, morphReadingEnvelope, pageTurnPose } from "../core/transitions.ts";
 import { computeHubVerticalClearance, material, outwardNormal, nodeS, hubToScreen } from "../geometry/field.ts";
+import { GeometricArticle } from "./geometric-article.ts";
 import { ArticleRenderer } from "./article.ts";
 import type { ArticleVisuals } from "./article.ts";
 import { ReadingPositions, applyReadingClip } from "./reading-positions.ts";
@@ -65,6 +66,7 @@ export class ReadingLayer {
     width: number;
     height: number;
   } | null = null;
+  private readonly geometric = new GeometricArticle(target => this.catalog.chapters.has(target));
   private destroyed = false;
   private retained: GraspReadingSnapshot | null = null;
   setRetainedChapter(view: GraspReadingSnapshot | null): void { this.retained = view; }
@@ -78,6 +80,7 @@ export class ReadingLayer {
   readonly articleRenderer: ArticleRenderer;
   private contentProbe: HTMLElement | null = null;
   private lastState: FieldState | null = null;
+  private lastExpression: { id: string; presentation: "circle" | "line" } | null = null;
   private readonly host: HTMLElement;
   private readonly catalog: Catalog;
   private readonly reading: HTMLElement;
@@ -185,7 +188,8 @@ export class ReadingLayer {
     this.readingBounds = null;
     this.readingSettling = false;
     const hub = s.hubs[s.focus],
-      nodes = this.catalog.siblings(this.selected(hub).id, s.searchResults),
+      selectedNode = this.selected(hub),
+      nodes = this.catalog.siblings(selectedNode.id, s.searchResults),
       morph = ease(clamp(hub.morph, 0, 1));
     const p = s.passage?.phase,
       fold = p === undefined ? 1 : readingEnvelope(p),
@@ -201,6 +205,7 @@ export class ReadingLayer {
     const visible = new Set<string>();
     if (!s.overview && !s.loading)
       nodes.forEach((node, i) => {
+        if (hub.readingLayoutMode !== "window" && node.id !== selectedNode.id) return;
         const surface =
           ease(clamp(1 - Math.abs(i - hub.scroll) / s.settings.range, 0, 1)) *
           fold *
@@ -209,6 +214,12 @@ export class ReadingLayer {
         const article = this.articleFor(node.id),
           depth = 1 - surface,
           presentation = morph > 0.5 ? "line" : "circle";
+        const document = this.catalog.document(node.id, presentation);
+        const expressionChanged = node.id === selectedNode.id && this.lastExpression?.id === node.id && this.lastExpression.presentation !== presentation;
+        const transferred = expressionChanged
+          ? this.readingPositions.transfer(node.id, this.lastExpression!.presentation, presentation, document)
+          : null;
+        if (transferred) article.dataset.readingContinuity = transferred.reason;
         profile?.mark("reading.place");
         const contentChange = this.articleRenderer.syncArticle(article, node, hub, presentation);
         profile?.mark("reading.sync");
@@ -265,6 +276,48 @@ export class ReadingLayer {
           outwardNormal(hub, position),
           (s.camera.rotation * Math.PI) / 180,
         );
+        const wasGeometric = article.dataset.readingLayout === "geometric";
+        const geometric = hub.readingLayoutMode !== "window" && node.id !== this.catalog.searchRoot && this.catalog.sourceChapterId(node.id) === node.id
+          ? this.geometric.render(article, this.catalog.document(node.id, presentation), node.title,
+            { hub, camera: s.camera, viewport: s.viewport, startS: position, bottomInset: Number(this.host.dataset.readingBottomInset ?? 0) },
+            readingWidth(s.viewport, true), hub.textOffset, this.articleRenderer.fontVersion,
+            transferred?.source ?? (wasGeometric ? undefined : this.readingPositions.get(node.id, presentation)?.source))
+          : null;
+        if (wasGeometric && !geometric && !expressionChanged) {
+          const source = this.geometric.firstSource(article);
+          if (source !== undefined) this.readingPositions.seek(node.id, presentation, source);
+        }
+        article.dataset.readingLayout = geometric ? "geometric" : "window";
+        if (geometric) {
+          if (transferred) this.readingPositions.settleSource(node.id, presentation);
+          if (!s.morphTurn && node.id === selectedNode.id) {
+            const source = this.geometric.firstSource(article);
+            if (source !== undefined) this.readingPositions.saveSource(node.id, presentation, source, document);
+          }
+          article.style.width = `${s.viewport.width}px`;
+          article.style.height = `${s.viewport.height}px`;
+          article.style.transform = `rotateY(${page?.angle ?? 0}deg)`;
+          article.style.transformOrigin = "50% 50%";
+          article.style.filter = "none";
+          article.style.opacity = String(surface ** 1.2);
+          article.style.pointerEvents = "none";
+          article.dataset.maxFloat = String(geometric.maxFloat);
+          if (geometric.readingRows !== undefined && node.id === selectedNode.id)
+            this.readingCorrections.push({ chapterId: node.id, presentation, readingRows: geometric.readingRows });
+          if (
+            node.id === selectedNode.id &&
+            Math.abs(hub.textOffset - geometric.textOffset) > 0.01 &&
+            (!wasGeometric || Math.abs(hub.textOffset - hub.textOffsetTarget) < 0.05)
+          )
+            this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: geometric.textOffset });
+          frames.push({ id: `reading:${node.id}`, chapterId: node.id, hubId: hub.id,
+            presentation, visible: true, inert, left: 0, top: 0, width: s.viewport.width,
+            height: s.viewport.height, scale: s.camera.z, opacity: surface ** 1.2,
+            blur: 0, rotationY: page?.angle ?? 0, transformOrigin: { x: s.viewport.width / 2, y: s.viewport.height / 2 },
+            anchorY: 0, side: "right", clipEdge: "none", maskImage: "none",
+            textOffset: hub.textOffset, maxFloat: geometric.maxFloat, pointerEvents: "none" });
+          return;
+        }
         const isLong = article.classList.contains("is-long");
         const widthPx = readingWidth(s.viewport, isLong);
         const widthStr = `${widthPx.toFixed(1)}px`;
@@ -344,7 +397,7 @@ export class ReadingLayer {
         const transformStr = `translate3d(${(targetLeft + (s.camera.z - 1) * placement.originX).toFixed(2)}px,${(targetTop + (s.camera.z - 1) * placement.originY).toFixed(2)}px,0) scale(${s.camera.z}) rotateY(${turnY.toFixed(2)}deg)`;
         if (article.style.transform !== transformStr)
           article.style.transform = transformStr;
-        if (node.id === this.selected(hub).id)
+        if (node.id === selectedNode.id)
           this.readingBounds = {
             left: targetLeft,
             top: targetTop,
@@ -362,7 +415,7 @@ export class ReadingLayer {
         const pointerStr = inert ? "none" : "auto";
         if (article.style.pointerEvents !== pointerStr)
           article.style.pointerEvents = pointerStr;
-        if (!inert && node.id === this.selected(hub).id) {
+        if (!inert && node.id === selectedNode.id) {
           profile?.mark("reading.place");
           const corrected = this.readingPositions.restore(article, node.id, presentation, s.camera.z, activeFloat, maxFloat);
           profile?.mark("reading.anchor");
@@ -372,12 +425,15 @@ export class ReadingLayer {
             clip = resolveReadingClip(normal, height, panelHeight, activeFloat, clearancePx);
             applyReadingClip(article, clip);
           }
-          if (Math.abs(activeFloat - hub.textOffset) > 0.01)
+          if (
+            Math.abs(activeFloat - hub.textOffset) > 0.01 &&
+            Math.abs(hub.textOffset - hub.textOffsetTarget) < 0.05
+          )
             this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: activeFloat });
           this.readingSettling = this.readingPositions.isSettling(node.id, presentation);
           profile?.mark("reading.place");
-          this.readingPositions.capture(article, node.id, presentation, s.camera.z,
-            JSON.stringify([widthStr, panelHeight, activeFloat, this.articleRenderer.fontVersion]));
+          if (!s.morphTurn) this.readingPositions.capture(article, node.id, presentation, s.camera.z,
+            JSON.stringify([widthStr, panelHeight, activeFloat, this.articleRenderer.fontVersion, document.source.length]), document);
           profile?.mark("reading.anchor");
         }
         frames.push({
@@ -408,6 +464,9 @@ export class ReadingLayer {
           pointerEvents: inert ? "none" : "auto",
         });
       });
+    const selectedFrame = frames.find(frame => frame.chapterId === selectedNode.id);
+    if (selectedFrame) this.lastExpression = { id: selectedNode.id, presentation: selectedFrame.presentation };
+    else if (s.overview || s.loading) this.lastExpression = null;
     for (const [id, article] of this.articles)
       if (!visible.has(id)) {
         if (!article.hidden) article.hidden = true;
@@ -434,6 +493,7 @@ export class ReadingLayer {
     this.readingCorrections = [];
     this.heights.clear();
     this.lastState = null;
+    this.lastExpression = null;
     this.retained = null;
     this.readingBounds = null;
     this.readingSettling = false;

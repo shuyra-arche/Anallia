@@ -110,6 +110,14 @@ export function computeSoundFrame(
  * delicate, short-decay harmonic glass chimes high-passed above 340 Hz.
  */
 export class GeometricSoundscape {
+  destroy(): void {
+    const context = this.ctx;
+    this.ctx = null;
+    this.masterGain = null;
+    this.highpass = null;
+    if (context && context.state !== "closed") void context.close().catch(() => {});
+  }
+
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private highpass: BiquadFilterNode | null = null;

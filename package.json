@@ -15,7 +15,9 @@
     "content:check": "node tools/content-manifest.mjs --check",
     "predev": "npm run content:generate",
     "precheck": "npm run content:check",
-    "pretest": "npm run content:check"
+    "pretest": "npm run content:check",
+    "build:reader": "npm run check && node tools/build-reader.mjs",
+    "test:reader": "npm run build:reader && node tools/verify-reader.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

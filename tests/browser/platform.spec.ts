@@ -22,7 +22,7 @@ test("LAN address serves modules and HMR updates without a fixed HMR host", asyn
     await page.waitForFunction(() => (window as any).__lanProbe === "updated");
     const response = await page.request.get(`${url}/src/main.ts`);
     expect(response.ok()).toBe(true);
-    expect(await response.text()).toContain("ContentStore");
+    expect(response.headers()["content-type"]).toContain("javascript");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

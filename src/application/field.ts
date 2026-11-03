@@ -1,3 +1,4 @@
+import { circularReadingCamera, circularReadingPose, circularReadingSlots, READING_LINE_STEP, READING_RING_CAPACITY } from "../geometry/circular-reading.ts";
 import type { GraspReadingSnapshot } from "../core/types.ts";
 import { frameRateFromAction, frameRateLabel } from "../core/frame-rate.ts";
 import {
@@ -30,7 +31,6 @@ import {
   readingBearing,
   cameraPinnedToPoint,
   arcLengthAt,
-  overviewCamera,
   screenToWorld,
   orbitCamera,
   material,
@@ -49,6 +49,8 @@ import {
 import { Catalog } from "../content/catalog.ts";
 import { needsColorSweep, THEME_OPTIONS, themeFromAction } from "../core/palette.ts";
 import { localBandForHub } from "./attachments.ts";
+import { fitOverviewCamera } from "../geometry/overview.ts";
+import type { OverviewRegion } from "../geometry/overview.ts";
 
 export class Field {
   readonly state: FieldState;
@@ -63,9 +65,15 @@ export class Field {
   private follow = false;
   private readingPin: Vec | null = null;
   private autoFit = true;
+  private overviewRegion: { viewport: Viewport; region: OverviewRegion } | null = null;
   private graspStart: number | null = null;
   private queuedCommand: Command | null = null;
+  private readingReference: { chapterId: string; bearing: number } | null = null;
+  private readonly readingRows = new Map<string, number>();
   private now = 0;
+  private lastBoundaryStepAt = -Infinity;
+  private lastFloatMoveAt = -Infinity;
+  private boundaryStepFromText = false;
   private systemReducedMotion: boolean;
   readonly catalog: Catalog;
   constructor(catalog: Catalog, viewport: Viewport, reducedMotion = false) {
@@ -78,6 +86,7 @@ export class Field {
           h.id,
           {
             ...h,
+            readingLayoutMode: h.readingLayoutMode ?? "window",
             center: { ...h.center },
             readingBearing: h.angle,
             readingStart: 0,
@@ -96,6 +105,7 @@ export class Field {
       ),
       focus,
       overview: false,
+      overviewPanel: "expanded",
       theme: catalog.definitions[0].theme,
       camera: { x: 0, y: 0, z: 1, rotation: 0 },
       viewport,
@@ -109,9 +119,10 @@ export class Field {
         sound: true,
       },
       history: [],
-      passage: null,
-      morphTurn: null,
-      contentTurn: null,
+      transition: { kind: "idle" },
+      get passage() { return this.transition.kind === "passage" ? this.transition.value : null; },
+      get morphTurn() { return this.transition.kind === "morph" ? this.transition.value : null; },
+      get contentTurn() { return this.transition.kind === "content" ? this.transition.value : null; },
       loading: false,
       description:
         "Anallia · 空白处滚动切换章节 · 正文内滚动读长文 · 点击高亮标签切换圆／线",
@@ -141,6 +152,29 @@ export class Field {
       this.state.camera,
       this.state.viewport,
     );
+  }
+  private overviewFrame(): Camera {
+    const { viewport, hubs } = this.state;
+    const measured = this.overviewRegion;
+    const region = measured && measured.viewport.width === viewport.width && measured.viewport.height === viewport.height
+      ? measured.region
+      : viewport.width <= 700
+        ? { left: 24, top: 128, width: viewport.width - 48, height: Math.max(80, viewport.height - 400) }
+        : { left: 320, top: 88, width: Math.max(80, viewport.width - 348), height: Math.max(80, viewport.height - 160) };
+    return fitOverviewCamera(viewport, Object.values(hubs), region);
+  }
+
+  /** DOM supplies the unobscured map rectangle. It never owns the camera.
+   * Automatic framing follows layout changes; manual gestures relinquish it.
+   */
+  fitOverview(region: OverviewRegion | null): void {
+    const s = this.state;
+    if (!region || !s.overview) return;
+    const previous = this.overviewRegion;
+    const changed = !previous || previous.viewport.width !== s.viewport.width || previous.viewport.height !== s.viewport.height ||
+      (Object.keys(region) as (keyof OverviewRegion)[]).some(key => Math.abs(previous.region[key] - region[key]) > 0.5);
+    this.overviewRegion = { viewport: { ...s.viewport }, region };
+    if (changed && this.autoFit) this.fly(this.overviewFrame(), MOTION.resize);
   }
   private approach(hub: Hub, index: number, count: number, origin: Vec) {
     const s = this.state;
@@ -196,11 +230,13 @@ export class Field {
         : bounds.left + bounds.width > s.viewport.width - margin
           ? s.viewport.width - margin - bounds.left - bounds.width
           : 0;
+    const topInset = s.viewport.width < 700 ? 124 : 84;
+    const bottomInset = s.viewport.width < 400 ? 156 : s.viewport.width < 700 ? 120 : 104;
     const dy =
-      bounds.top < 76
-        ? 76 - bounds.top
-        : bounds.top + bounds.height > s.viewport.height - 48
-          ? s.viewport.height - 48 - bounds.top - bounds.height
+      bounds.top < topInset
+        ? topInset - bounds.top
+        : bounds.top + bounds.height > s.viewport.height - bottomInset
+          ? s.viewport.height - bottomInset - bounds.top - bounds.height
           : 0;
     if (Math.abs(dx) + Math.abs(dy) < 1) return;
     const delta = rot(
@@ -241,6 +277,8 @@ export class Field {
       searchQuery: s.searchQuery,
       focus: s.focus,
       overview: s.overview,
+      overviewPanel: s.overviewPanel,
+      viewport: { ...s.viewport },
       theme: s.theme,
       camera: { ...s.camera },
       hubs: Object.fromEntries(
@@ -273,6 +311,7 @@ export class Field {
       .search(previous.searchQuery)
       .map((node) => node.id);
     s.overview = previous.overview;
+    s.overviewPanel = previous.overviewPanel;
     for (const [id, h] of Object.entries(previous.hubs))
       Object.assign(s.hubs[id], {
         path: [...h.path],
@@ -311,7 +350,7 @@ export class Field {
     const s = this.state;
     const sourceHub = this.hub;
     const targetHub = s.hubs[target];
-    s.passage = {
+    s.transition = { kind: "passage", value: {
       kind,
       direction,
       source: s.focus,
@@ -333,7 +372,7 @@ export class Field {
       duration: this.duration(duration),
       phase: 0,
       committed: false,
-    };
+    } };
     this.fly(
       camera,
       duration,
@@ -361,7 +400,7 @@ export class Field {
     const newIndex = newSiblings.findIndex((n) => n.id === destId);
     const oldCount = oldSiblings.length;
     const fromId = this.selected(hub).id;
-    s.contentTurn = {
+    s.transition = { kind: "content", value: {
       hub: hub.id,
       from: fromId,
       to: destId,
@@ -384,7 +423,7 @@ export class Field {
         hub.textOffset = hub.textOffsetTarget = 0;
         hub.localScroll = hub.localScrollTarget = 0;
       },
-    };
+    } };
     this.follow = false;
     this.tween = null;
     s.description = `${hub.glyph} · ${this.catalog.get(destId).name} · 翻页切换内容`;
@@ -408,6 +447,14 @@ export class Field {
   setContentGate(gate: ((command: Command) => boolean) | null) {
     this.contentGate = gate;
   }
+  setReadingRows(chapterId: string, presentation: "circle" | "line", count: number): void {
+    if (presentation === "circle" && Number.isSafeInteger(count) && count > 0 && this.catalog.chapters.has(chapterId))
+      this.readingRows.set(chapterId, count);
+  }
+  clearReadingRows(): void {
+    this.readingRows.clear();
+    this.readingReference = null;
+  }
   restoreReadingOffset(chapterId: string, presentation: "circle" | "line", offset: number): void {
     if (this.selected().id !== chapterId || (this.hub.morph > 0.5 ? "line" : "circle") !== presentation || !Number.isFinite(offset)) return;
     this.hub.textOffset = this.hub.textOffsetTarget = Math.max(0, offset);
@@ -415,6 +462,11 @@ export class Field {
   dispatch(command: Command) {
     if (this.contentGate?.(command)) return;
     const s = this.state;
+    if (command.type === "set-reading-layout") {
+      const hub = s.hubs[command.hub];
+      if (hub) hub.readingLayoutMode = command.mode;
+      return;
+    }
     if (command.type === "search") {
       const searchHub = this.catalog.searchHub;
       if (
@@ -451,14 +503,34 @@ export class Field {
       if (s.overview || s.loading) return;
       const h = this.hub;
       const limit = Math.max(0, command.maxOffset ?? 600);
-      h.textOffsetTarget = clamp(h.textOffsetTarget + command.delta, 0, limit);
+      const clock = this.now > 0 ? this.now : (typeof performance !== "undefined" ? performance.now() : 0);
+      const atTop = command.delta < 0 && h.textOffset <= 0.5 && h.textOffsetTarget <= 0.5;
+      const atBottom = command.delta > 0 && h.textOffset >= limit - 0.5 && h.textOffsetTarget >= limit - 0.5;
+      if ((atTop || atBottom) && Math.abs(command.delta) >= 1) {
+        if (command.clampOnly) return;
+        if (clock - this.lastBoundaryStepAt >= 180 && clock - this.lastFloatMoveAt >= 110) {
+          this.lastBoundaryStepAt = clock;
+          this.boundaryStepFromText = true;
+          try {
+            this.dispatch({ type: "step", delta: Math.sign(command.delta) });
+          } finally {
+            this.boundaryStepFromText = false;
+          }
+        }
+        return;
+      }
+      const nextTarget = clamp(h.textOffsetTarget + command.delta, 0, limit);
+      if (Math.abs(nextTarget - h.textOffsetTarget) > 1e-4) {
+        this.lastFloatMoveAt = clock;
+      }
+      h.textOffsetTarget = nextTarget;
       return;
     }
     if (command.type === "navigate" && command.target.startsWith("act:")) {
       this.setting(command.target.slice(4));
       return;
     }
-    if (s.passage || s.morphTurn || s.contentTurn) {
+    if (s.transition.kind !== "idle") {
       if (command.type === "step" && this.queuedCommand?.type === "step") {
         this.queuedCommand = {
           type: "step",
@@ -585,7 +657,7 @@ export class Field {
           nodeS(hub, focusIndex, siblings.length, s.camera, s.viewport),
         );
         const screenAnchor = hubToScreen(hub, point, s.camera, s.viewport);
-        s.morphTurn = {
+        s.transition = { kind: "morph", value: {
           hub: hub.id,
           from: hub.morph,
           to,
@@ -594,9 +666,9 @@ export class Field {
           phase: 0,
           screenAnchor,
           startRotation: s.camera.rotation,
-        };
+        } };
         hub.targetMorph = to;
-        hub.textOffsetTarget = 0;
+        // ReadingLayer transfers a source anchor when the expression changes.
         this.follow = false;
         this.tween = null;
         this.pulse();
@@ -629,6 +701,23 @@ export class Field {
           next = clamp(index + command.delta, 0, nodes.length - 1);
         if (next !== index) {
           this.dispatch({ type: "navigate", target: nodes[next].id });
+          return;
+        }
+        const routes = this.catalog.boundaryRoutes(here.id);
+        if (routes) {
+          const target = command.delta > 0 ? routes.next : routes.previous;
+          if (target && target !== here.id) this.dispatch({ type: "navigate", target });
+          return;
+        }
+        if (this.boundaryStepFromText) {
+          if (nodes.length > 1) {
+            const wrapped = command.delta > 0 ? 0 : nodes.length - 1;
+            this.dispatch({ type: "navigate", target: nodes[wrapped].id });
+          } else if (command.delta > 0 && here.children.length > 0) {
+            this.dispatch({ type: "navigate", target: here.children[0] });
+          } else if (command.delta < 0 && here.parent) {
+            this.dispatch({ type: "navigate", target: here.parent });
+          }
         }
         return;
       }
@@ -645,7 +734,9 @@ export class Field {
         if (s.overview || previous.overview) {
           this.restore(previous);
           s.theme = previous.theme;
-          this.fly(previous.camera);
+          // Same-size return restores the user's overview framing exactly.
+          this.autoFit = previous.overview && (previous.viewport.width !== s.viewport.width || previous.viewport.height !== s.viewport.height);
+          this.fly(this.autoFit ? this.overviewFrame() : previous.camera);
           return;
         }
         const target = previous.hubs[previous.focus];
@@ -697,11 +788,19 @@ export class Field {
         return;
       }
       case "overview":
-        this.remember();
+        if (!s.overview) this.remember();
         s.overview = true;
-        this.fly(overviewCamera(s.viewport));
+        this.autoFit = true;
+        this.fly(this.overviewFrame());
         s.description =
-          "全域视图 (⊙) · 9 个枢的几何关系与流场分布 · 点击任意枢进入阅读";
+          `全域视图 (⊙) · ${this.catalog.definitions.length} 个枢的几何关系与流场分布 · 点击任意枢进入阅读`;
+        return;
+      case "toggle-overview-map":
+        if (s.overview && s.viewport.width <= 700) {
+          s.overviewPanel = s.overviewPanel === "expanded" ? "collapsed" : "expanded";
+          this.autoFit = true;
+          // The next DOM measurement frames the new available region.
+        }
         return;
 
     }
@@ -774,7 +873,7 @@ export class Field {
     this.autoFit = true;
     this.state.viewport = viewport;
     this.fly(
-      this.state.overview ? overviewCamera(viewport) : this.frame(),
+      this.state.overview ? this.overviewFrame() : this.frame(),
       MOTION.resize,
     );
   }
@@ -892,7 +991,8 @@ export class Field {
     this.autoFit = false;
     const s = this.state,
       before = screenToWorld(point, s.camera, s.viewport);
-    s.camera.z = clamp(s.camera.z * factor, 0.18, 2.4);
+    const minimum = s.overview ? Math.min(0.18, this.overviewFrame().z / 2) : 0.18;
+    s.camera.z = clamp(s.camera.z * factor, minimum, 2.4);
     const after = screenToWorld(point, s.camera, s.viewport);
     Object.assign(s.camera, add(s.camera, sub(before, after)));
   }
@@ -911,6 +1011,14 @@ export class Field {
       this.state.morphTurn
     )
       return;
+    if (this.hub.readingLayoutMode !== "window") {
+      this.tween = null;
+      this.follow = false;
+      this.autoFit = false;
+      this.state.camera.rotation += deltaDeg;
+      // Manual orientation stays authoritative until reading advances again.
+      return;
+    }
     this.tween = null;
     this.follow = false;
     this.autoFit = false;
@@ -943,6 +1051,24 @@ export class Field {
         s.camera.rotation + (Math.atan2(n.y, n.x) * 180) / Math.PI;
     }
   }
+  private geometricReadingActive(): boolean {
+    const s = this.state, hub = this.hub;
+    if (hub.readingLayoutMode === "window" || hub.morph > 0.0001 || hub.fold !== 0 ||
+        s.overview || s.loading || s.passage || s.morphTurn || s.contentTurn || this.graspStart !== null) return false;
+    const id = this.selected().id;
+    if (!this.readingRows.has(id)) return false;
+    if (id === this.catalog.searchRoot || this.catalog.sourceChapterId(id) !== id) return false;
+    const document = this.catalog.document(id, "circle");
+    return (
+      document.blocks.length > 0 &&
+      document.blocks.every(
+        (block) =>
+          block.kind === "paragraph" ||
+          (block.kind === "horizontal-list" && Boolean(block.items?.length)),
+      )
+    );
+  }
+
   get isAnimating(): boolean {
     return !!(
       this.tween ||
@@ -964,6 +1090,7 @@ export class Field {
   update(now: number, dt: number) {
     this.now = now;
     const s = this.state;
+    const prevTextOffset = this.hub.textOffset;
     dt = Math.min(dt, 50);
     s.elapsed += dt * s.settings.speed;
     const k = s.settings.reducedMotion
@@ -1020,28 +1147,36 @@ export class Field {
       );
       if (turn.phase === 1) {
         s.hubs[turn.hub].morph = turn.to;
-        s.morphTurn = null;
+        s.transition = { kind: "idle" };
       }
     }
     if (this.follow && !s.overview && !s.passage && !s.morphTurn) {
       const hub = this.hub;
       const count = this.siblings().length;
-      const rotation = unwrapAngle(
-        s.camera.rotation,
-        readingRotation(hub, hub.scroll, count, s.camera, s.viewport),
-      );
-      const along = nodeS(hub, hub.scroll, count, s.camera, s.viewport);
-      if (!this.readingPin) this.pinReading();
-      Object.assign(
-        s.camera,
-        cameraPinnedToPoint(
-          material(hub, along, 48),
-          this.readingPin!,
+      if (hub.readingLayoutMode === "geometric" && hub.targetMorph < 0.0001 && hub.fold === 0) {
+        const along = nodeS(hub, hub.scroll, count, s.camera, s.viewport);
+        const normal = outwardNormal(hub, along);
+        const targetRotation = (-Math.atan2(normal.y, normal.x) * 180) / Math.PI;
+        const rotation = unwrapAngle(s.camera.rotation, targetRotation);
+        Object.assign(s.camera, orbitCamera(s.camera, hub.center, rotation));
+      } else {
+        const rotation = unwrapAngle(
+          s.camera.rotation,
+          readingRotation(hub, hub.scroll, count, s.camera, s.viewport),
+        );
+        const along = nodeS(hub, hub.scroll, count, s.camera, s.viewport);
+        if (!this.readingPin) this.pinReading();
+        Object.assign(
           s.camera,
-          s.viewport,
-          rotation,
-        ),
-      );
+          cameraPinnedToPoint(
+            material(hub, along, 48),
+            this.readingPin!,
+            s.camera,
+            s.viewport,
+            rotation,
+          ),
+        );
+      }
       if (hub.scroll === hub.scrollTarget) {
         this.follow = false;
         this.readingPin = null;
@@ -1076,7 +1211,7 @@ export class Field {
         t.commit();
         t.committed = true;
       }
-      if (p === 1) s.contentTurn = null;
+      if (p === 1) s.transition = { kind: "idle" };
     }
     if (s.passage) {
       const t = s.passage,
@@ -1101,17 +1236,29 @@ export class Field {
         s.hubs[t.source].fold = 0;
         s.hubs[t.target].fold = 0;
         s.theme = t.theme;
-        s.passage = null;
+        s.transition = { kind: "idle" };
         const queued = this.queuedCommand;
         this.queuedCommand = null;
         if (queued) this.dispatch(queued);
       }
     }
-    if (!s.passage && !s.morphTurn && !s.contentTurn && this.queuedCommand) {
+    if (s.transition.kind === "idle" && this.queuedCommand) {
       const queued = this.queuedCommand;
       this.queuedCommand = null;
       this.dispatch(queued);
     }
+    if (this.geometricReadingActive() && !this.tween && !this.follow) {
+      const h = this.hub, chapterId = this.selected().id;
+      const along = nodeS(h, h.scroll, this.siblings().length, s.camera, s.viewport);
+      const slots = circularReadingSlots(this.readingRows.get(chapterId) ?? READING_RING_CAPACITY);
+      const pose = circularReadingPose(h, along, h.textOffset / READING_LINE_STEP, 1, 2 * Math.PI / slots);
+      const previous = this.readingReference;
+      const initialPose = circularReadingPose(h, along, prevTextOffset / READING_LINE_STEP, 1, 2 * Math.PI / slots);
+      const fromBearing = previous?.chapterId === chapterId ? previous.bearing : initialPose.baselineAngle;
+      if (Math.abs(fromBearing - pose.baselineAngle) > 1e-9)
+        Object.assign(s.camera, circularReadingCamera(h, fromBearing, pose.baselineAngle, s.camera));
+      this.readingReference = { chapterId, bearing: pose.baselineAngle };
+    } else this.readingReference = null;
     while (this.impulses.length && s.elapsed - this.impulses[0].started >= 2200)
       this.impulses.shift();
   }

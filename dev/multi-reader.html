@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Anallia · 并置阅读</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eeeae2; color: #263b36; font: 15px/1.6 system-ui, sans-serif; }
+    header { max-width: 1540px; margin: auto; padding: 28px 24px 12px; }
+    h1 { margin: 0; font-size: 22px; font-weight: 600; } p { margin: 6px 0 0; }
+    main { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; padding: 12px 24px 24px; max-width: 1540px; margin: auto; }
+    section { min-width: 0; scroll-margin-top: 64px; }
+    .work-switch { position:sticky; top:0; z-index:5; display:flex; gap:12px; padding:8px 24px; background:#eeeae2; border-bottom:1px solid #cbd0c7; }
+    .work-switch a { display:inline-flex; min-height:44px; align-items:center; color:inherit; text-underline-offset:5px; }
+    .work-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+    h2 { font-size:14px; margin:0; }
+    button { min-height:44px; padding:8px 14px; color:inherit; border:1px solid #9caaa1; background:transparent; cursor:pointer; border-radius:3px; }
+    button:focus-visible { outline:2px solid #2d716b; outline-offset:3px; }
+    .reader-host { height: min(820px,calc(100svh - 260px)); min-height:560px; border:1px solid #b9c2b9; background:#f5f6f2; }
+    .empty { padding:32px; } #status { font-size:13px; } #status:empty {display:none;}
+    @media(max-width:800px) { main { grid-template-columns:1fr; padding:8px 12px 20px; } header { padding:20px 12px 8px; } .reader-host {height:calc(100svh - 136px);min-height:420px;} .work-switch {padding:8px 12px;} }
+  </style>
+</head>
+<body>
+  <header><h1>两份内容，同一套阅读语言</h1><p>在一侧点击或用 Tab 进入后，方向键只控制这一侧。另一侧保留自己的位置。手机上可用下方名称切换阅读区域。</p><p id="status" role="status"></p></header>
+  <nav class="work-switch" aria-label="切换阅读区域"><a href="#primary-region">几何阅读</a><a href="#notebook-region">观察手册</a></nav>
+  <main>
+    <section id="primary-region" aria-label="几何阅读示例"><div class="work-heading"><h2>几何阅读</h2><button id="toggle-primary" aria-label="关闭几何阅读" title="重新打开会从起点开始">关闭</button></div><div id="primary" class="reader-host"><p class="empty">几何阅读已关闭。</p></div></section>
+    <section id="notebook-region" aria-label="雨后观察手册示例"><div class="work-heading"><h2>雨后观察手册</h2><button id="toggle-notebook" aria-label="关闭观察手册" title="重新打开会从起点开始">关闭</button></div><div id="notebook" class="reader-host"><p class="empty">观察手册已关闭。</p></div></section>
+  </main>
+  <script type="module" src="./multi-reader.ts"></script>
+</body>
+</html>

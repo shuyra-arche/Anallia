@@ -14,6 +14,7 @@ interface InputPort {
   zoom(factor: number, point: Vec): void;
   rotate?(deltaDeg: number, point?: Vec): void;
   camera(): Camera;
+  geometricReading?(): { maxOffset: number; step?: number } | null;
   grasp(delta: number | null): void;
   graspGeometry(): {
     mode: "circle" | "line";
@@ -58,7 +59,7 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
     y: e.clientY,
   });
   const pick = (event: PointerEvent | MouseEvent | WheelEvent): InputHit | null => {
-    if (element(event.target)?.closest("article.note,button,input,textarea,select")) return null;
+    if (element(event.target)?.closest("article.note,button,input,textarea,select,#readerNavigation")) return null;
     return port.hitTest?.({ x: event.clientX, y: event.clientY }) ?? null;
   };
   host.addEventListener("pointermove", (event) => {
@@ -297,6 +298,27 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
         if (command) port.dispatch(command);
         return;
       }
+      const circularRow = target?.closest<HTMLElement>(".circular-row[data-reading-row]");
+      const geoRoot = circularRow?.closest<HTMLElement>(".geometric-content[data-reading-progress]");
+      if (circularRow && geoRoot && port.geometricReading) {
+        const geometric = port.geometricReading();
+        const targetRow = Number(circularRow.dataset.readingRow);
+        const currentProgress = Number(geoRoot.dataset.readingProgress);
+        if (
+          geometric &&
+          Number.isFinite(targetRow) &&
+          Number.isFinite(currentProgress) &&
+          Math.abs(targetRow - currentProgress) > 0.35
+        ) {
+          const step = geometric.step ?? 30;
+          port.dispatch({
+            type: "float-text",
+            delta: (targetRow - currentProgress) * step,
+            maxOffset: geometric.maxOffset,
+          });
+          return;
+        }
+      }
       const hit = pick(e);
       if (hit) port.dispatch(hit.command);
     },
@@ -327,7 +349,22 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
         });
         return;
       }
+      const geoRow = element(e.target)?.closest<HTMLElement>(".geometric-row");
       const note = element(e.target)?.closest<HTMLElement>("article.note");
+      const geometric = note?.dataset.readingLayout === "geometric" ? port.geometricReading?.() : null;
+      if (geometric) {
+        // Only float text when hovering text rows, leaving tags and hub to chapter/tag scrolling
+        if (geoRow || !element(e.target)?.closest("#world")) {
+          e.preventDefault();
+          port.dispatch({
+            type: "float-text",
+            delta: (e.deltaY * (geometric.step ?? 30)) / 100,
+            maxOffset: geometric.maxOffset,
+            clampOnly: true,
+          });
+          return;
+        }
+      }
       if (note) {
         const maxFloat = Number(note.dataset.maxFloat || 0);
         if (maxFloat > 0) {

@@ -64,6 +64,13 @@ test("rendered icon paths stay identical during hub morph and hover while labels
       "settings",
     );
     assert.ok(host.querySelector('#hudControls svg[stroke="currentColor"]'));
+    f.catalog.updateExpression("a0", "line", "[icons]");
+    scene.invalidateContent(["a0"]);
+    scene.render(f.state);
+    const cards = host.querySelectorAll("#text-a0 .icon-showcase-card");
+    assert.equal(cards.length, Object.keys(ICON_TOKENS).length);
+    assert.ok([...cards].every(card => card.querySelector("svg") && !card.textContent?.includes("undefined")));
+
   } finally {
     scene.destroy();
     window.close();

@@ -9,7 +9,7 @@ const outDir = await mkdtemp(join(tmpdir(), "shuyra-offline-"));
 try {
   await build({ root, base: "./", build: {
     outDir, emptyOutDir: true, cssCodeSplit: false, assetsInlineLimit: Infinity,
-    rollupOptions: { output: { inlineDynamicImports: true } },
+    rollupOptions: { input: join(root, "index.html"), output: { inlineDynamicImports: true } },
   } });
   let html = await readFile(join(outDir, "index.html"), "utf8");
   for (const match of [...html.matchAll(/<script\b[^>]*src="([^"]+)"[^>]*><\/script>/g)]) {
