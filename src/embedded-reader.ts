@@ -1,4 +1,6 @@
 import type { ReaderFrameBridge } from "./runtime/frame-bridge.ts";
+import { ReaderObservation } from "./core/reader-observation.ts";
+import { initialReaderSnapshot } from "./core/reader-snapshot.ts";
 import type {
   ReaderDefinition,
   ReaderHandle,
@@ -11,6 +13,13 @@ export type {
   ReaderHandle,
   ReaderOptions,
   ReaderCommand,
+  ReaderPlace,
+  ReaderAnchor,
+  ReaderSnapshot,
+  ReaderState,
+  ReaderRestoration,
+  ReaderRequest,
+  ReaderListener,
 } from "./reader.ts";
 export interface EmbeddedReaderOptions extends ReaderOptions {
   /** Same-origin HTTP(S) page built from reader-frame.html, relative to the embedding document. */
@@ -50,6 +59,7 @@ export function mountEmbeddedReader(
   }
   if (!definition.source || typeof definition.source.open !== "function")
     throw new TypeError("ContentSource.open is required");
+  const snapshot = initialReaderSnapshot(definition, options);
   // Each Field gets its own manifest. ContentSource is caller-owned and may be shared;
   // every open call still receives the owning instance's cancellation signal.
   const input: ReaderDefinition = {
@@ -59,6 +69,7 @@ export function mountEmbeddedReader(
   const { frameUrl: _frameUrl, label, ...initialOptions } = options;
   const readerOptions = {
     ...initialOptions,
+    restore: snapshot ?? undefined,
     settings: initialOptions.settings
       ? { ...initialOptions.settings }
       : undefined,
@@ -71,6 +82,8 @@ export function mountEmbeddedReader(
   frame.src = url.href;
   const events = new AbortController();
   let phase: EmbeddedPhase = { kind: "loading" };
+  const observation = new ReaderObservation();
+  let unsubscribe: (() => void) | undefined;
   let resolveReady!: (outcome: { status: "ready" | "destroyed" }) => void;
   let rejectReady!: (error: unknown) => void;
   const ready = new Promise<{ status: "ready" | "destroyed" }>(
@@ -86,6 +99,7 @@ export function mountEmbeddedReader(
     if (phase.kind === "destroyed") return;
     const previous = phase;
     phase = { kind: "destroyed" };
+    unsubscribe?.();
     events.abort();
     try {
       if (previous.kind === "mounted") previous.reader.destroy();
@@ -94,6 +108,7 @@ export function mountEmbeddedReader(
       host.replaceChildren(...children);
       mounted.delete(host);
       resolveReady({ status: "destroyed" });
+      observation.publish({ status: "destroyed" });
     }
   };
   const fail = (error: unknown) => {
@@ -113,7 +128,7 @@ export function mountEmbeddedReader(
       try {
         const bridge = (frame.contentWindow as FrameWindow | null)
           ?.__analliaFrame;
-        if (bridge?.version !== 1)
+        if (bridge?.version !== 2)
           throw new Error(
             "Reader frame did not provide the expected mount entry",
           );
@@ -124,6 +139,8 @@ export function mountEmbeddedReader(
           return;
         }
         phase = { kind: "mounted", reader };
+        unsubscribe = reader.subscribe(state => observation.publish(state));
+        if (events.signal.aborted) { unsubscribe(); return; }
         void reader.ready.then((outcome) => {
           if (phase.kind !== "destroyed") resolveReady(outcome);
         }, fail);
@@ -146,6 +163,9 @@ export function mountEmbeddedReader(
         throw new Error("Reader frame is not ready");
       phase.reader.dispatch({ ...command });
     },
+    getState: observation.getState,
+    subscribe: observation.subscribe,
+    snapshot: () => phase.kind === "mounted" ? phase.reader.snapshot() : null,
     destroy,
   });
   mounted.add(host);

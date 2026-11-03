@@ -15,6 +15,13 @@ export type {
   ReaderHandle,
   ReaderOptions,
   ReaderCommand,
+  ReaderPlace,
+  ReaderAnchor,
+  ReaderSnapshot,
+  ReaderState,
+  ReaderRestoration,
+  ReaderRequest,
+  ReaderListener,
 } from "./core/reader.ts";
 export type {
   ReaderDefinition,

@@ -61,3 +61,18 @@ test("clock caps high refresh displays and pauses completely in background", () 
     });
   }
 });
+
+test("destroying from inside a frame does not enqueue another frame", () => {
+  const saved = { document: globalThis.document, requestAnimationFrame: globalThis.requestAnimationFrame, cancelAnimationFrame: globalThis.cancelAnimationFrame };
+  const queue = new Map<number, FrameRequestCallback>(); let serial = 0;
+  Object.assign(globalThis, { document: Object.assign(new EventTarget(), { hidden: false }),
+    requestAnimationFrame: (callback: FrameRequestCallback) => { queue.set(++serial, callback); return serial; },
+    cancelAnimationFrame: (id: number) => queue.delete(id) });
+  let stop = () => {};
+  try {
+    stop = startClock(() => stop());
+    const [id, callback] = queue.entries().next().value!; queue.delete(id);
+    callback(performance.now() + 20);
+    assert.equal(queue.size, 0);
+  } finally { stop(); Object.assign(globalThis, saved); }
+});

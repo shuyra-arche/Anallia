@@ -277,11 +277,12 @@ export class ReadingLayer {
           (s.camera.rotation * Math.PI) / 180,
         );
         const wasGeometric = article.dataset.readingLayout === "geometric";
+        const seeking = this.readingPositions.isSettling(node.id, presentation);
         const geometric = hub.readingLayoutMode !== "window" && node.id !== this.catalog.searchRoot && this.catalog.sourceChapterId(node.id) === node.id
           ? this.geometric.render(article, this.catalog.document(node.id, presentation), node.title,
             { hub, camera: s.camera, viewport: s.viewport, startS: position, bottomInset: Number(this.host.dataset.readingBottomInset ?? 0) },
             readingWidth(s.viewport, true), hub.textOffset, this.articleRenderer.fontVersion,
-            transferred?.source ?? (wasGeometric ? undefined : this.readingPositions.get(node.id, presentation)?.source))
+            transferred?.source ?? (wasGeometric && !seeking ? undefined : this.readingPositions.get(node.id, presentation)?.source))
           : null;
         if (wasGeometric && !geometric && !expressionChanged) {
           const source = this.geometric.firstSource(article);
@@ -289,7 +290,7 @@ export class ReadingLayer {
         }
         article.dataset.readingLayout = geometric ? "geometric" : "window";
         if (geometric) {
-          if (transferred) this.readingPositions.settleSource(node.id, presentation);
+          if (transferred || seeking) this.readingPositions.settleSource(node.id, presentation);
           if (!s.morphTurn && node.id === selectedNode.id) {
             const source = this.geometric.firstSource(article);
             if (source !== undefined) this.readingPositions.saveSource(node.id, presentation, source, document);

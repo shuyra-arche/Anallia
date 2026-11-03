@@ -17,7 +17,8 @@ export function startClock(
       nextDue =
         limit === Infinity ? now : Math.max(nextDue + 1000 / limit, now);
     }
-    handle = requestAnimationFrame(frame);
+    // A semantic subscriber may destroy its reader from inside tick.
+    if (!stopped && !document.hidden) handle = requestAnimationFrame(frame);
   };
   const visibility = () => {
     cancelAnimationFrame(handle);

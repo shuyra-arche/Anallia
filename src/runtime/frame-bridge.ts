@@ -3,6 +3,6 @@ import type { ReaderHandle, ReaderOptions } from "../core/reader.ts";
 
 /** Private same-origin host/frame handshake; not a consumer API. */
 export interface ReaderFrameBridge {
-  readonly version: 1;
+  readonly version: 2;
   mount(definition: ReaderDefinition, options: ReaderOptions): ReaderHandle;
 }

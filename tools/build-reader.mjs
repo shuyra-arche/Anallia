@@ -142,6 +142,7 @@ try {
     join(root, "examples/consumer/README.md"),
     join(out, "README.md"),
   );
+  await copyFile(join(root, "docs/reader-contract.md"), join(out, "reader-contract.md"));
   await writeFile(
     join(out, "package.json"),
     JSON.stringify(

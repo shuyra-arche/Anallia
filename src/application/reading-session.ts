@@ -58,6 +58,14 @@ export class ReadingSession {
   }
 
   get bootReady(): boolean { return this.booted; }
+  /** Detached projection of the foreground request; no job or cancellation ownership escapes. */
+  get requestedContent(): { chapter: string; presentation: Presentation } | null {
+    const job = this.foreground;
+    if (!job || job.terminal && !this.error) return null;
+    const status = this.store.get(this.sourceId(job.id), job.presentation).status;
+    return status === "loading" || status === "streaming" || status === "error"
+      ? { chapter: job.id, presentation: job.presentation } : null;
+  }
   get activeTask(): LoadingSnapshot | null {
     if (this.hiddenAt !== null) return null;
     return this.loading.update(this.now, this.field.state.settings.reducedMotion);

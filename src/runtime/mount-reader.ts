@@ -6,6 +6,7 @@ import type {
 } from "../core/reader.ts";
 import { sceneTemplate } from "../rendering/scene-template.ts";
 import { createReaderRuntime } from "./reader-runtime.ts";
+import { initialReaderSnapshot } from "../core/reader-snapshot.ts";
 
 export type {
   ReaderOptions,
@@ -49,7 +50,8 @@ export function mountReader(
   }
   if (!definition.source || typeof definition.source.open !== "function")
     throw new TypeError("ContentSource.open is required");
-  const entry = options.chapter ?? definition.entry;
+  const snapshot = initialReaderSnapshot(definition, options);
+  const entry = snapshot?.location.chapter ?? options.chapter ?? definition.entry;
   if (!definition.manifest.chapters.some((chapter) => chapter.id === entry))
     throw new Error(`Unknown entry chapter: ${entry}`);
   const children = [...host.childNodes];
@@ -90,6 +92,9 @@ export function mountReader(
       if (destroyed) throw new Error("Reader is destroyed");
       runtime.dispatch({ ...command });
     },
+    getState: runtime.session.observation.getState,
+    subscribe: runtime.session.observation.subscribe,
+    snapshot: runtime.session.snapshot,
     destroy() {
       if (destroyed) return;
       destroyed = true;

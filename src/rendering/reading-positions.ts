@@ -16,7 +16,7 @@ export interface ReadingCorrection {
   textOffset?: number;
   readingRows?: number;
 }
-interface SavedPosition { value: ReadingPosition; signature: string; document?: ContentDocument }
+interface SavedPosition { value: ReadingPosition; signature: string; document?: ContentDocument; alignment?: "window" }
 
 /** Source positions contain no DOM references and survive article cache eviction. */
 export class ReadingPositions {
@@ -26,9 +26,9 @@ export class ReadingPositions {
   get(id: string, presentation: "circle" | "line"): ReadingPosition | null {
     return this.saved.get(this.key(id, presentation))?.value ?? null;
   }
-  seek(id: string, presentation: "circle" | "line", source: number, document?: ContentDocument, anchorOffset = 0): void {
+  seek(id: string, presentation: "circle" | "line", source: number, document?: ContentDocument, anchorOffset = 0, alignment?: "window"): void {
     const key = this.key(id, presentation);
-    this.saved.set(key, { signature: "", document, value: { chapterId: id, presentation, source, offset: anchorOffset } });
+    this.saved.set(key, { signature: "", document, alignment, value: { chapterId: id, presentation, source, offset: anchorOffset } });
     this.pending.set(key, { stable: 0, lastOffset: null });
   }
   transfer(id: string, from: Presentation, to: Presentation, target: ContentDocument) {
@@ -74,7 +74,11 @@ export class ReadingPositions {
       this.pending.delete(key);
       return 0;
     }
-    const top = article.getBoundingClientRect().top + saved.value.offset * scale;
+    // A portable session anchor aligns with the current visible reading window.
+    // Re-evaluate after each correction because the clip itself can change with scroll.
+    const window = saved.alignment === "window" ? article.querySelector<HTMLElement>(".note-window") : null;
+    const top = window ? Math.max(0, window.getBoundingClientRect().top) + 3
+      : article.getBoundingClientRect().top + saved.value.offset * scale;
     const delta = (sourceRangeRect(located.range).top - top) / scale;
     const next = clamp(offset + delta, 0, maxOffset);
     pending.stable = Math.abs(next - offset) < 0.1 ? pending.stable + 1 : 0;
