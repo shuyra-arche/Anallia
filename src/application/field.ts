@@ -31,7 +31,6 @@ import {
   readingBearing,
   cameraPinnedToPoint,
   arcLengthAt,
-  overviewCamera,
   screenToWorld,
   orbitCamera,
   material,
@@ -50,6 +49,8 @@ import {
 import { Catalog } from "../content/catalog.ts";
 import { needsColorSweep, THEME_OPTIONS, themeFromAction } from "../core/palette.ts";
 import { localBandForHub } from "./attachments.ts";
+import { fitOverviewCamera } from "../geometry/overview.ts";
+import type { OverviewRegion } from "../geometry/overview.ts";
 
 export class Field {
   readonly state: FieldState;
@@ -64,6 +65,7 @@ export class Field {
   private follow = false;
   private readingPin: Vec | null = null;
   private autoFit = true;
+  private overviewRegion: { viewport: Viewport; region: OverviewRegion } | null = null;
   private graspStart: number | null = null;
   private queuedCommand: Command | null = null;
   private readingReference: { chapterId: string; bearing: number } | null = null;
@@ -103,6 +105,7 @@ export class Field {
       ),
       focus,
       overview: false,
+      overviewPanel: "expanded",
       theme: catalog.definitions[0].theme,
       camera: { x: 0, y: 0, z: 1, rotation: 0 },
       viewport,
@@ -116,9 +119,10 @@ export class Field {
         sound: true,
       },
       history: [],
-      passage: null,
-      morphTurn: null,
-      contentTurn: null,
+      transition: { kind: "idle" },
+      get passage() { return this.transition.kind === "passage" ? this.transition.value : null; },
+      get morphTurn() { return this.transition.kind === "morph" ? this.transition.value : null; },
+      get contentTurn() { return this.transition.kind === "content" ? this.transition.value : null; },
       loading: false,
       description:
         "Anallia · 空白处滚动切换章节 · 正文内滚动读长文 · 点击高亮标签切换圆／线",
@@ -148,6 +152,29 @@ export class Field {
       this.state.camera,
       this.state.viewport,
     );
+  }
+  private overviewFrame(): Camera {
+    const { viewport, hubs } = this.state;
+    const measured = this.overviewRegion;
+    const region = measured && measured.viewport.width === viewport.width && measured.viewport.height === viewport.height
+      ? measured.region
+      : viewport.width <= 700
+        ? { left: 24, top: 128, width: viewport.width - 48, height: Math.max(80, viewport.height - 400) }
+        : { left: 320, top: 88, width: Math.max(80, viewport.width - 348), height: Math.max(80, viewport.height - 160) };
+    return fitOverviewCamera(viewport, Object.values(hubs), region);
+  }
+
+  /** DOM supplies the unobscured map rectangle. It never owns the camera.
+   * Automatic framing follows layout changes; manual gestures relinquish it.
+   */
+  fitOverview(region: OverviewRegion | null): void {
+    const s = this.state;
+    if (!region || !s.overview) return;
+    const previous = this.overviewRegion;
+    const changed = !previous || previous.viewport.width !== s.viewport.width || previous.viewport.height !== s.viewport.height ||
+      (Object.keys(region) as (keyof OverviewRegion)[]).some(key => Math.abs(previous.region[key] - region[key]) > 0.5);
+    this.overviewRegion = { viewport: { ...s.viewport }, region };
+    if (changed && this.autoFit) this.fly(this.overviewFrame(), MOTION.resize);
   }
   private approach(hub: Hub, index: number, count: number, origin: Vec) {
     const s = this.state;
@@ -203,11 +230,13 @@ export class Field {
         : bounds.left + bounds.width > s.viewport.width - margin
           ? s.viewport.width - margin - bounds.left - bounds.width
           : 0;
+    const topInset = s.viewport.width < 700 ? 124 : 84;
+    const bottomInset = s.viewport.width < 400 ? 156 : s.viewport.width < 700 ? 120 : 104;
     const dy =
-      bounds.top < 76
-        ? 76 - bounds.top
-        : bounds.top + bounds.height > s.viewport.height - 48
-          ? s.viewport.height - 48 - bounds.top - bounds.height
+      bounds.top < topInset
+        ? topInset - bounds.top
+        : bounds.top + bounds.height > s.viewport.height - bottomInset
+          ? s.viewport.height - bottomInset - bounds.top - bounds.height
           : 0;
     if (Math.abs(dx) + Math.abs(dy) < 1) return;
     const delta = rot(
@@ -248,6 +277,8 @@ export class Field {
       searchQuery: s.searchQuery,
       focus: s.focus,
       overview: s.overview,
+      overviewPanel: s.overviewPanel,
+      viewport: { ...s.viewport },
       theme: s.theme,
       camera: { ...s.camera },
       hubs: Object.fromEntries(
@@ -280,6 +311,7 @@ export class Field {
       .search(previous.searchQuery)
       .map((node) => node.id);
     s.overview = previous.overview;
+    s.overviewPanel = previous.overviewPanel;
     for (const [id, h] of Object.entries(previous.hubs))
       Object.assign(s.hubs[id], {
         path: [...h.path],
@@ -318,7 +350,7 @@ export class Field {
     const s = this.state;
     const sourceHub = this.hub;
     const targetHub = s.hubs[target];
-    s.passage = {
+    s.transition = { kind: "passage", value: {
       kind,
       direction,
       source: s.focus,
@@ -340,7 +372,7 @@ export class Field {
       duration: this.duration(duration),
       phase: 0,
       committed: false,
-    };
+    } };
     this.fly(
       camera,
       duration,
@@ -368,7 +400,7 @@ export class Field {
     const newIndex = newSiblings.findIndex((n) => n.id === destId);
     const oldCount = oldSiblings.length;
     const fromId = this.selected(hub).id;
-    s.contentTurn = {
+    s.transition = { kind: "content", value: {
       hub: hub.id,
       from: fromId,
       to: destId,
@@ -391,7 +423,7 @@ export class Field {
         hub.textOffset = hub.textOffsetTarget = 0;
         hub.localScroll = hub.localScrollTarget = 0;
       },
-    };
+    } };
     this.follow = false;
     this.tween = null;
     s.description = `${hub.glyph} · ${this.catalog.get(destId).name} · 翻页切换内容`;
@@ -498,7 +530,7 @@ export class Field {
       this.setting(command.target.slice(4));
       return;
     }
-    if (s.passage || s.morphTurn || s.contentTurn) {
+    if (s.transition.kind !== "idle") {
       if (command.type === "step" && this.queuedCommand?.type === "step") {
         this.queuedCommand = {
           type: "step",
@@ -625,7 +657,7 @@ export class Field {
           nodeS(hub, focusIndex, siblings.length, s.camera, s.viewport),
         );
         const screenAnchor = hubToScreen(hub, point, s.camera, s.viewport);
-        s.morphTurn = {
+        s.transition = { kind: "morph", value: {
           hub: hub.id,
           from: hub.morph,
           to,
@@ -634,9 +666,9 @@ export class Field {
           phase: 0,
           screenAnchor,
           startRotation: s.camera.rotation,
-        };
+        } };
         hub.targetMorph = to;
-        hub.textOffsetTarget = 0;
+        // ReadingLayer transfers a source anchor when the expression changes.
         this.follow = false;
         this.tween = null;
         this.pulse();
@@ -671,14 +703,10 @@ export class Field {
           this.dispatch({ type: "navigate", target: nodes[next].id });
           return;
         }
-        if (here.id.startsWith("ix-")) {
-          const fallbackTarget =
-            command.delta > 0
-              ? here.refs[0]?.target
-              : (here.parent ?? (here.id === "ix-entry" ? "ix-exit" : here.refs[1]?.target ?? here.refs[0]?.target));
-          if (fallbackTarget && fallbackTarget !== here.id) {
-            this.dispatch({ type: "navigate", target: fallbackTarget });
-          }
+        const routes = this.catalog.boundaryRoutes(here.id);
+        if (routes) {
+          const target = command.delta > 0 ? routes.next : routes.previous;
+          if (target && target !== here.id) this.dispatch({ type: "navigate", target });
           return;
         }
         if (this.boundaryStepFromText) {
@@ -706,7 +734,9 @@ export class Field {
         if (s.overview || previous.overview) {
           this.restore(previous);
           s.theme = previous.theme;
-          this.fly(previous.camera);
+          // Same-size return restores the user's overview framing exactly.
+          this.autoFit = previous.overview && (previous.viewport.width !== s.viewport.width || previous.viewport.height !== s.viewport.height);
+          this.fly(this.autoFit ? this.overviewFrame() : previous.camera);
           return;
         }
         const target = previous.hubs[previous.focus];
@@ -758,11 +788,19 @@ export class Field {
         return;
       }
       case "overview":
-        this.remember();
+        if (!s.overview) this.remember();
         s.overview = true;
-        this.fly(overviewCamera(s.viewport));
+        this.autoFit = true;
+        this.fly(this.overviewFrame());
         s.description =
-          "全域视图 (⊙) · 9 个枢的几何关系与流场分布 · 点击任意枢进入阅读";
+          `全域视图 (⊙) · ${this.catalog.definitions.length} 个枢的几何关系与流场分布 · 点击任意枢进入阅读`;
+        return;
+      case "toggle-overview-map":
+        if (s.overview && s.viewport.width <= 700) {
+          s.overviewPanel = s.overviewPanel === "expanded" ? "collapsed" : "expanded";
+          this.autoFit = true;
+          // The next DOM measurement frames the new available region.
+        }
         return;
 
     }
@@ -835,7 +873,7 @@ export class Field {
     this.autoFit = true;
     this.state.viewport = viewport;
     this.fly(
-      this.state.overview ? overviewCamera(viewport) : this.frame(),
+      this.state.overview ? this.overviewFrame() : this.frame(),
       MOTION.resize,
     );
   }
@@ -953,7 +991,8 @@ export class Field {
     this.autoFit = false;
     const s = this.state,
       before = screenToWorld(point, s.camera, s.viewport);
-    s.camera.z = clamp(s.camera.z * factor, 0.18, 2.4);
+    const minimum = s.overview ? Math.min(0.18, this.overviewFrame().z / 2) : 0.18;
+    s.camera.z = clamp(s.camera.z * factor, minimum, 2.4);
     const after = screenToWorld(point, s.camera, s.viewport);
     Object.assign(s.camera, add(s.camera, sub(before, after)));
   }
@@ -1108,7 +1147,7 @@ export class Field {
       );
       if (turn.phase === 1) {
         s.hubs[turn.hub].morph = turn.to;
-        s.morphTurn = null;
+        s.transition = { kind: "idle" };
       }
     }
     if (this.follow && !s.overview && !s.passage && !s.morphTurn) {
@@ -1172,7 +1211,7 @@ export class Field {
         t.commit();
         t.committed = true;
       }
-      if (p === 1) s.contentTurn = null;
+      if (p === 1) s.transition = { kind: "idle" };
     }
     if (s.passage) {
       const t = s.passage,
@@ -1197,13 +1236,13 @@ export class Field {
         s.hubs[t.source].fold = 0;
         s.hubs[t.target].fold = 0;
         s.theme = t.theme;
-        s.passage = null;
+        s.transition = { kind: "idle" };
         const queued = this.queuedCommand;
         this.queuedCommand = null;
         if (queued) this.dispatch(queued);
       }
     }
-    if (!s.passage && !s.morphTurn && !s.contentTurn && this.queuedCommand) {
+    if (s.transition.kind === "idle" && this.queuedCommand) {
       const queued = this.queuedCommand;
       this.queuedCommand = null;
       this.dispatch(queued);

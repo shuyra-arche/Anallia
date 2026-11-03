@@ -31,11 +31,9 @@ export const contentManifest: ContentManifest = {
     ],
     "inlineTargets": [
       "a1",
-      "b0",
       "m3",
+      "b0",
       "d0",
-      "s6",
-      "s0",
       "a3"
     ]
   },

@@ -1,5 +1,6 @@
 import type { HoverChannel } from "../core/hover-feedback.ts";
 import type { Command } from "../core/types.ts";
+import { commandReference } from "../core/command-reference.ts";
 
 export interface SymbolInteractionState {
   hover: boolean;
@@ -11,6 +12,7 @@ interface SemanticFeedbackPorts {
   labels: SVGGElement;
   reading: HTMLElement;
   geometry: SVGGElement;
+  navigation?: HTMLElement;
   resolve(key: string): Command | undefined;
   symbol(key: string, patch: Partial<SymbolInteractionState>): void;
   hover(
@@ -25,10 +27,9 @@ export function bindSemanticFeedback(ports: SemanticFeedbackPorts): () => void {
   const lifetime = { signal: controller.signal };
   const document = ports.labels.ownerDocument;
   const ElementType = document.defaultView!.Element;
-  const owned = (element: Element) =>
-    ports.labels.contains(element) ||
-    ports.reading.contains(element) ||
-    ports.geometry.contains(element);
+  const roots: Element[] = [ports.reading, ports.labels, ports.geometry];
+  if (ports.navigation) roots.push(ports.navigation);
+  const owned = (element: Element) => roots.some(root => root.contains(element));
   const tagKey = (target: EventTarget | null): string | null => {
     if (!(target instanceof ElementType)) return null;
     const group = target.closest<SVGGElement>(".tag-group[data-command]");
@@ -112,10 +113,7 @@ export function bindSemanticFeedback(ports: SemanticFeedbackPorts): () => void {
       return inline.dataset.target;
     const element = target.closest<SVGElement>("[data-command]");
     if (!element?.dataset.command) return null;
-    const command = ports.resolve(element.dataset.command);
-    if (command?.type === "navigate" && !command.target.startsWith("act:"))
-      return command.target;
-    return command?.type === "focus" ? `hub:${command.hub}` : null;
+    return commandReference(ports.resolve(element.dataset.command));
   };
   let pointerTarget: string | null = null,
     focusTarget: string | null = null;
@@ -139,8 +137,10 @@ export function bindSemanticFeedback(ports: SemanticFeedbackPorts): () => void {
     focusTarget = relationalTarget((event as FocusEvent).relatedTarget);
     ports.hover(focusTarget, "focus", previous);
   };
-  for (const root of [ports.reading, ports.labels, ports.geometry]) {
+  for (const root of roots) {
     root.addEventListener("pointerover", over, lifetime);
+    // Resume pointer attention after keyboard focus even within the same control.
+    root.addEventListener("pointermove", over, lifetime);
     root.addEventListener("pointerout", out, lifetime);
     root.addEventListener("focusin", focusIn, lifetime);
     root.addEventListener("focusout", focusOut, lifetime);

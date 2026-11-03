@@ -1061,13 +1061,14 @@ html[data-theme="obsidian"] .ix-portal-badge {
 #contentStatus {
   position: fixed;
   left: 28px;
-  bottom: 48px;
+  top: 88px;
+  background: var(--paper);
   z-index: 8;
   max-width: min(520px, 85vw);
   color: var(--quiet);
   font: 12px/1.6 var(--font-sans);
 }
-#contentStatus button { margin-left: 12px; padding: 2px 0; border: 0; background: none; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+#contentStatus button { min-height: 44px; margin-left: 12px; padding: 2px 0; border: 0; background: none; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 #contentStatus[hidden] { display: none; }
 
 #scene[data-shared-input="true"] #world { pointer-events: none; }
@@ -1148,3 +1149,71 @@ html[data-theme="obsidian"] .ix-portal-badge {
 }
 .note h2.geometric-row { font-size: 16px; font-weight: 600; color: var(--ink); }
 .note .geometric-row .inline-ref { position: relative; z-index: 1; font: inherit; letter-spacing: 0; padding: 0; display: inline; }
+
+
+/* Reading chrome: one location projection, the same command port as geometry. */
+#readerNavigation { position: fixed; inset: 0; pointer-events: none; z-index: 8; }
+.reader-heading { position: absolute; top: max(24px, env(safe-area-inset-top)); left: 28px; max-width: 40vw; }
+.reader-identity { display: flex; align-items: center; gap: 16px; color: var(--quiet); font-size: 11px; }
+.reader-brand { letter-spacing: .23em; font: 600 12px/1.4 var(--font-sans); color: var(--ink); }
+.reader-location { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader-title { margin: 7px 0 0; font: 400 13px/1.5 var(--font-sans); color: var(--quiet); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#readerNavigation .hud-controls { top: max(18px, env(safe-area-inset-top)); gap: 2px; flex-wrap: nowrap; background: color-mix(in srgb, var(--paper) 94%, transparent); }
+#readerNavigation .hud-btn { min-height: 44px; padding: 10px 12px; font: 500 12px/1.4 var(--font-sans); touch-action: manipulation; white-space: nowrap; }
+#readerNavigation .hud-btn[hidden], #readerNavigation [hidden] { display: none; }
+#readerNavigation .hud-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; text-decoration: none; }
+#readerNavigation .hud-btn:active:not(:disabled) { background: var(--paper-swept); }
+#readerNavigation .hud-btn:hover:not(:disabled) { color: var(--accent); background: var(--paper-swept); }
+#readerNavigation .hud-btn[aria-pressed="true"] { color: var(--accent); text-decoration: underline; text-underline-offset: 5px; }
+.reader-footer { position: absolute; bottom: max(18px, env(safe-area-inset-bottom)); left: 28px; max-width: calc(100% - 56px); }
+.reader-local { display: flex; align-items: center; gap: 4px; pointer-events: auto; background: color-mix(in srgb, var(--paper) 96%, transparent); border-top: 1px solid var(--low); }
+.reader-count { padding: 0 16px 0 4px; color: var(--quiet); font: 11px/1 var(--font-mono); white-space: nowrap; }
+.reader-local [data-command="hud:morph"] { color: var(--accent); border-left: 1px solid var(--low); margin-left: 6px; }
+.reader-hint { margin: 8px 0 0; color: var(--quiet); font-size: 11px; line-height: 1.6; }
+.reader-map { position: fixed; top: 116px; left: 28px; max-width: 280px; pointer-events: auto; background: color-mix(in srgb, var(--paper) 96%, transparent); border-top: 1px solid var(--low); }
+.reader-map-controls { display: none; }
+.reader-index { display: flex; flex-direction: column; align-items: stretch; max-height: calc(100dvh - 210px); overflow-y: auto; touch-action: pan-y; }
+#readerNavigation .reader-index .hud-btn { text-align: left; padding: 12px; }
+.reader-index [aria-current="true"] { color: var(--accent); border-left: 2px solid var(--accent); }
+#scene:has(#readerNavigation) #descBar { display: none; }
+#scene:has(#readerNavigation) .ix-portal { top: auto; left: auto; bottom: 24px; right: 28px; }
+#scene:has(#readerNavigation) .ix-portal-link { border: 0; background: transparent; }
+#scene:has(#readerNavigation) .ix-portal-copy small { display: none; }
+#readerNavigation[data-motion="morph"] [data-command="hud:morph"] { background: var(--paper-swept); }
+@media (min-width: 701px) and (max-width: 1000px) {
+  #scene:has(#readerNavigation) .ix-portal-copy { display: none; }
+  #scene:has(#readerNavigation) .ix-portal-link { min-height: 44px; min-width: 44px; padding: 9px; }
+}
+@media (max-width: 700px) {
+  #readerNavigation::before { content: ""; position: absolute; inset: 0 0 auto; height: calc(max(14px, env(safe-area-inset-top)) + 98px); background: var(--paper); }
+  .reader-heading { top: max(14px, env(safe-area-inset-top)); left: 16px; max-width: calc(100% - 80px); }
+  .reader-identity { gap: 12px; }
+  .reader-map { position: static; max-width: none; }
+  .reader-map-controls { display: flex; justify-content: space-between; }
+  .reader-index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: min(192px, 30dvh); border-top: 1px solid var(--low); overscroll-behavior: contain; }
+  #readerNavigation .reader-index .hud-btn { white-space: normal; padding: 8px; }
+  #readerNavigation .hud-controls { top: calc(max(14px, env(safe-area-inset-top)) + 52px); left: 12px; right: 12px; gap: 0; border-bottom: 1px solid var(--low); }
+  #readerNavigation .hud-controls .hud-btn { flex: 1; padding: 8px 6px; }
+  .reader-footer { left: 0; right: 0; max-width: none; bottom: 0; padding: 0 12px max(12px, env(safe-area-inset-bottom)); background: var(--paper); }
+  .reader-local { gap: 0; flex-wrap: wrap; }
+  #readerNavigation .reader-local .hud-btn { padding: 8px; flex: 1 0 auto; }
+  .reader-count { flex-basis: 100%; padding: 9px 8px 0; font-size: 10px; }
+  .reader-hint { font-size: 10px; margin: 6px 4px 0; }
+  #scene:has(#readerNavigation) .ix-portal { top: max(6px, env(safe-area-inset-top)); right: 12px; bottom: auto; }
+  #scene:has(#readerNavigation) .ix-portal-link { min-height: 44px; min-width: 44px; padding: 9px; }
+  #scene:has(#readerNavigation) .ix-portal-copy { display: none; }
+  #contentStatus { top: 120px; bottom: auto; }
+}
+html[data-demo="leaves-ix"] #readerNavigation { display: none; }
+@media (min-width: 480px) and (max-width: 700px) and (max-height: 500px) {
+  #readerNavigation[data-map-panel="expanded"] .reader-map {
+    position: fixed; top: calc(max(14px, env(safe-area-inset-top)) + 114px);
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 38px);
+    left: 12px; width: min(42vw, 240px); display: flex; flex-direction: column;
+  }
+  #readerNavigation[data-map-panel="expanded"] .reader-index { display: flex; max-height: none; flex: 1; min-height: 0; }
+  #readerNavigation .reader-map-controls { flex-shrink: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #readerNavigation *, .ix-portal-link { transition: none; }
+}

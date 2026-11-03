@@ -80,6 +80,7 @@ export class ReadingLayer {
   readonly articleRenderer: ArticleRenderer;
   private contentProbe: HTMLElement | null = null;
   private lastState: FieldState | null = null;
+  private lastExpression: { id: string; presentation: "circle" | "line" } | null = null;
   private readonly host: HTMLElement;
   private readonly catalog: Catalog;
   private readonly reading: HTMLElement;
@@ -213,6 +214,12 @@ export class ReadingLayer {
         const article = this.articleFor(node.id),
           depth = 1 - surface,
           presentation = morph > 0.5 ? "line" : "circle";
+        const document = this.catalog.document(node.id, presentation);
+        const expressionChanged = node.id === selectedNode.id && this.lastExpression?.id === node.id && this.lastExpression.presentation !== presentation;
+        const transferred = expressionChanged
+          ? this.readingPositions.transfer(node.id, this.lastExpression!.presentation, presentation, document)
+          : null;
+        if (transferred) article.dataset.readingContinuity = transferred.reason;
         profile?.mark("reading.place");
         const contentChange = this.articleRenderer.syncArticle(article, node, hub, presentation);
         profile?.mark("reading.sync");
@@ -274,14 +281,19 @@ export class ReadingLayer {
           ? this.geometric.render(article, this.catalog.document(node.id, presentation), node.title,
             { hub, camera: s.camera, viewport: s.viewport, startS: position, bottomInset: Number(this.host.dataset.readingBottomInset ?? 0) },
             readingWidth(s.viewport, true), hub.textOffset, this.articleRenderer.fontVersion,
-            wasGeometric ? undefined : this.readingPositions.get(node.id, presentation)?.source)
+            transferred?.source ?? (wasGeometric ? undefined : this.readingPositions.get(node.id, presentation)?.source))
           : null;
-        if (wasGeometric && !geometric) {
+        if (wasGeometric && !geometric && !expressionChanged) {
           const source = this.geometric.firstSource(article);
           if (source !== undefined) this.readingPositions.seek(node.id, presentation, source);
         }
         article.dataset.readingLayout = geometric ? "geometric" : "window";
         if (geometric) {
+          if (transferred) this.readingPositions.settleSource(node.id, presentation);
+          if (!s.morphTurn && node.id === selectedNode.id) {
+            const source = this.geometric.firstSource(article);
+            if (source !== undefined) this.readingPositions.saveSource(node.id, presentation, source, document);
+          }
           article.style.width = `${s.viewport.width}px`;
           article.style.height = `${s.viewport.height}px`;
           article.style.transform = `rotateY(${page?.angle ?? 0}deg)`;
@@ -420,8 +432,8 @@ export class ReadingLayer {
             this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: activeFloat });
           this.readingSettling = this.readingPositions.isSettling(node.id, presentation);
           profile?.mark("reading.place");
-          this.readingPositions.capture(article, node.id, presentation, s.camera.z,
-            JSON.stringify([widthStr, panelHeight, activeFloat, this.articleRenderer.fontVersion]));
+          if (!s.morphTurn) this.readingPositions.capture(article, node.id, presentation, s.camera.z,
+            JSON.stringify([widthStr, panelHeight, activeFloat, this.articleRenderer.fontVersion, document.source.length]), document);
           profile?.mark("reading.anchor");
         }
         frames.push({
@@ -452,6 +464,9 @@ export class ReadingLayer {
           pointerEvents: inert ? "none" : "auto",
         });
       });
+    const selectedFrame = frames.find(frame => frame.chapterId === selectedNode.id);
+    if (selectedFrame) this.lastExpression = { id: selectedNode.id, presentation: selectedFrame.presentation };
+    else if (s.overview || s.loading) this.lastExpression = null;
     for (const [id, article] of this.articles)
       if (!visible.has(id)) {
         if (!article.hidden) article.hidden = true;
@@ -478,6 +493,7 @@ export class ReadingLayer {
     this.readingCorrections = [];
     this.heights.clear();
     this.lastState = null;
+    this.lastExpression = null;
     this.retained = null;
     this.readingBounds = null;
     this.readingSettling = false;

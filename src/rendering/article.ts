@@ -584,7 +584,7 @@ export class ArticleRenderer {
     input.type = "search";
     input.className = "hub-search-input";
     input.placeholder =
-      "键入关键词（如：流场、轴旋、深空、反演、列表、长文）…";
+      "搜索标题或正文…";
     input.autocomplete = "off";
     input.spellcheck = false;
     input.setAttribute("aria-label", "检索章节并实时生成本枢周界标签");

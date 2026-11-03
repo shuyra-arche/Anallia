@@ -1,76 +1,68 @@
-import { READING_LINE_STEP } from "./geometry/circular-reading.ts";
-import { frameRateLimit } from "./core/frame-rate.ts";
-import { readFrameRate, saveFrameRate, readBackground, saveBackground, readSound, saveSound } from "./platform/preferences.ts";
-import "./styles.css";
+import {
+  mountReader,
+  type ReaderHandle,
+  type ReaderDefinition,
+} from "./reader.ts";
+import { readerRuntime } from "./runtime/mount-reader.ts";
+import {
+  readFrameRate,
+  saveFrameRate,
+  readBackground,
+  saveBackground,
+  readSound,
+  saveSound,
+} from "./platform/preferences.ts";
 import { contentManifest } from "./content/generated/manifest.ts";
 import { createLocalContentSource } from "./content/local.ts";
-import { ContentStore } from "./content/store.ts";
-import type { ContentSource } from "./core/content.ts";
-import { Catalog } from "./content/catalog.ts";
-import { Field } from "./application/field.ts";
-import { ReadingSession } from "./application/reading-session.ts";
-import { TaskGeometry } from "./application/task-geometry.ts";
-import { Scene } from "./rendering/scene.ts";
-import { frameFor } from "./geometry/field.ts";
 import { THEME_OPTIONS } from "./core/palette.ts";
-import { GeometricSoundscape } from "./effects/sound.ts";
 import { requireElement } from "./rendering/dom.ts";
-import { bindInput } from "./platform/input.ts";
-import type { InputHit } from "./platform/input.ts";
-import { startClock } from "./platform/clock.ts";
 import { createLeavesIxDemo, mountLeavesIx } from "./demos/leaves-ix.ts";
+import { createFieldNotebook } from "./examples/field-notebook.ts";
 
 const host = requireElement<HTMLElement>(document, "#scene");
-const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
-const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-
 let activeCleanup: (() => void) | null = null;
 
 function bootSession(searchOverride?: string): void {
   activeCleanup?.();
   activeCleanup = null;
-
   const rawSearch = searchOverride ?? window.location.search;
   const params = new URLSearchParams(rawSearch);
   const isLeavesDemo = params.get("demo") === "leaves-ix" || params.has("ix");
-  const demo = isLeavesDemo ? createLeavesIxDemo(contentManifest, createLocalContentSource()) : null;
-  const manifest = demo?.manifest ?? contentManifest;
-  let source: ContentSource = demo?.source ?? createLocalContentSource();
-  const store = new ContentStore({ open: (id, presentation, signal) => source.open(id, presentation, signal) });
-  const catalog = new Catalog(manifest.definitions, manifest, store);
-  const field = new Field(catalog, viewport(), motion.matches);
-  field.state.settings.frameRate = readFrameRate();
-  field.state.settings.background = readBackground();
-  field.state.settings.sound = readSound();
-  if (demo) {
-    field.state.settings.background = "none";
-    field.state.settings.sound = false;
-  }
+  const definition: ReaderDefinition = isLeavesDemo
+    ? createLeavesIxDemo(contentManifest, createLocalContentSource())
+    : params.get("example") === "field-notebook"
+      ? createFieldNotebook()
+      : {
+          manifest: contentManifest,
+          source: createLocalContentSource(),
+          entry: "a0",
+          title: "Anallia · 几何阅读演示",
+        };
+  const requestedChapter = params.get("chapter");
+  const renderer = params.get("renderer");
+  const handle: ReaderHandle = mountReader(host, definition, {
+    chapter: definition.manifest.chapters.some(
+      (chapter) => chapter.id === requestedChapter,
+    )
+      ? requestedChapter!
+      : undefined,
+    morph: params.has("morph") ? Number(params.get("morph")) : undefined,
+    theme: THEME_OPTIONS.find((option) => option.value === params.get("theme"))
+      ?.value,
+    renderer:
+      renderer === "svg" ? "svg" : renderer === "gpu" ? "webgl" : "auto",
+    settings: {
+      frameRate: readFrameRate(),
+      background: isLeavesDemo ? "none" : readBackground(),
+      sound: isLeavesDemo ? false : readSound(),
+    },
+  });
+  const runtime = readerRuntime(handle);
+  const { field } = runtime;
+  const lifecycle = new AbortController();
   let savedFrameRate = field.state.settings.frameRate;
   let savedBackground = field.state.settings.background;
   let savedSound = field.state.settings.sound !== false;
-  const chapterId = params.get("chapter") ?? demo?.entry;
-  if (chapterId && catalog.chapters.has(chapterId)) {
-    const chapter = catalog.get(chapterId);
-    const hub = field.state.hubs[chapter.hub];
-    field.state.focus = hub.id;
-    hub.path = catalog.chain(chapter.id);
-    const siblings = catalog.siblings(chapter.id, field.state.searchResults);
-    hub.scroll = hub.scrollTarget = Math.max(0, siblings.findIndex((node) => node.id === chapter.id));
-    field.state.theme = hub.theme;
-  }
-  const morph = params.get("morph");
-  if (morph !== null && Number.isFinite(Number(morph))) field.hub.morph = field.hub.targetMorph = Math.max(0, Math.min(1, Number(morph)));
-  const theme = THEME_OPTIONS.find((option) => option.value === params.get("theme"));
-  if (theme) field.state.theme = theme.value;
-  field.state.camera = frameFor(field.hub, field.hub.scroll, field.siblings().length, field.state.camera, field.state.viewport);
-  const renderer = params.get("renderer");
-  const scene = new Scene(host, catalog, { renderer: renderer === "svg" ? "svg" : renderer === "gpu" ? "webgl" : "auto" });
-  const reading = new ReadingSession(field, store, (id, presentation) => scene.prepareContent(id, presentation), () => performance.now());
-  const tasks = new TaskGeometry();
-  const soundscape = new GeometricSoundscape();
-  const lifecycle = new AbortController();
-
   const switchDemoMode = (nextDemo: "leaves-ix" | null) => {
     const nextParams = new URLSearchParams(rawSearch);
     nextParams.delete("ix");
@@ -79,7 +71,7 @@ function bootSession(searchOverride?: string): void {
     if (nextDemo) nextParams.set("demo", nextDemo);
     else nextParams.delete("demo");
     const qs = nextParams.toString();
-    const targetUrl = qs ? `?${qs}` : (window.location.pathname || "/");
+    const targetUrl = qs ? `?${qs}` : window.location.pathname || "/";
     try {
       window.history.pushState(null, "", targetUrl);
     } catch {
@@ -99,14 +91,16 @@ function bootSession(searchOverride?: string): void {
     portal.className = "ix-portal";
     portal.setAttribute("aria-label", "叶之屋第九章排版习作入口");
     portal.innerHTML = `
-      <a class="ix-portal-link" href="?demo=leaves-ix" data-enter-leaves-ix>
+      <a class="ix-portal-link" href="?demo=leaves-ix" aria-label="进入叶之屋 · 迷宫习作" title="进入叶之屋 · 迷宫习作" data-enter-leaves-ix>
         <span class="ix-portal-badge">IX</span>
         <span class="ix-portal-copy">
           <strong>叶之屋 · 迷宫习作</strong>
-          <small>Pretext 几何贴合排版演示 ↗</small>
+          <small>另一种阅读实验 ↗</small>
         </span>
       </a>`;
-    portal.addEventListener("pointerdown", (e) => e.stopPropagation(), { signal: lifecycle.signal });
+    portal.addEventListener("pointerdown", (e) => e.stopPropagation(), {
+      signal: lifecycle.signal,
+    });
     portal.addEventListener(
       "click",
       (e) => {
@@ -119,151 +113,49 @@ function bootSession(searchOverride?: string): void {
     host.append(portal);
   }
 
-  const updateVisibility = () => reading.setVisible(!document.hidden, performance.now());
-  document.addEventListener("visibilitychange", updateVisibility, { signal: lifecycle.signal });
-  updateVisibility();
-  host.dataset.booting = "true";
-
-  const status = document.createElement("aside");
-  status.id = "contentStatus";
-  status.setAttribute("role", "status");
-  status.setAttribute("aria-live", "polite");
-  const statusText = document.createElement("span");
-  const retry = document.createElement("button");
-  retry.type = "button";
-  retry.textContent = "重试";
-  retry.hidden = true;
-  retry.addEventListener("click", () => field.dispatch({ type: "navigate", target: "act:retry_content" }), { signal: lifecycle.signal });
-  const cancel = document.createElement("button");
-  cancel.type = "button";
-  cancel.textContent = "取消";
-  cancel.hidden = true;
-  cancel.addEventListener("click", () => reading.cancel(), { signal: lifecycle.signal });
-  status.append(statusText, retry, cancel);
-  host.append(status);
-
-  let hovered: InputHit | null = null;
-  let hoveredTarget: string | null = null;
-  host.dataset.sharedInput = "true";
-  const disposeInput = bindInput(host, {
-    dispatch: (command) => field.dispatch(command),
-    pan: (delta, start) => reading.view(() => field.pan(delta, start)),
-    zoom: (factor, point) => reading.view(() => field.zoom(factor, point)),
-    rotate: (delta, point) => reading.view(() => field.rotate(delta, point)),
-    camera: () => field.state.camera,
-    geometricReading: () => {
-      const article = document.getElementById(`text-${field.selected().id}`);
-      return article?.dataset.readingLayout === "geometric"
-        ? { maxOffset: Number(article.dataset.maxFloat ?? 0), step: READING_LINE_STEP } : null;
-    },
-    grasp: (delta) => reading.grasp(delta),
-    graspGeometry: () => field.graspGeometry(),
-    overview: () => field.state.overview,
-    loading: () => !reading.bootReady,
-    exitLoading: () => { reading.cancel(); },
-    cancelLoading: () => reading.cancel(),
-    resolve: (key) => scene.actions.get(key),
-    hitTest: (point) => {
-      const hit = scene.hitTest(point);
-      return hit ? { id: hit.id, command: hit.command, localScrollHub: hit.localScrollHub, grasp: (hit.graspKind === "hub" && hit.hubId === field.state.focus) || (hit.graspKind === "label" && hit.command.type === "morph") } : null;
-    },
-    hover: (hit) => {
-      if (hovered?.id !== hit?.id) {
-        if (hovered) scene.setSymbolInteraction(hovered.id, { hover: false });
-        hovered = hit;
-        if (hit) scene.setSymbolInteraction(hit.id, { hover: true });
-        host.style.cursor = hit ? "pointer" : "";
-        const nextTarget =
-          hit?.command.type === "navigate" && !hit.command.target.startsWith("act:")
-            ? hit.command.target
-            : hit?.command.type === "focus"
-              ? `hub:${hit.command.hub}`
-              : null;
-        scene.setHoveredTarget(nextTarget, "pointer", hoveredTarget);
-        hoveredTarget = nextTarget;
-      }
-    },
-  });
-  const unlockAudio = () => soundscape.unlock();
-  for (const event of ["pointerdown", "wheel", "keydown"]) window.addEventListener(event, unlockAudio, { signal: lifecycle.signal, passive: true });
-  window.addEventListener("resize", () => { scene.invalidateLayout(); field.resize(viewport()); }, { signal: lifecycle.signal });
-  motion.addEventListener("change", () => field.setSystemReducedMotion(motion.matches), { signal: lifecycle.signal });
-
-  const stopClock = startClock((now, dt) => {
-    const changes = reading.flush(now);
-    if (changes.length) scene.invalidateContent(changes.map((change) => change.id));
-    scene.setRetainedReading(reading.retainedReadingView);
-    field.update(now, dt);
-    soundscape.update(field.state, dt);
+  runtime.observeFrame(() => {
+    demoView?.update();
     if (savedBackground !== field.state.settings.background) {
-      if (!demo) saveBackground(field.state.settings.background);
+      if (!isLeavesDemo) saveBackground(field.state.settings.background);
       savedBackground = field.state.settings.background;
     }
     if (savedFrameRate !== field.state.settings.frameRate) {
-      if (!demo) saveFrameRate(field.state.settings.frameRate);
+      if (!isLeavesDemo) saveFrameRate(field.state.settings.frameRate);
       savedFrameRate = field.state.settings.frameRate;
     }
     if (savedSound !== (field.state.settings.sound !== false)) {
-      if (!demo) saveSound(field.state.settings.sound !== false);
+      if (!isLeavesDemo) saveSound(field.state.settings.sound !== false);
       savedSound = field.state.settings.sound !== false;
     }
-    const task = reading.activeTask;
-    scene.setLoadingGeometry(tasks.update(task, field.state, catalog, dt));
-    demoView?.update();
-    scene.render(field.state);
-    for (const correction of scene.takeReadingCorrections()) {
-      if (correction.readingRows !== undefined) field.setReadingRows(correction.chapterId, correction.presentation, correction.readingRows);
-      if (correction.textOffset !== undefined) reading.restoreReadingOffset(correction.chapterId, correction.presentation, correction.textOffset);
-    }
-    reading.afterRender((id, presentation) => {
-      const article = document.getElementById(`text-${id}`);
-      return article instanceof HTMLElement && !article.hidden && article.dataset.presentation === presentation;
-    });
-    if (reading.bootReady) delete host.dataset.booting;
-    if (reading.bootReady && !reading.retainedChapterId) field.fitReading(scene.readingBounds);
-    const message = reading.error ? "内容暂时无法打开。" : task && !task.outcome ? task.firstReadable ? "正文正在继续接收…" : "正在准备篇章…" : "";
-    if (statusText.textContent !== message) statusText.textContent = message;
-    if (retry.hidden !== !reading.error) retry.hidden = !reading.error;
-    cancel.hidden = !task?.cancellable || Boolean(task.outcome);
-    status.hidden = !message;
-  }, () => frameRateLimit(field.state.settings.frameRate, field.isAnimating || scene.isAnimating || reading.activeTask !== null));
-  reading.startup(field.selected().id, scene.initialize(), performance.now());
-
-  function useContentSource(next: ContentSource): void {
-    if (!next || typeof next.open !== "function") throw new TypeError("ContentSource.open is required");
-    source = next;
-    reading.refresh();
-  }
-  (window as unknown as Record<string, unknown>).__shuyra = {
-    field,
-    scene,
-    soundscape,
-    reading,
-    store,
-    ready: reading.ready,
+  }, !isLeavesDemo);
+  // Existing diagnostics remain shell-only; mountReader never exposes mutable state.
+  const diagnostics = {
+    field: runtime.field,
+    scene: runtime.scene,
+    soundscape: runtime.soundscape,
+    reading: runtime.reading,
+    store: runtime.store,
+    ready: runtime.ready,
     switchDemoMode,
-    ...(import.meta.env.DEV ? { useContentSource } : {}),
+    ...(import.meta.env.DEV
+      ? { useContentSource: runtime.useContentSource, handle }
+      : {}),
   };
-  document.fonts?.ready.then(() => scene.invalidateLayout(true));
-  document.fonts?.addEventListener("loadingdone", () => scene.invalidateLayout(true), { signal: lifecycle.signal });
-
+  (window as unknown as Record<string, unknown>).__shuyra = diagnostics;
   activeCleanup = () => {
-    stopClock();
-    disposeInput();
-    reading.destroy();
-    soundscape.destroy();
     lifecycle.abort();
-    scene.destroy();
-    status.remove();
     portal?.remove();
+    handle.destroy();
+    const scope = window as unknown as Record<string, unknown>;
+    if (scope.__shuyra === diagnostics) delete scope.__shuyra;
   };
 }
 
 bootSession();
 const restoreSession = () => bootSession();
 window.addEventListener("popstate", restoreSession);
-
-if (import.meta.hot) import.meta.hot.dispose(() => {
-  window.removeEventListener("popstate", restoreSession);
-  activeCleanup?.();
-});
+if (import.meta.hot)
+  import.meta.hot.dispose(() => {
+    window.removeEventListener("popstate", restoreSession);
+    activeCleanup?.();
+  });

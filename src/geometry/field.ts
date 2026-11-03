@@ -322,13 +322,6 @@ export function frameFor(
     rotation,
   );
 }
-export const overviewCamera = (v: Viewport): Camera => ({
-  x: 180,
-  y: 40,
-  z: clamp(Math.min(v.width / 3600, v.height / 1950), 0.28, 0.52),
-  rotation: 0,
-});
-
 /** Rotate the camera around a world pivot while preserving its exact screen projection. */
 export function orbitCamera(
   camera: Camera,

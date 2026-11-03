@@ -59,7 +59,7 @@ export function bindInput(host: HTMLElement, port: InputPort): () => void {
     y: e.clientY,
   });
   const pick = (event: PointerEvent | MouseEvent | WheelEvent): InputHit | null => {
-    if (element(event.target)?.closest("article.note,button,input,textarea,select")) return null;
+    if (element(event.target)?.closest("article.note,button,input,textarea,select,#readerNavigation")) return null;
     return port.hitTest?.({ x: event.clientX, y: event.clientY }) ?? null;
   };
   host.addEventListener("pointermove", (event) => {

@@ -88,6 +88,7 @@
   },
   {
     "id": "S",
+    "kind": "settings",
     "glyph": "⚙",
     "theme": "dark",
     "center": {

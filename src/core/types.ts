@@ -44,7 +44,8 @@ export type ReadingLayoutMode = "window" | "geometric";
 
 export interface HubDefinition {
   readingLayoutMode?: ReadingLayoutMode;
-  kind?: "search";
+  /** Optional utility capability; independent of glyph, ID and chapter names. */
+  kind?: "search" | "settings";
   layout?: "anchored";
   recommendations?: readonly string[];
   id: string;
@@ -87,6 +88,8 @@ export interface Snapshot {
   searchQuery: string;
   focus: string;
   overview: boolean;
+  overviewPanel: "expanded" | "collapsed";
+  viewport: Viewport;
   theme: Theme;
   camera: Camera;
   hubs: Record<
@@ -152,18 +155,28 @@ export interface MorphTurn {
   screenAnchor: Vec;
   startRotation: number;
 }
+/** Exactly one structural transition owns content/shape at a time. Camera tween is orthogonal. */
+export type StructuralTransition =
+  | { kind: "idle" }
+  | { kind: "passage"; value: Passage }
+  | { kind: "morph"; value: MorphTurn }
+  | { kind: "content"; value: ContentTurn };
+
 export interface FieldState {
   hubs: Record<string, Hub>;
   focus: string;
   overview: boolean;
+  overviewPanel: "expanded" | "collapsed";
   theme: Theme;
   camera: Camera;
   viewport: Viewport;
   settings: Settings;
   history: Snapshot[];
-  passage: Passage | null;
-  morphTurn: MorphTurn | null;
-  contentTurn: ContentTurn | null;
+  transition: StructuralTransition;
+  /** Read-only projections for renderers; transition is the only stored owner. */
+  readonly passage: Passage | null;
+  readonly morphTurn: MorphTurn | null;
+  readonly contentTurn: ContentTurn | null;
   loading: boolean;
   description: string;
   elapsed: number;
@@ -179,7 +192,7 @@ export type Command =
   | { type: "scroll-local"; delta: number }
   | { type: "float-text"; delta: number; maxOffset?: number; clampOnly?: boolean }
   | { type: "search"; query: string }
-  | { type: "up" | "back" | "overview" };
+  | { type: "up" | "back" | "overview" | "toggle-overview-map" };
 
 export interface GraspReadingSnapshot {
   chapterId: string;

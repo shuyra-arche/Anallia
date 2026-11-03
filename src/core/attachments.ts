@@ -44,25 +44,25 @@ export interface GlobalOperation {
   aria: string;
   arc: number;
   symbolKind?: SymbolKind;
-  action: { kind: "command"; command: Command } | { kind: "hub-glyph"; glyph: string };
+  action: { kind: "command"; command: Command } | { kind: "capability"; capability: "search" | "settings" };
 }
 export const GLOBAL_OPERATIONS: readonly GlobalOperation[] = [
   { id: "overview", glyph: "⊙", aria: "全域观察", arc: -96, symbolKind: "overview",
     action: { kind: "command", command: { type: "overview" } } },
   { id: "search", glyph: "⌕", aria: "检索枢", arc: -48, symbolKind: "search",
-    action: { kind: "hub-glyph", glyph: "⌕" } },
+    action: { kind: "capability", capability: "search" } },
   { id: "settings", glyph: "⚙", aria: "设置枢", arc: 0, symbolKind: "settings",
-    action: { kind: "hub-glyph", glyph: "⚙" } },
+    action: { kind: "capability", capability: "settings" } },
   { id: "back", glyph: "↶", aria: "历史返回", arc: 96, symbolKind: "history",
     action: { kind: "command", command: { type: "back" } } },
 ];
 
 export function resolveGlobalCommand(
   operation: GlobalOperation,
-  hubRootByGlyph: ReadonlyMap<string, string>,
+  capabilityRoots: ReadonlyMap<string, string>,
 ): Command {
   if (operation.action.kind === "command") return operation.action.command;
-  const target = hubRootByGlyph.get(operation.action.glyph);
-  if (!target) throw new Error(`Missing global operation hub: ${operation.action.glyph}`);
+  const target = capabilityRoots.get(operation.action.capability);
+  if (!target) throw new Error(`Missing global operation hub: ${operation.action.capability}`);
   return { type: "navigate", target };
 }

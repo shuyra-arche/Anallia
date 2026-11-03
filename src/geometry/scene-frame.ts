@@ -54,8 +54,8 @@ export function symbolActivity(
     Boolean(
       s &&
       ((kind === "overview" && s.overview) ||
-        (kind === "search" && !s.overview && s.focus === "Q") ||
-        (kind === "settings" && !s.overview && s.focus === "S")),
+        (kind === "search" && !s.overview && s.hubs[s.focus]?.kind === "search") ||
+        (kind === "settings" && !s.overview && s.hubs[s.focus]?.kind === "settings")),
     );
   let activity = semanticActive ? 0.35 : 0;
   if (feedback?.hover || feedback?.focus) activity = Math.max(activity, 0.62);
@@ -93,6 +93,7 @@ export function buildSceneFrame(
   const { focusedEntries, locals } = options;
   const selected = (hub: Hub) => catalog.get(hub.path.at(-1)!);
   const perception = evaluatePerception(s, catalog, options.hoveredTarget);
+  const compactOverview = s.overview && s.viewport.width <= 700;
   const label = (
     hub: Hub,
     key: string,
@@ -193,7 +194,7 @@ export function buildSceneFrame(
     hubPrimitives.push(
       curveToPrimitive(curve, {
         stroke: hubPerception.tier === "resonating" ? sig.accentColor : strokeColor,
-        strokeWidth: 1.25 * hubPerception.strokeWidthScale * s.camera.z,
+        strokeWidth: Math.max(compactOverview ? 0.65 : 0, 1.25 * s.camera.z) * hubPerception.strokeWidthScale,
         opacity: hubPerception.curveOpacity,
         dash:
           !active && sig.curveDash && hubPerception.tier !== "resonating"
@@ -551,7 +552,7 @@ function appendTraces(
         stroke: paper,
         strokeWidth: 3.5,
         strokeScale: "screen",
-        scale: Math.max(0.55, s.camera.z),
+        scale: Math.max(s.overview && s.viewport.width <= 700 ? 0.9 : 0.55, s.camera.z),
         fill:
           perception.tier === "resonating" && sig
             ? sig.accentColor

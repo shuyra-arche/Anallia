@@ -1,3 +1,4 @@
+import { ReaderNavigation } from "./reader-navigation.ts";
 import { RenderProfiler } from "../core/render-profile.ts";
 import type { RenderProfileSink } from "../core/render-profile.ts";
 import { HoverFeedback } from "../core/hover-feedback.ts";
@@ -22,7 +23,7 @@ import type {
   Vec,
 } from "../core/types.ts";
 import { BOUNDARY } from "../core/palette.ts";
-import { ICON_TOKENS, resolveIconToken } from "../core/icons.ts";
+import { ICON_TOKENS } from "../core/icons.ts";
 import type { IconToken } from "../core/icons.ts";
 import type { SymbolKind } from "../core/symbol-morph.ts";
 import { Catalog } from "../content/catalog.ts";
@@ -51,11 +52,12 @@ export class Scene {
   private labels: SVGGElement;
   private readonly semanticLabels: SemanticLabels;
   private reading: HTMLElement;
-  private hudControls: HTMLElement;
+  private readonly readerNavigation: ReaderNavigation;
   private readonly readingLayer: ReadingLayer;
   get readingBounds() {
     return this.readingLayer.readingBounds;
   }
+  get overviewRegion() { return this.readerNavigation.overviewRegion; }
   get readingPositions() {
     return this.readingLayer.readingPositions;
   }
@@ -277,13 +279,14 @@ export class Scene {
       inlineIcon: (token, morph) => this.createInlineIconSvg(token, morph),
       iconShowcase: (hub) => this.buildIconShowcase(hub),
     });
-    this.hudControls = this.ensureHudControls(host);
+    this.readerNavigation = new ReaderNavigation(host, this.createInlineIconSvg(ICON_TOKENS["⚙"]));
     this.svgRenderer = new SvgGraphicsRenderer(this.root);
     this.host.dataset.numericGraphics = "true";
     this.disposeFeedback = bindSemanticFeedback({
       labels: this.labels,
       reading: this.reading,
       geometry: this.geometry,
+      navigation: this.readerNavigation.element,
       resolve: (key) => this.actions.get(key),
       symbol: (key, patch) => this.setSymbolInteraction(key, patch),
       hover: (target, channel, previous) => this.setHoveredTarget(target, channel, previous),
@@ -296,44 +299,6 @@ export class Scene {
     ) {
       void this.initialize();
     }
-  }
-
-  private ensureHudControls(host: HTMLElement): HTMLElement {
-    let nav = host.querySelector<HTMLElement>("#hudControls");
-    if (!nav) {
-      nav = document.createElement("nav");
-      nav.id = "hudControls";
-      nav.className = "hud-controls";
-      nav.setAttribute("aria-label", "全域与传统全局索引");
-      nav.hidden = true;
-      const items: Array<{ key: string; label: string; title: string }> = [
-        { key: "hud:back", label: "↶ 返回", title: "返回上一位置" },
-        { key: "hud:overview", label: "⊙ 全域", title: "切换全域观察" },
-        { key: "hud:refocus", label: "⌖ 聚焦", title: "回到聚焦枢" },
-        { key: "hud:search", label: "⌕ 检索", title: "打开检索枢" },
-        { key: "hud:settings", label: "⚙ 设置", title: "打开设置枢" },
-        { key: "hud:sound", label: "♪ 声场", title: "切换几何声场" },
-      ];
-      for (const item of items) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "hud-btn";
-        btn.dataset.command = item.key;
-        btn.title = item.title;
-        btn.setAttribute("aria-label", item.label);
-        const glyph = Array.from(item.label)[0];
-        const token = resolveIconToken(glyph);
-        if (token)
-          btn.append(
-            this.createInlineIconSvg(token),
-            document.createTextNode(item.label.slice(glyph.length)),
-          );
-        else btn.textContent = item.label;
-        nav.append(btn);
-      }
-      host.append(nav);
-    }
-    return nav;
   }
 
   setHoveredTarget(target: string | null, channel: HoverChannel = "pointer", previous?: string | null) {
@@ -372,36 +337,6 @@ export class Scene {
   private selected(hub: Hub) {
     return this.catalog.get(hub.path.at(-1)!);
   }
-  private updateHudControls(s: FieldState, showTraditionalHud: boolean) {
-    this.actions.set("hud:back", { type: "back" });
-    this.actions.set("hud:overview", { type: "overview" });
-    this.actions.set("hud:refocus", { type: "focus", hub: s.focus });
-    this.actions.set("hud:search", { type: "navigate", target: "q0" });
-    this.actions.set("hud:settings", { type: "navigate", target: "s0" });
-    this.actions.set("hud:sound", {
-      type: "navigate",
-      target: "act:toggle_sound",
-    });
-
-    this.hudControls.hidden = !showTraditionalHud || s.loading;
-    if (!showTraditionalHud || s.loading) return;
-
-    const backBtn = this.hudControls.querySelector<HTMLButtonElement>(
-      '[data-command="hud:back"]',
-    );
-    if (backBtn) backBtn.disabled = s.history.length === 0;
-    const overviewBtn = this.hudControls.querySelector<HTMLButtonElement>(
-      '[data-command="hud:overview"]',
-    );
-    if (overviewBtn)
-      overviewBtn.setAttribute("aria-pressed", String(s.overview));
-    const soundBtn = this.hudControls.querySelector<HTMLButtonElement>(
-      '[data-command="hud:sound"]',
-    );
-    if (soundBtn)
-      soundBtn.setAttribute("aria-pressed", String(s.settings.sound !== false));
-  }
-
   setRenderProfiler(collect: RenderProfileSink | null, now: () => number = () => performance.now()): void {
     this.renderProfiler = !this.destroyed && collect ? new RenderProfiler(collect, now) : null;
   }
@@ -445,6 +380,7 @@ export class Scene {
       this.loadingGeometry,
       s.focus,
       s.overview,
+      s.overviewPanel,
       s.loading,
       s.theme,
       s.settings,
@@ -537,7 +473,7 @@ export class Scene {
     this.actions.clear();
     for (const hit of this.currentFrame.hitRegions)
       this.actions.set(hit.id, hit.command);
-    this.updateHudControls(s, built.useTraditionalHud);
+    this.readerNavigation.render(s, this.catalog, this.actions);
     profile?.mark("scene.host");
     this.currentFrame.reading = this.readingLayer.render(s, profile ?? undefined);
     profile?.mark("scene.reading");
@@ -704,7 +640,7 @@ export class Scene {
     this.geometry.replaceChildren();
     this.semanticLabels.destroy();
     this.readingLayer.destroy();
-    this.hudControls.remove();
+    this.readerNavigation.destroy();
     this.actions.clear();
     delete this.host.dataset.renderer;
     delete this.host.dataset.rendererFallback;

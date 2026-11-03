@@ -26,22 +26,31 @@ for (const renderer of ["svg", "gpu"]) {
       Math.min(slots, Number(await root.getAttribute("data-reading-rows"))),
     );
     expect(slots).toBeGreaterThan(5);
-    const snapshot = async (row: number) => ({
-      camera: await page.evaluate(() => ({
-        ...(window as any).__shuyra.field.state.camera,
-      })),
-      center: await page.evaluate(async () => {
-        const { worldToScreen } = await import("/src/geometry/field.ts");
-        const f = (window as any).__shuyra.field;
-        return worldToScreen(f.hub.center, f.state.camera, f.state.viewport);
-      }),
-      gaze: await root
-        .locator(`[data-reading-row="${row}"]`)
-        .evaluate((element) => {
-          const r = element.getBoundingClientRect();
-          return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    const snapshot = async (row: number) => {
+      // Camera commands update Field before the host's next rendered frame.
+      // Compare row positions only after that frame has reached the DOM.
+      await page.waitForFunction(() => {
+        const app = (window as any).__shuyra;
+        return !app.field.isAnimating && !app.scene.isAnimating &&
+          ['x', 'y', 'z', 'rotation'].every(key => app.scene.frame.camera[key] === app.field.state.camera[key]);
+      });
+      return {
+        camera: await page.evaluate(() => ({
+          ...(window as any).__shuyra.field.state.camera,
+        })),
+        center: await page.evaluate(async () => {
+          const { worldToScreen } = await import("/src/geometry/field.ts");
+          const f = (window as any).__shuyra.field;
+          return worldToScreen(f.hub.center, f.state.camera, f.state.viewport);
         }),
-    });
+        gaze: await root
+          .locator(`[data-reading-row="${row}"]`)
+          .evaluate((element) => {
+            const r = element.getBoundingClientRect();
+            return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+          }),
+      };
+    };
     const before = await snapshot(0);
     await root.locator('[data-reading-row="0"]').hover();
     await page.mouse.wheel(0, 100);

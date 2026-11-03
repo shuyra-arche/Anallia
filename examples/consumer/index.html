@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Anallia 独立消费者</title>
+  <style>
+    * { box-sizing:border-box; }
+    body { margin:0; padding:20px; font:16px/1.5 system-ui,sans-serif; color:#243c37; background:#faf4e9; }
+    h1 { font-size:22px; } h2 { font-size:16px; } a { color:inherit; }
+    nav { position:sticky; top:0; z-index:2; display:flex; flex-wrap:wrap; gap:16px; background:#faf4e9; padding:10px 0; }
+    nav a { display:inline-flex; min-height:44px; align-items:center; }
+    main { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+    section { min-width:0; scroll-margin-top:90px; }
+    .heading { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    button { min-height:44px; padding:8px 16px; color:inherit; background:transparent; border:1px solid #8b9c94; }
+    .reader { height:720px; border:1px solid #aebbb2; }
+    .empty { padding:24px; }
+    @media(max-width:800px) { body{padding:12px;} main{grid-template-columns:1fr;} .reader{height:calc(100svh - 190px);min-height:420px;} }
+  </style>
+</head>
+<body>
+  <h1>独立页面里的两份内容</h1>
+  <nav aria-label="阅读区域"><a href="#geometry-region">几何阅读</a><a href="#notebook-region">观察手册</a><a href="document.html">文档示例</a><a href="document.html?example=custom">自己的内容</a></nav>
+  <main>
+    <section id="geometry-region"><div class="heading"><h2>几何阅读</h2><button id="toggle-geometry" aria-label="关闭几何阅读">关闭</button></div><div id="geometry" class="reader"><p class="empty">阅读器已关闭；重新打开从起点开始。</p></div></section>
+    <section id="notebook-region"><div class="heading"><h2>雨后观察手册</h2><button id="toggle-notebook" aria-label="关闭观察手册">关闭</button></div><div id="notebook" class="reader"><p class="empty">阅读器已关闭；重新打开从起点开始。</p></div></section>
+  </main>
+  <p id="status" role="status"></p>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

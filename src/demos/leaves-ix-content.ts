@@ -1,4 +1,4 @@
-import type { ContentManifest, ContentSource } from "../core/content.ts";
+import type { ContentManifest, ContentSource, ReaderDefinition } from "../core/content.ts";
 import { buildSearchEntry } from "../content/search.ts";
 
 /** Original text for a typographic study; no chapter text or page facsimiles. */
@@ -117,7 +117,7 @@ export const leavesIxPages = [
 export function createLeavesIxDemo(
   base: ContentManifest,
   fallback: ContentSource,
-) {
+): ReaderDefinition {
   const pages = new Map<string, (typeof leavesIxPages)[number]>(
     leavesIxPages.map((page) => [page.id, page]),
   );
@@ -166,6 +166,10 @@ export function createLeavesIxDemo(
         parent: page.parent,
         title: page.title,
         hub: page.hub,
+        boundaryRoutes: {
+          next: page.next,
+          previous: page.parent ?? (page.id === "ix-entry" ? "ix-exit" : page.note),
+        },
         refs: [
           { glyph: "→", target: page.next },
           { glyph: "n.", target: page.note },

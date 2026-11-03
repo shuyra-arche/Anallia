@@ -122,6 +122,8 @@ export interface ManifestChapter {
   title: string;
   hub: string;
   refs: { glyph: string; target: string }[];
+  /** Optional routes used only after a same-level step reaches its boundary. */
+  boundaryRoutes?: { previous?: string; next?: string };
   /** Inline targets collected from the author text at generation time. */
   inlineTargets?: string[];
 }
@@ -131,4 +133,12 @@ export interface ContentManifest {
   definitions: import("./types.ts").HubDefinition[];
   chapters: ManifestChapter[];
   searchIndex: SearchIndexEntry[];
+}
+
+/** Content input shared by independent readers; runtime state and UI stay in the host. */
+export interface ReaderDefinition {
+  manifest: ContentManifest;
+  source: ContentSource;
+  entry: string;
+  title?: string;
 }

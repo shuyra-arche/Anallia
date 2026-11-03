@@ -94,8 +94,11 @@ for (const renderer of ["svg", "gpu"]) {
       const app = (window as any).__shuyra;
       app.field.dispatch({ type: "morph" });
     });
+    // The content gate may still be preparing the line expression while Field
+    // is idle. Wait for the actual target presentation before placing the camera.
+    await expect(page.locator("#text-a1")).toHaveAttribute("data-presentation", "line");
     await page.waitForFunction(
-      () => !(window as any).__shuyra.field.isAnimating,
+      () => !(window as any).__shuyra.field.isAnimating && !(window as any).__shuyra.scene.isAnimating,
     );
     await page.evaluate(() => {
       const app = (window as any).__shuyra;
@@ -114,6 +117,12 @@ for (const renderer of ["svg", "gpu"]) {
       );
     expect(angles.length).toBeGreaterThan(1);
     expect(angles.every((angle) => angle === 0)).toBe(true);
+    await page.waitForFunction(() => {
+      const app = (window as any).__shuyra;
+      return !app.field.isAnimating && !app.scene.isAnimating &&
+        app.scene.frame.camera.x === app.field.state.camera.x &&
+        app.scene.frame.camera.z === app.field.state.camera.z;
+    });
     await page.locator("#text-a1 .geometric-row").last().hover();
     await page.mouse.wheel(0, 800);
     await expect

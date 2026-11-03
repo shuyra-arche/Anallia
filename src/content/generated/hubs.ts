@@ -91,6 +91,7 @@ export const hubDefinitions: HubDefinition[] = [
   },
   {
     "id": "S",
+    "kind": "settings",
     "glyph": "⚙",
     "theme": "dark",
     "center": {
