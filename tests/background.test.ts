@@ -155,7 +155,7 @@ test("starfield gradients and meteors stay finite across themes, zoom and motion
 test("background settings display the selected option without changing page or theme", () => {
   const d = dom();
   d.window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),
@@ -191,7 +191,7 @@ test("background settings display the selected option without changing page or t
 test("theme choices show exactly the active palette", () => {
   const d = dom();
   d.window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),

@@ -13,7 +13,7 @@ test("scene switches circle/line expressions and renders links as real buttons",
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
   window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),
@@ -57,7 +57,7 @@ test("flow background and original V24 kernel render finite paths through a full
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
   window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),
@@ -98,7 +98,7 @@ test("unchanged reading state performs no article DOM writes and preserves navig
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
   window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),
@@ -167,7 +167,7 @@ test("frame rate selection is visible and updates without changing presentation"
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
   window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),
@@ -197,7 +197,7 @@ test("different-background travel keeps one continuous color sweep while the con
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
   window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),
@@ -244,7 +244,7 @@ test("same-background near, flight, remote and axis travel never draw a color ma
       saved = globalThis.document;
     Object.assign(globalThis, { document: window.document });
     window.document.write(
-      readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+      readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
         /<script[^>]*>[\s\S]*?<\/script>/g,
         "",
       ),
@@ -314,7 +314,7 @@ test("same-background travel clears a preceding color mask and reverse history u
     saved = globalThis.document;
   Object.assign(globalThis, { document: window.document });
   window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),
@@ -370,7 +370,7 @@ test("same-background travel clears a preceding color mask and reverse history u
 test("articles mount on demand and keep an LRU of eight inactive entries with focus protection", () => {
   const window = new Window();
   Object.assign(globalThis, { document: window.document });
-  window.document.write(readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(/<script[^>]*>[\s\S]*?<\/script>/g, ""));
+  window.document.write(readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(/<script[^>]*>[\s\S]*?<\/script>/g, ""));
   const host = window.document.querySelector<HTMLElement>("#scene")!;
   const field = new Field(new Catalog(hubDefinitions, rawContent), { width: 1366, height: 820 });
   field.state.settings.range = 0.1;
@@ -402,7 +402,7 @@ test("destroy releases semantic feedback listeners on the surviving reading root
   const window = new Window();
   const originalDocument = globalThis.document;
   Object.assign(globalThis, { document: window.document });
-  window.document.write(readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(/<script[^>]*>[\s\S]*?<\/script>/g, ""));
+  window.document.write(readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(/<script[^>]*>[\s\S]*?<\/script>/g, ""));
   const host = window.document.querySelector("#scene")!;
   const field = new Field(new Catalog(hubDefinitions, rawContent), { width: 1366, height: 820 }, true);
   const scene = new Scene(host as unknown as HTMLElement, field.catalog, { renderer: "svg" });
@@ -425,4 +425,27 @@ test("destroy releases semantic feedback listeners on the surviving reading root
     assert.equal(calls, 0, "destroyed scenes must not retain feedback listeners");
     assert.equal(scene.readingBounds, null);
   } finally { window.close(); Object.assign(globalThis, { document: originalDocument }); }
+});
+
+test("an edition pose animation bypasses the cached frame only until it settles", () => {
+  const window = new Window();
+  Object.assign(globalThis, { document: window.document });
+  window.document.write(readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/g, ""));
+  const field = new Field(new Catalog(hubDefinitions, rawContent), { width: 1366, height: 844 }, true);
+  field.state.loading = false;
+  const scene = new Scene(window.document.querySelector("#scene")! as unknown as HTMLElement, field.catalog);
+  let pending = true, calls = 0;
+  scene.setFrameProjection(frame => { calls++; return { ...frame }; }, () => pending);
+  scene.render(field.state); scene.render(field.state);
+  assert.equal(calls, 2);
+  pending = false;
+  for (let i = 0; i < 3; i++) scene.render(field.state);
+  const settledCalls = calls;
+  for (let i = 0; i < 3; i++) scene.render(field.state);
+  assert.equal(calls, settledCalls);
+  scene.setFrameProjection(undefined);
+  scene.render(field.state);
+  assert.equal(calls, settledCalls);
+  scene.destroy(); field.catalog.destroy(); window.close();
 });

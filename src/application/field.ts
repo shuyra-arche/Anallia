@@ -419,9 +419,11 @@ export class Field {
         const baseArc =
           hub.layout === "anchored" ? 68 : targetCount > 6 ? 118 : 165;
         hub.anchorOffset = previous - (newIndex - circleRef) * baseArc;
-        commit();
+        // New navigation starts at the top; a history commit may restore its
+        // explicit reading/local offsets before the incoming leaf becomes visible.
         hub.textOffset = hub.textOffsetTarget = 0;
         hub.localScroll = hub.localScrollTarget = 0;
+        commit();
       },
     } };
     this.follow = false;
@@ -443,6 +445,9 @@ export class Field {
     this.tween = null;
     this.pulse();
   }
+  private localScrollLimit: (() => number | undefined) | null = null;
+  /** Internal presentation range; offset and history remain owned by Field. */
+  setLocalScrollLimit(limit: (() => number | undefined) | null): void { this.localScrollLimit = limit; }
   private contentGate: ((command: Command) => boolean) | null = null;
   setContentGate(gate: ((command: Command) => boolean) | null) {
     this.contentGate = gate;
@@ -584,12 +589,13 @@ export class Field {
         }
         this.remember();
         if (dest.id === s.focus) {
+          const direction = classifyTransition(s.focus, dest.path, dest.id, chain) === "fold" ? -1 : 1;
           this.replaceContent(node.id, () => {
             dest.path = chain;
             dest.scroll = dest.scrollTarget = this.catalog
               .siblings(node.id, s.searchResults)
               .findIndex((n) => n.id === node.id);
-          });
+          }, direction);
           return;
         }
         const index = this.catalog
@@ -689,7 +695,7 @@ export class Field {
         h.localScrollTarget = clamp(
           h.localScrollTarget + command.delta,
           0,
-          band.maxScroll,
+          this.localScrollLimit?.() ?? band.maxScroll,
         );
         return;
       }
@@ -765,7 +771,7 @@ export class Field {
               this.hub.targetMorph = currentTargetMorph;
               s.theme = previous.theme;
             },
-            -1,
+            kind === "unfold" ? 1 : -1,
           );
           return;
         }

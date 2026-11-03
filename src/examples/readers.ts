@@ -1,6 +1,7 @@
 import type { ReaderDefinition } from "../core/content.ts";
 import { contentManifest } from "../content/generated/manifest.ts";
 import { createLocalContentSource } from "../content/local.ts";
+export { createTideAtlas } from "./tide-atlas.ts";
 export { createFieldNotebook, createStaticFieldNotebook } from "./field-notebook.ts";
 
 /** Optional example content; it is not a dependency of the public runtime entry. */

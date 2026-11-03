@@ -1,0 +1,179 @@
+/* Edition typography also styles the measurement probe used by the reader. */
+.tide-edition {
+  --font-serif: "Noto Serif CJK SC", "Songti SC", "STSong", "SimSun", serif;
+}
+.tide-edition :is(article.note, .note-measure) h2 {
+  font-family: var(--font-serif);
+  font-size: clamp(29px, 2.8vw, 39px);
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: 0.025em;
+  margin-bottom: 22px;
+}
+.tide-edition :is(article.note, .note-measure) p {
+  font-size: 15px;
+  line-height: 1.95;
+  letter-spacing: 0.015em;
+  margin-bottom: 16px;
+}
+.tide-edition :is(article.note, .note-measure) .eyebrow {
+  letter-spacing: 0.18em;
+  margin-bottom: 15px;
+}
+.tide-edition :is(article.note, .note-measure) .inline-ref {
+  font: inherit;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 5px;
+  color: var(--accent);
+}
+.tide-masthead {
+  position: absolute;
+  top: max(28px, env(safe-area-inset-top));
+  left: 32px;
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+.tide-logotype {
+  font: 600 13px/1.5 var(--font-sans);
+  letter-spacing: 0.28em;
+}
+.tide-series {
+  font: 11px/1.5 var(--font-sans);
+  letter-spacing: 0.12em;
+  color: var(--quiet);
+}
+.tide-edition .reader-brand {
+  display: none;
+}
+.tide-edition .reader-heading {
+  top: 86px;
+  left: 32px;
+}
+.tide-edition .reader-title {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  color: var(--ink);
+}
+.tide-edition #readerNavigation .hud-controls {
+  right: 24px;
+  top: max(18px, env(safe-area-inset-top));
+}
+.tide-edition .reader-footer {
+  left: 32px;
+}
+@media (max-width: 700px) {
+  .tide-masthead {
+    top: max(15px, env(safe-area-inset-top));
+    left: 16px;
+    gap: 12px;
+  }
+  .tide-logotype {
+    font-size: 11px;
+  }
+  .tide-series {
+    font-size: 10px;
+  }
+  .tide-edition .reader-heading {
+    top: calc(max(15px, env(safe-area-inset-top)) + 24px);
+    left: 16px;
+    max-width: calc(100% - 32px);
+  }
+  .tide-edition .reader-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .tide-edition .reader-location {
+    font-size: 10px;
+  }
+  .tide-edition #readerNavigation .hud-controls {
+    left: 12px;
+    right: 12px;
+    top: calc(max(14px, env(safe-area-inset-top)) + 52px);
+  }
+  .tide-edition .reader-footer {
+    left: 0;
+  }
+  .tide-edition :is(article.note, .note-measure) h2 {
+    font-size: 29px;
+    margin-bottom: 16px;
+  }
+  .tide-edition :is(article.note, .note-measure) p {
+    font-size: 14px;
+    line-height: 1.9;
+    margin-bottom: 12px;
+  }
+}
+
+.tide-edition :is(article.note, .note-measure) .eyebrow,
+.tide-edition :is(article.note, .note-measure) .tail {
+  display: none;
+}
+
+/* The hub itself is the navigation surface; only the upper tools stay independent. */
+.tide-edition .reader-footer,
+.tide-edition .reader-map,
+.tide-edition .reader-map-controls {
+  display: none !important;
+}
+.tide-edition #readerNavigation .hud-controls,
+.tide-edition #readerNavigation .hud-btn,
+.tide-edition #readerNavigation .hud-btn:is(:hover, :active),
+.tide-edition :is(article.note, .note-measure) .inline-ref {
+  background: transparent;
+}
+.tide-edition :is(article.note, .note-measure) .inline-ref {
+  color: var(--tide-reference-light, var(--accent));
+}
+html:is([data-theme="dark"], [data-theme="obsidian"], [data-theme="abyss"])
+  .tide-edition
+  :is(article.note, .note-measure)
+  .inline-ref {
+  color: var(--tide-reference-dark, var(--accent));
+}
+.tide-masthead {
+  pointer-events: none;
+  z-index: 9;
+}
+.tide-series {
+  color: var(--quiet);
+}
+@media (max-width: 700px) {
+  .tide-series {
+    display: inline;
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+  .tide-edition #readerNavigation::before {
+    display: none;
+  }
+  .tide-edition #readerNavigation .hud-controls {
+    left: auto;
+    right: 12px;
+    border: 0;
+  }
+  .tide-edition #readerNavigation .hud-controls .hud-btn {
+    flex: 0 0 auto;
+    min-width: 44px;
+    padding: 8px 6px;
+  }
+}
+
+.tide-edition #readerNavigation[data-location="overview"] [data-command="hud:overview"] { display:none; }
+
+/* The keyboard target is the hub curve itself, not another visible label. */
+.tide-edition .tide-hub-curve {
+  stroke: transparent;
+  stroke-width: 3;
+  pointer-events: none;
+  outline: none;
+}
+.tide-edition .tide-hub-curve:focus-visible {
+  stroke: var(--tide-hub-ink);
+  stroke-dasharray: 5 4;
+}

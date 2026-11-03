@@ -11,7 +11,7 @@ for (const device of [
     try {
       const page = await context.newPage(), errors: string[] = [];
       page.on("pageerror", error => errors.push(error.message));
-      await page.goto("/?renderer=auto");
+      await page.goto("/dev/legacy.html?renderer=auto");
       await page.waitForFunction(() => Boolean((window as any).__shuyra));
       await page.evaluate(() => (window as any).__shuyra.ready);
       await page.evaluate(async () => {

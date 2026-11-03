@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Anallia 独立消费者</title>
+  <title>潮汐之间 · 独立嵌入</title>
   <style>
     * { box-sizing:border-box; }
     body { margin:0; padding:20px; font:16px/1.5 system-ui,sans-serif; color:#243c37; background:#faf4e9; }
@@ -20,11 +20,11 @@
   </style>
 </head>
 <body>
-  <h1>独立页面里的两份内容</h1>
-  <nav aria-label="阅读区域"><a href="#geometry-region">几何阅读</a><a href="#notebook-region">观察手册</a><a href="document.html">文档示例</a><a href="document.html?example=custom">自己的内容</a></nav>
+  <h1>潮汐之间 · 两处视角</h1>
+  <nav aria-label="阅读区域"><a href="#shore-region">岸边读本</a><a href="#tower-region">塔上读本</a><a href="document.html">完整读本</a><a href="document.html?example=custom">内容接入示例</a></nav>
   <main>
-    <section id="geometry-region"><div class="heading"><h2>几何阅读</h2><button id="toggle-geometry" aria-label="关闭几何阅读">关闭</button></div><div id="geometry" class="reader"><p class="empty">阅读器已关闭；重新打开从起点开始。</p></div></section>
-    <section id="notebook-region"><div class="heading"><h2>雨后观察手册</h2><button id="toggle-notebook" aria-label="关闭观察手册">关闭</button></div><div id="notebook" class="reader"><p class="empty">阅读器已关闭；重新打开从起点开始。</p></div></section>
+    <section id="shore-region"><div class="heading"><h2>岸边读本</h2><button id="toggle-shore" aria-label="关闭岸边读本">关闭</button></div><div id="shore" class="reader"><p class="empty">阅读器已关闭；重新打开从起点开始。</p></div></section>
+    <section id="tower-region"><div class="heading"><h2>塔上读本</h2><button id="toggle-tower" aria-label="关闭塔上读本">关闭</button></div><div id="tower" class="reader"><p class="empty">阅读器已关闭；重新打开从起点开始。</p></div></section>
   </main>
   <p id="status" role="status"></p>
   <script type="module" src="./app.js"></script>

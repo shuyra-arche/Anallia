@@ -138,6 +138,11 @@ export function buildSceneFrame(
       interaction: feedback,
       activity: symbolKind ? symbolActivity(feedback, symbolKind, state) : 0,
     });
+    const owner = command.type === "focus" ? command.hub
+      : command.type === "navigate" && catalog.chapters.has(command.target) ? catalog.get(command.target).hub : hub.id;
+    const signature = perception.hubs[owner].signature;
+    const ink = isDarkTheme(frame.visualTheme) ? signature.darkStroke : signature.lightStroke;
+    item.color = { hub: owner, ink };
     frame.labels.push(item);
     const hit = labelHitRegion(item);
     if (hit) frame.hitRegions.push(hit);
@@ -193,7 +198,7 @@ export function buildSceneFrame(
     const curve = evaluateHubCurve(h, s.camera, s.viewport);
     hubPrimitives.push(
       curveToPrimitive(curve, {
-        stroke: hubPerception.tier === "resonating" ? sig.accentColor : strokeColor,
+        stroke: strokeColor,
         strokeWidth: Math.max(compactOverview ? 0.65 : 0, 1.25 * s.camera.z) * hubPerception.strokeWidthScale,
         opacity: hubPerception.curveOpacity,
         dash:
@@ -232,7 +237,7 @@ export function buildSceneFrame(
       hubPrimitives.push(
         curveToPrimitive(auraCurve, {
           stroke:
-            hubPerception.tier === "resonating" ? sig.accentColor : strokeColor,
+            strokeColor,
           strokeWidth: 0.9 * s.camera.z,
           opacity: hubPerception.auraOpacity,
           dash: sig.auraDash

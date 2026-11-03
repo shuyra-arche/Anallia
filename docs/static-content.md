@@ -83,6 +83,6 @@ try {
 
 高级接口不变：仍可自行实现 `ContentSource.open(chapterId, presentation, signal)`，或者把生成 definition 的 source 替换成已有分块/远程源。后续动态内容由该源负责，静态构建校验不代替流式更新的维护责任。
 
-手册的 `createStaticFieldNotebook()` 使用这个静态源；原 `createFieldNotebook()` 共用同一份生成清单和索引，再使用原来的 96 字符分块源。原大型几何演示的生成管线没有重写。独立消费者页面的手册已使用静态版本。
+手册的 `createStaticFieldNotebook()` 使用这个静态源；原 `createFieldNotebook()` 共用同一份生成清单和索引，再使用原来的 96 字符分块源。原大型几何演示的生成管线没有重写。独立消费者默认展示新的「潮汐之间」读本；手册保留用于内容模型回归。
 
 验证：`tests/content-builder.test.ts`、`tests/browser/content-builder.spec.ts` 和 `npm run test:reader`，涵盖两页内容、15 章/5 层手册、搜索、错误定位、输入重排和快照恢复；高级分块源的原有测试继续保留。

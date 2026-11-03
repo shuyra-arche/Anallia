@@ -12,5 +12,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "dev/multi-reader.ts"]
+  "include": ["src", "dev/multi-reader.ts", "dev/legacy.ts"]
 }

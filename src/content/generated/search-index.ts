@@ -244,11 +244,11 @@ export const initialSearchIndex: SearchIndexEntry[] = [
   },
   {
     "sourceId": "d11",
-    "searchText": "在 pageTurnPose 中，书页在 90°～270° 的背面区间透明度严格归零（opacity = 0），并在 180° 处原子提交新层级内容，从根本上杜绝了三维翻转时出现镜像反字的视觉瑕疵。 点击内侧「↑」或「↶」观察 -360° 逆向翻页回到 δ₁。",
+    "searchText": "旧页绕当前锚点收拢到侧边，新页从另一侧展开；内容只在两片页面侧立的交接瞬间替换。正文与标签共用材质锚点，没有长时间空白或镜像反字。 点击内侧「↑」或「↶」观察反向翻页回到 δ₁。翻页保持 680ms 的节奏，减少动效时直接完成。",
     "circleStart": 0,
-    "circleEnd": 99,
-    "lineStart": 100,
-    "lineEnd": 130
+    "circleEnd": 65,
+    "lineStart": 66,
+    "lineEnd": 114
   },
   {
     "sourceId": "d12",

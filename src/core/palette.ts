@@ -66,3 +66,14 @@ export function blendHex(a: string, b: string, t: number): string {
       .join("")
   );
 }
+
+/** A hub's theme is its color source; the surrounding paper only selects contrast. */
+const HUB_INK: Record<Theme, readonly [string, string]> = {
+  light: ["#245f59", "#88cec0"], parchment: ["#8b3d24", "#e7b879"],
+  celadon: ["#245c78", "#8cc9e1"], rosewood: ["#783a59", "#dfa6c3"],
+  ivory: ["#344e86", "#a8bdf2"], dark: ["#245f59", "#88cec0"],
+  obsidian: ["#4b5258", "#c1c8ce"], abyss: ["#2e5185", "#82b4f5"],
+};
+export function hubInk(theme: Theme, paper: Theme): string {
+  return HUB_INK[theme][isDarkTheme(paper) ? 1 : 0];
+}

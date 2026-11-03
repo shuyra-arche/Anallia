@@ -1,5 +1,6 @@
+import { hubInk } from "./palette.ts";
 import type { Catalog } from "../content/catalog.ts";
-import type { FieldState, Hub } from "./types.ts";
+import type { FieldState, Hub, HubDefinition } from "./types.ts";
 
 export type DiscoveryStage = "threshold" | "orienting" | "immersed";
 export type HubAttentionTier = "focused" | "resonating" | "related" | "ambient";
@@ -32,6 +33,12 @@ export interface HubSignature {
   darkStroke: string;
   /** Signature highlight accent. */
   accentColor: string;
+}
+
+export function hubSignature(hub: Pick<HubDefinition, "id" | "theme">): HubSignature {
+  return HUB_SIGNATURES[hub.id] ?? { ...HUB_SIGNATURES.A, id: hub.id,
+    lightStroke: hubInk(hub.theme, "light"), darkStroke: hubInk(hub.theme, "dark"),
+    accentColor: hubInk(hub.theme, "light") };
 }
 
 export const HUB_SIGNATURES: Record<string, HubSignature> = {
@@ -252,7 +259,7 @@ export function evaluatePerception(
   const hubs: Record<string, HubPerception> = {};
 
   for (const h of Object.values(state.hubs)) {
-    const signature = HUB_SIGNATURES[h.id] ?? HUB_SIGNATURES.A;
+    const signature = hubSignature(h);
     let relation: HubSemanticRelation = "none";
     if (h.id === activeHub.id) {
       relation = "self";

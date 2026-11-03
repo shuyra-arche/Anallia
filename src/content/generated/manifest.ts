@@ -581,7 +581,7 @@ export const contentManifest: ContentManifest = {
     "id": "d11",
     "name": "δ₁·₁",
     "parent": "d1",
-    "title": "正逆 360° 书页翻转与背面消隐",
+    "title": "同一锚点上的双叶翻页",
     "hub": "D",
     "refs": [
       {

@@ -125,11 +125,30 @@ test("only far distance uses a portal; stable screen-space Möbius reference",()
   }
 });
 
-test("page leaf is never readable on its back face",()=>{
-  for (const p of [.35,.45,.5,.55,.65]) assert.equal(pageTurnPose(p).opacity,0);
+test("two front-facing page leaves meet at one invisible semantic edge",()=>{
+  assert.ok(pageTurnPose(.35).opacity>.99);
+  assert.ok(pageTurnPose(.65).opacity>.99);
+  assert.ok(pageTurnPose(.5).opacity<1e-8);
   assert.equal(pageTurnPose(0).angle,0);
-  assert.equal(pageTurnPose(1).angle,360);
-  assert.equal(pageTurnPose(1,false,-1).angle,-360);
+  assert.equal(pageTurnPose(1).angle,0);
+  for(let i=0;i<=100;i++) {
+    const p=i/100,a=pageTurnPose(p),b=pageTurnPose(p,false,-1);
+    assert.ok(Math.abs(a.angle)<=90);
+    assert.ok(Math.abs(a.squash-b.squash)<1e-8);
+    assert.ok(Math.abs(a.angle+b.angle)<1e-8);
+    assert.equal(a.incoming,p>=.5);
+  }
+});
+
+test("up reverses the leaf and history restores offsets at the hidden commit",()=>{
+  const f=create();f.dispatch({type:"navigate",target:"s0"});settle(f);
+  f.hub.textOffset=f.hub.textOffsetTarget=123;f.hub.localScroll=f.hub.localScrollTarget=2;
+  f.dispatch({type:"navigate",target:"s1"});settle(f,1800);
+  f.dispatch({type:"back"});f.update(3600+350,20);
+  assert.equal(f.selected().id,"s0");assert.equal(f.hub.textOffset,123);assert.equal(f.hub.localScroll,2);
+  settle(f,3950);f.dispatch({type:"navigate",target:"s1"});settle(f,5750);
+  f.dispatch({type:"up"});assert.equal(f.state.contentTurn?.direction,-1);
+  settle(f,7550);f.dispatch({type:"back"});assert.equal(f.state.contentTurn?.direction,1);
 });
 
 test("content flip queues last intent rather than starting a portal halfway",()=>{

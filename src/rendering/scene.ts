@@ -66,6 +66,14 @@ export class Scene {
   }
   readonly actions = new Map<string, Command>();
   private lastRenderKey = "";
+  private frameProjection?: (frame: Readonly<SceneFrame>, state: Readonly<FieldState>, feedback: ReadonlyMap<string, SymbolInteractionState>) => SceneFrame;
+  private projectionAnimating: () => boolean = () => false;
+  /** Internal edition projection: numeric drawing and semantic hits stay on one path. */
+  setFrameProjection(project: Scene["frameProjection"], isAnimating: () => boolean = () => false): void {
+    this.frameProjection = project;
+    this.projectionAnimating = isAnimating;
+    this.lastRenderKey = "";
+  }
   private renderProfiler: RenderProfiler | null = null;
   private readonly localLabelTurns = new LocalLabelTurns();
   private disposeFeedback: () => void = () => {};
@@ -159,7 +167,7 @@ export class Scene {
     return (
       this.lastRenderKey === "" ||
       this.readingLayer.isSettling ||
-      this.localLabelTurns.isAnimating
+      this.localLabelTurns.isAnimating || this.projectionAnimating()
     );
   }
 
@@ -413,7 +421,7 @@ export class Scene {
       ]),
     ]);
     profile?.mark("scene.prepare");
-    if (key === this.lastRenderKey && !this.readingLayer.isSettling) {
+    if (key === this.lastRenderKey && !this.readingLayer.isSettling && !this.projectionAnimating()) {
       this.refreshBackgroundFrame(s);
       profile?.mark("scene.background");
       if (this.gpu) this.gpu.render(this.currentFrame, profile ?? undefined);
@@ -477,6 +485,11 @@ export class Scene {
     profile?.mark("scene.host");
     this.currentFrame.reading = this.readingLayer.render(s, profile ?? undefined);
     profile?.mark("scene.reading");
+    if (this.frameProjection) {
+      for (const hit of this.currentFrame.hitRegions) this.actions.delete(hit.id);
+      this.currentFrame = this.frameProjection(this.currentFrame, s, this.symbolFeedback);
+      for (const hit of this.currentFrame.hitRegions) this.actions.set(hit.id, hit.command);
+    }
     this.semanticLabels.render(this.currentFrame.labels);
     profile?.mark("scene.labels");
     this.labels.style.pointerEvents =
@@ -629,6 +642,8 @@ export class Scene {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.frameProjection = undefined;
+    this.projectionAnimating = () => false;
     this.renderProfiler = null;
     this.disposeFeedback();
     this.hoverFeedback.clear();

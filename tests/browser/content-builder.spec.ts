@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function setup(page: Page) {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/?renderer=svg");
+  await page.goto("/dev/legacy.html?renderer=svg");
   await page.waitForFunction(() => !!(window as any).__shuyra?.handle);
   await page.evaluate(async () => {
     (window as any).__shuyra.handle.destroy();

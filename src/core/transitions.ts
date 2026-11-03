@@ -57,12 +57,10 @@ export function morphReadingEnvelope(morph: number): number {
   return 0.85 + 0.15 * smooth;
 }
 
-/**
- * One complete 360° revolution around the material-point hinge, shared by
- * circle and line. Front-facing old leaf (0..90°) exits; the reverse half
- * (90..270°) is never readable. The new leaf enters from 270..360°.
- * The semantic payload swaps at exactly 180°, hidden on the far side.
- */
+/** Two front-facing leaves meet edge-on at the semantic midpoint.
+ * Old content folds 0→90°, new content opens -90→0° around the same hinge.
+ * The invisible edge is the only payload handoff; no unreadable back-face lap.
+ * Direction reverses the fold without changing its clock or semantic commit. */
 export interface PagePose {
   angle: number;
   squash: number;
@@ -77,12 +75,12 @@ export function pageTurnPose(phase: number, reducedMotion = false, direction: 1 
     incoming: p >= 0.5, interactive: p === 0 || p === 1,
   };
   const smooth = (x: number) => x * x * (3 - 2 * x);
-  const angle = direction * 360 * smooth(p);
-  const projectedWidth = Math.cos((angle * Math.PI) / 180);
+  const angle = direction * 180 * (smooth(p) - (p < 0.5 ? 0 : 1));
+  const projectedWidth = Math.max(0, Math.cos((angle * Math.PI) / 180));
   return {
-    angle,
-    squash: Math.max(0.001, Math.abs(projectedWidth)),
-    opacity: smooth(Math.max(0, Math.min(1, projectedWidth / 0.24))),
+    angle: angle === 0 ? 0 : angle,
+    squash: projectedWidth,
+    opacity: smooth(Math.min(1, projectedWidth / 0.16)),
     incoming: p >= 0.5,
     interactive: p <= 0 || p >= 1,
   };

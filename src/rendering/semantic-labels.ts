@@ -4,6 +4,7 @@ import { populateIconGlyph } from "./svg-symbols.ts";
 
 interface Label {
   group: SVGGElement;
+  title: SVGTitleElement;
   leaf: SVGGElement;
   pin: SVGCircleElement;
   stem: SVGPathElement;
@@ -19,14 +20,27 @@ interface Label {
 export class SemanticLabels {
   private readonly entries = new Map<string, Label>();
   private readonly labels: SVGGElement;
+  private restoreFocus = false;
   constructor(labels: SVGGElement) {
     this.labels = labels;
   }
 
   render(frames: readonly LabelFrame[]): void {
+    const focused = this.labels.ownerDocument.activeElement;
+    const previous = [...this.entries.values()].find(entry => entry.group === focused);
+    if (this.restoreFocus && !previous && focused !== this.labels.ownerDocument.body &&
+      focused !== this.labels.ownerDocument.documentElement) this.restoreFocus = false;
     for (const entry of this.entries.values())
       entry.group.style.display = "none";
     for (const frame of frames) this.update(frame);
+    if (previous && (previous.group.style.display === "none" || previous.group.getAttribute("aria-hidden") === "true"))
+      this.restoreFocus = true;
+    // A hierarchy turn can have no interactive leaf at its midpoint. Retain the
+    // focus handoff until the incoming anchor opens, unless the user focused UI elsewhere.
+    if (this.restoreFocus) {
+      const current = frames.find(frame => frame.interactive && frame.visual === "current");
+      if (current) { this.entries.get(current.id)?.group.focus(); this.restoreFocus = false; }
+    }
   }
 
   private update(frame: LabelFrame): void {
@@ -43,6 +57,7 @@ export class SemanticLabels {
         tabindex: 0,
         role: "button",
       });
+      const title = svg("title", group);
       const pin = svg("circle", group, {
         class: "page-pin",
         cx: 0,
@@ -66,6 +81,7 @@ export class SemanticLabels {
       const hit = svg("rect", leaf, { class: "label-hit", height: 44, rx: 8 });
       entry = {
         group,
+        title,
         leaf,
         pin,
         stem,
@@ -104,6 +120,7 @@ export class SemanticLabels {
     else delete e.group.dataset.localScroll;
     e.group.classList.toggle("is-current", kind === "current");
     e.group.setAttribute("aria-label", aria);
+    if (e.title.textContent !== aria) e.title.textContent = aria;
 
     const { x: deltaX, y: deltaY } = frame.layout.offset;
     const dist = Math.hypot(deltaX, deltaY);
@@ -193,6 +210,7 @@ export class SemanticLabels {
   }
 
   destroy(): void {
+    this.restoreFocus = false;
     this.entries.clear();
     this.labels.replaceChildren();
   }

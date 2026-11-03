@@ -106,7 +106,7 @@ test("pure scene frames preserve color-sweep masks and suppress same-theme porta
   }
 });
 
-test("resonating numeric hub strokes preserve the signature highlight color", () => {
+test("resonating numeric hub strokes retain their hub color and emphasize width", () => {
   const catalog = new Catalog(hubDefinitions, rawContent), field = new Field(catalog, { width: 1366, height: 820 });
   for (const morph of [0, 1]) {
     field.state.hubs.B.morph = field.state.hubs.B.targetMorph = morph;
@@ -117,6 +117,7 @@ test("resonating numeric hub strokes preserve the signature highlight color", ()
       curve.kind === "circle" ? p.type === "arc" && p.cx === curve.cx && p.cy === curve.cy && p.radius === curve.radius
         : p.type === "polyline" && JSON.stringify(p.points) === JSON.stringify(curve.points));
     assert.ok(primitive);
-    assert.equal(primitive.stroke, perception.hubs.B.signature.accentColor);
+    assert.equal(primitive.stroke, perception.hubs.B.signature.lightStroke);
+    assert.ok(perception.hubs.B.strokeWidthScale > 1);
   }
 });

@@ -130,7 +130,7 @@ test("ordinary chapter scrolling retains outgoing local DOM and commands until i
     saved = globalThis.document;
   Object.assign(globalThis, { document: window.document });
   window.document.write(
-    readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(
       /<script[^>]*>[\s\S]*?<\/script>/g,
       "",
     ),

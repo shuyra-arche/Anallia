@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 async function open(page: Page, query = "?renderer=svg") {
-  await page.goto(`/${query}`);
+  await page.goto(`/dev/legacy.html${query}`);
   await page.waitForFunction(() => Boolean((window as any).__shuyra));
   await page.evaluate(() => (window as any).__shuyra.ready);
   await expect(page.locator("#scene")).not.toHaveAttribute("data-booting", "true");

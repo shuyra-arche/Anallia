@@ -6,7 +6,7 @@ for (const renderer of ["svg", "gpu"]) {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(
-      `/?demo=leaves-ix&chapter=ix-note-two&renderer=${renderer}`,
+      `/dev/legacy.html?demo=leaves-ix&chapter=ix-note-two&renderer=${renderer}`,
     );
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(async () => {
@@ -98,7 +98,7 @@ for (const renderer of ["svg", "gpu"]) {
 test("short text uses compact row spacing instead of expanding across the ring", async ({
   page,
 }, info) => {
-  await page.goto("/?demo=leaves-ix&renderer=svg");
+  await page.goto("/dev/legacy.html?demo=leaves-ix&renderer=svg");
   await page.waitForFunction(() => Boolean((window as any).__shuyra));
   await page.evaluate(async () => {
     const app = (window as any).__shuyra;
@@ -152,7 +152,7 @@ for (const renderer of ["svg", "gpu"]) {
   }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(`/?demo=leaves-ix&chapter=ix-turn&renderer=${renderer}`);
+    await page.goto(`/dev/legacy.html?demo=leaves-ix&chapter=ix-turn&renderer=${renderer}`);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(async () => {
       const app = (window as any).__shuyra;
@@ -182,7 +182,7 @@ for (const renderer of ["svg", "gpu"]) {
 
 for (const renderer of ["svg", "gpu"]) {
   test(`lyric reading moves text at a fixed camera and releases ring motion on toggle (${renderer})`, async ({ page }) => {
-    await page.goto(`/?demo=leaves-ix&chapter=ix-note-two&renderer=${renderer}`);
+    await page.goto(`/dev/legacy.html?demo=leaves-ix&chapter=ix-note-two&renderer=${renderer}`);
     await page.evaluate(async () => {
       const app = (window as any).__shuyra;
       await app.ready;
