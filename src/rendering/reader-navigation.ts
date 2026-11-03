@@ -85,8 +85,9 @@ export class ReaderNavigation {
     const map = this.map.getBoundingClientRect();
     const heading = this.element.querySelector(".reader-heading")!.getBoundingClientRect();
     const top = Math.max(controls.bottom, heading.bottom) + 16;
-    const left = map.top < footer.top - 1 ? map.right + 24 : 24;
-    return { left, top, width: Math.max(1, bounds.width - left - 24), height: Math.max(1, footer.top - top - 16) };
+    const bottom = footer.height > 0 ? footer.top : bounds.bottom;
+    const left = map.width > 0 && map.top < bottom - 1 ? map.right + 24 : 24;
+    return { left, top, width: Math.max(1, bounds.width - left - 24), height: Math.max(1, bottom - top - 16) };
   }
 
   render(state: FieldState, catalog: Catalog, actions: Map<string, Command>): void {

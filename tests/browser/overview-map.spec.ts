@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 const control = (page: Page, key: string) => page.locator(`[data-command="hud:${key}"]`);
 async function open(page: Page, renderer = 'svg') {
-  await page.goto(`/?renderer=${renderer}&chapter=a2`);
+  await page.goto(`/dev/legacy.html?renderer=${renderer}&chapter=a2`);
   await page.waitForFunction(() => Boolean((window as any).__shuyra));
   await page.evaluate(() => (window as any).__shuyra.ready);
   await settle(page);
@@ -126,7 +126,7 @@ test('normal motion, GPU, orientation changes and desktop retain usable framing'
 test('return from a manually explored map keeps the real long-form reading position', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?renderer=svg&chapter=m3');
+  await page.goto('/dev/legacy.html?renderer=svg&chapter=m3');
   await page.waitForFunction(() => Boolean((window as any).__shuyra));
   await page.evaluate(() => (window as any).__shuyra.ready);
   await settle(page);

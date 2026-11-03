@@ -11,7 +11,7 @@ for (const renderer of ["svg", "gpu"]) {
       localStorage.setItem("shuyra.background", "flow");
       localStorage.setItem("shuyra.sound", "true");
     });
-    await page.goto(`/?demo=leaves-ix&renderer=${renderer}`);
+    await page.goto(`/dev/legacy.html?demo=leaves-ix&renderer=${renderer}`);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(async () => {
       await (window as any).__shuyra.ready;
@@ -134,13 +134,13 @@ test("IX mobile route stays navigable and exit restores the ordinary entry", asy
   page,
 }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/?demo=leaves-ix&renderer=svg");
+  await page.goto("/dev/legacy.html?demo=leaves-ix&renderer=svg");
   await expect(page.locator(".ix-heading h1")).toBeVisible();
   await expect(page.locator("#text-ix-entry")).toBeVisible();
   await page.screenshot({ path: info.outputPath("ix-mobile.png") });
   await page.locator(".ix-route [data-ix-target='ix-note']").click();
   await expect(page.locator(".ix-location")).toContainText("注释 01");
-  await expect(page.locator(".ix-exit")).toHaveAttribute("href", "/");
+  await expect(page.locator(".ix-exit")).toHaveAttribute("href", "/dev/legacy.html");
   await page.locator(".ix-exit").click();
   await expect(page.locator("#text-a0")).toBeVisible();
   await expect(page.locator("#leavesIx")).toHaveCount(0);
@@ -153,7 +153,7 @@ test("IX mobile route stays navigable and exit restores the ordinary entry", asy
 test("IX portal, alias exit and browser history replace sessions without reloading", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.goto("/?renderer=svg");
+  await page.goto("/dev/legacy.html?renderer=svg");
   await page.evaluate(async () => {
     await (window as any).__shuyra.ready;
     (window as any).__sessionMarker = {};
@@ -171,7 +171,7 @@ test("IX portal, alias exit and browser history replace sessions without reloadi
   expect(await page.evaluate(() => Boolean((window as any).__sessionMarker))).toBe(true);
   await expect(page.locator("#hudControls")).toHaveCount(1);
   await expect(page.locator("#contentStatus")).toHaveCount(1);
-  await page.goto("/?ix&renderer=svg");
+  await page.goto("/dev/legacy.html?ix&renderer=svg");
   await expect(page.locator("#text-ix-entry")).toBeVisible();
   await page.locator(".ix-exit").click();
   await expect(page.locator("#text-a0")).toBeVisible();

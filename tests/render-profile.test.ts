@@ -44,7 +44,7 @@ test("scene profiles full and cached SVG frames only while enabled, then release
   const window = new Window();
   const saved = globalThis.document;
   Object.assign(globalThis, { document: window.document });
-  window.document.write(readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(/<script[^>]*>[\s\S]*?<\/script>/g, ""));
+  window.document.write(readFileSync(new URL("../dev/legacy.html", import.meta.url), "utf8").replace(/<script[^>]*>[\s\S]*?<\/script>/g, ""));
   const host = window.document.querySelector("#scene") as unknown as HTMLElement;
   const field = new Field(new Catalog(hubDefinitions, rawContent), { width: 1366, height: 820 });
   field.state.settings.background = "none";

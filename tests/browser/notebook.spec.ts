@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 const control = (p: Page, key: string) => p.locator(`[data-command="hud:${key}"]`);
 async function open(p: Page, chapter = 'obs-start', renderer = 'svg') {
-  await p.goto(`/?example=field-notebook&chapter=${chapter}&renderer=${renderer}`);
+  await p.goto(`/dev/legacy.html?example=field-notebook&chapter=${chapter}&renderer=${renderer}`);
   await p.waitForFunction(() => Boolean((window as any).__shuyra));
   await p.evaluate(() => (window as any).__shuyra.ready);
   await selected(p, chapter);

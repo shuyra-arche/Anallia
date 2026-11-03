@@ -28,7 +28,7 @@ for (const renderer of ["auto", "svg", "gpu"]) {
     page.on("pageerror", error => errors.push(error.message));
     const input = await page.context().newCDPSession(page);
     await input.send("Input.setIgnoreInputEvents", { ignore: true });
-    await page.goto(`/?chapter=m3&renderer=${renderer}`);
+    await page.goto(`/dev/legacy.html?chapter=m3&renderer=${renderer}`);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
     await page.waitForFunction(() => !(window as any).__shuyra.field.isAnimating);

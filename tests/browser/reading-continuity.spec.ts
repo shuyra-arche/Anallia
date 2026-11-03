@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const body = Array.from({ length: 32 }, (_, i) => `第${i}段唯一标记。` + "这段文字在两种形态中表达同一内容，阅读位置应以内容而非像素为依据。".repeat(5)).join("\n\n");
 async function open(page: Page, geometric = false) {
-  await page.goto("/?renderer=svg");
+  await page.goto("/dev/legacy.html?renderer=svg");
   await page.waitForFunction(() => Boolean((window as any).__shuyra));
   await page.evaluate(() => (window as any).__shuyra.ready);
   await page.waitForFunction(() => (window as any).__shuyra.field.catalog.document("a0", "line").complete);
@@ -106,7 +106,7 @@ test("reduced motion also maps an unchanged paragraph after new introductory sec
 });
 
 async function streaming(page: Page, mode: "matched" | "missing" | "delayed") {
-  await page.goto("/?renderer=svg");
+  await page.goto("/dev/legacy.html?renderer=svg");
   await page.waitForFunction(() => Boolean((window as any).__shuyra));
   await page.evaluate(() => (window as any).__shuyra.ready);
   await page.evaluate(({ body, mode }) => {

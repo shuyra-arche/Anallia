@@ -155,6 +155,8 @@ export interface LocalLabelFrame {
 }
 
 export interface LabelFrame {
+  /** Resolved from the owning/destination hub, never authored on individual labels. */
+  color?: { hub: string; ink: string };
   id: string;
   command: Command;
   aria: string;

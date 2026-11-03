@@ -15,7 +15,7 @@ cp -R dist-reader/. "$anallia_consumer_dir/vendor/anallia/"
 python3 -m http.server 5188 --bind 127.0.0.1 --directory "$anallia_consumer_dir"
 ```
 
-打开 `http://127.0.0.1:5188/` 体验同页两份内容；打开 `/document.html` 体验文档入口，附加 `?example=notebook` 切换内容。结束后停止服务。仓库中可运行 `npm run test:reader`，自动将产物复制到临时独立目录，验证类型、桌面与手机交互，结束后清理临时服务。
+打开 `http://127.0.0.1:5188/` 体验同页岸边与塔上两个独立视角；打开 `/document.html` 体验文档入口，附加 `?example=tower` 从灯塔开始。结束后停止服务。仓库中可运行 `npm run test:reader`，自动将产物复制到临时独立目录，验证类型、桌面与手机交互，结束后清理临时服务。
 
 ## 两种挂载方式
 
@@ -23,12 +23,12 @@ python3 -m http.server 5188 --bind 127.0.0.1 --directory "$anallia_consumer_dir"
 
 ```js
 import { mountEmbeddedReader } from './vendor/anallia/embedded.js';
-import { createFieldNotebook } from './vendor/anallia/examples.js';
-const definition = createFieldNotebook();
+import { createTideAtlas } from './vendor/anallia/examples.js';
+const definition = createTideAtlas();
 const frameUrl = new URL('./vendor/anallia/reader-frame.html', document.baseURI);
 let reader = mountEmbeddedReader(host, definition, {
   frameUrl,
-  label: '雨后观察手册',
+  label: '潮汐之间',
 });
 ```
 
@@ -36,11 +36,11 @@ let reader = mountEmbeddedReader(host, definition, {
 
 ```js
 import { mountReader } from './vendor/anallia/document.js';
-import { createGeometryReader } from './vendor/anallia/examples.js';
-const reader = mountReader(document.querySelector('#scene'), createGeometryReader());
+import { createTideAtlas } from './vendor/anallia/examples.js';
+const reader = mountReader(document.querySelector('#scene'), createTideAtlas());
 ```
 
-`examples.js` 是可选内容，不是核心运行时的前提。它提供几何阅读、分块手册 `createFieldNotebook()` 和静态手册 `createStaticFieldNotebook()`；独立消费者页面采用静态手册。
+`examples.js` 是可选内容，不是核心运行时的前提。当前读本由 `createTideAtlas()` 提供；独立消费者页面显示岸边与塔上两个独立视角。作品首页的被动刊名与枢上篇章投影是专用外壳；此消费者使用标准阅读器，不附带该外壳。旧 `createGeometryReader()`、`createFieldNotebook()` 和 `createStaticFieldNotebook()` 保留为兼容回归夹具。
 
 ## 公共接口
 

@@ -7,7 +7,9 @@ npm install
 npm run dev -- --host 127.0.0.1
 ```
 
-默认示例在 `/`；雨后观察手册在 `/?example=field-notebook`；同页并置示例在 `/dev/multi-reader.html`。
+首页 `/` 是全新空间读本 **潮汐之间**：在岸、塔、信三个枢之间阅读同一座岛。首屏从潮线开始；章节、层级和地点都通过枢及其标签导航，仅保留右上角独立工具。圆内并置关系，线上展开阅读路径，图标背景透明，标签继承枢色。声音默认关闭，支持系统减少动效。
+
+[本版设计与交互](docs/tide-atlas.md)。旧几何、手册和 IX 演示仅作为开发回归夹具保留在 `/dev/legacy.html`（附加 `?example=field-notebook` 或 `?demo=leaves-ix`）；不再从正式首页进入。`/dev/multi-reader.html` 同样仅用于框架隔离回归。
 
 ```sh
 npm run check

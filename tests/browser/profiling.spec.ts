@@ -3,7 +3,7 @@ import type { RenderSample } from "../../src/core/render-profile.ts";
 
 for (const renderer of ["svg", "gpu"]) {
   test(`exclusive profile stages cover full, cached and background-only frames (${renderer})`, async ({ page }) => {
-    await page.goto(`/?renderer=${renderer}`);
+    await page.goto(`/dev/legacy.html?renderer=${renderer}`);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
     await page.evaluate(async () => {
@@ -49,7 +49,7 @@ for (const renderer of ["svg", "gpu"]) {
 
 test("default and unrecognized renderer parameters use automatic selection", async ({ page }) => {
   for (const suffix of ["", "?renderer=unknown", "?renderer=auto"]) {
-    await page.goto(`/${suffix}`);
+    await page.goto(`/dev/legacy.html${suffix}`);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
     const result = await page.evaluate(() => {
@@ -65,7 +65,7 @@ test("default and unrecognized renderer parameters use automatic selection", asy
 
 
 test("offscreen GPU dashes match full-path pixels and rebuild clipping for camera and viewport changes", async ({ page }) => {
-  await page.goto("/?renderer=gpu");
+  await page.goto("/dev/legacy.html?renderer=gpu");
   await page.waitForFunction(() => Boolean((window as any).__shuyra));
   await page.evaluate(() => (window as any).__shuyra.ready);
   const result = await page.evaluate(() => {

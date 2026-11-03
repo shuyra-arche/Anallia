@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 async function open(page: Page, query = "") {
-  await page.goto(`/${query}`);
+  await page.goto(`/dev/legacy.html${query}`);
   await page.waitForFunction(() => Boolean((window as any).__shuyra));
   await page.evaluate(() => (window as any).__shuyra.ready);
   await expect(page.locator("#scene")).not.toHaveAttribute("data-booting", "true");
@@ -139,9 +139,9 @@ test("offline single-file export works without network access", async ({ browser
     await page.goto(pathToFileURL(resolve("demo.html")).href);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
-    await expect(page.locator("#text-a0")).toBeVisible();
-    await navigate(page, "m3");
-    await expect(page.locator("#text-m3")).toBeVisible();
+    await expect(page.locator("#text-shore-entry")).toBeVisible();
+    await navigate(page, "light-keeper");
+    await expect(page.locator("#text-light-keeper")).toBeVisible();
     expect(errors).toEqual([]);
     expect(network).toEqual([]);
   } finally { await context.close(); }

@@ -9,7 +9,7 @@ for (const renderer of ["svg", "gpu"]) {
     await page.addInitScript(() =>
       localStorage.setItem("shuyra.reading-layout", "geometric"),
     );
-    await page.goto(`/?renderer=${renderer}`);
+    await page.goto(`/dev/legacy.html?renderer=${renderer}`);
     await page.evaluate(async () => {
       await (window as any).__shuyra.ready;
       await document.fonts.ready;
@@ -186,7 +186,7 @@ for (const renderer of ["svg", "gpu"]) {
 
 test("geometric text selection survives font layout invalidation in circle and line modes", async ({ page }) => {
   for (const morph of [0, 1]) {
-    await page.goto(`/?demo=leaves-ix&renderer=svg&morph=${morph}`);
+    await page.goto(`/dev/legacy.html?demo=leaves-ix&renderer=svg&morph=${morph}`);
     await page.evaluate(async () => {
       await (window as any).__shuyra.ready;
       await document.fonts.ready;

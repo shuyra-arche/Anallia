@@ -39,7 +39,7 @@ test("mobile touch activates DOM navigation and two-finger zoom", async ({ brows
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: "reduce" });
   try {
     const page = await context.newPage();
-    await page.goto("/?renderer=svg");
+    await page.goto("/dev/legacy.html?renderer=svg");
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
     await page.locator('#text-a0 [data-target="a1"]').first().tap();

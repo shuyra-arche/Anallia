@@ -39,21 +39,20 @@ for (const form of ["normal", "pages", "preview", "single-file"]) {
     await page.goto(`${base}?renderer=${renderer}`);
     await page.waitForFunction(() => Boolean((window as any).__shuyra));
     await page.evaluate(() => (window as any).__shuyra.ready);
-    await expect(page.locator("#text-a0")).toBeVisible();
+    await expect(page.locator("#text-shore-entry")).toBeVisible();
+    await expect(page.locator(".reader-footer")).toBeHidden();
+    await expect(page.locator(".tide-places,.tide-index-menu,.label-background")).toHaveCount(0);
+    await expect(page.locator('[data-command="SHORE:tide:chapter:shore-tide"]')).toHaveAttribute("role","button");
     if (renderer === "gpu") expect(await page.evaluate(() => (window as any).__shuyra.scene.rendererKind)).toBe("webgl");
     expect(await page.evaluate(() => typeof (window as any).__shuyra.useContentSource)).toBe("undefined");
     await expect(page.locator("#loadingOverlay")).toHaveCount(0);
-    await page.locator('#text-a0 [data-target="a1"]').first().click();
-    await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "a1");
-    await page.evaluate(() => (window as any).__shuyra.field.dispatch({ type: "navigate", target: "m3" }));
-    await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "m3" && !(window as any).__shuyra.field.isAnimating);
-    await expect(page.locator("#text-m3")).toBeVisible();
+    await page.locator('#text-shore-entry [data-target="shore-tide"]').first().click();
+    await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "shore-tide");
+    await page.evaluate(() => (window as any).__shuyra.field.dispatch({ type: "navigate", target: "light-keeper" }));
+    await page.waitForFunction(() => (window as any).__shuyra.field.selected().id === "light-keeper" && !(window as any).__shuyra.field.isAnimating);
+    await expect(page.locator("#text-light-keeper")).toBeVisible();
     expect(errors).toEqual([]);
     if (form === "single-file") {
-      await page.locator("[data-enter-leaves-ix]").click();
-      await expect(page.locator("#text-ix-entry")).toBeVisible();
-      await page.locator(".ix-exit").click();
-      await expect(page.locator("#text-a0")).toBeVisible();
       expect(requests).toEqual([]);
     }
     else expect(requests.every(request => request.startsWith(origin))).toBe(true);

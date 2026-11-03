@@ -701,6 +701,8 @@ export class SvgGraphicsRenderer implements GraphicsRenderer {
 
   private paintLabel(node: LabelNode, label: LabelFrame): void {
     const { layout } = label;
+    attr(node.group, "data-color-hub", label.color?.hub);
+    for (const name of ["--accent", "--amber", "--quiet", "--stem", "--stem-nav"]) style(node.group, name, label.color?.ink ?? null);
     const zoom = layout.scale > 0 ? layout.scale : 1;
     const dx = layout.offset.x;
     const dy = layout.offset.y;

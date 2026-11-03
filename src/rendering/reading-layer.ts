@@ -202,17 +202,22 @@ export class ReadingLayer {
           )
         : null,
       expressionOpacity = page ? page.opacity : morphReadingEnvelope(hub.morph);
+    // A viewport-centred perspective makes an off-centre leaf swing across its
+    // own label. Align the viewing axis as well as transform-origin to the hinge.
+    const readingHinge = page ? hubToScreen(hub, material(hub, nodeS(hub,
+      nodes.findIndex(node => node.id === selectedNode.id), nodes.length, s.camera, s.viewport)), s.camera, s.viewport) : null;
+    const perspectiveOrigin = readingHinge ? `${readingHinge.x}px ${readingHinge.y}px` : "50% 50%";
+    if (this.reading.style.perspectiveOrigin !== perspectiveOrigin)
+      this.reading.style.perspectiveOrigin = perspectiveOrigin;
     const visible = new Set<string>();
     if (!s.overview && !s.loading)
       nodes.forEach((node, i) => {
         if (hub.readingLayoutMode !== "window" && node.id !== selectedNode.id) return;
-        const surface =
-          ease(clamp(1 - Math.abs(i - hub.scroll) / s.settings.range, 0, 1)) *
-          fold *
-          expressionOpacity;
+        const proximity = ease(clamp(1 - Math.abs(i - hub.scroll) / s.settings.range, 0, 1)) * fold;
+        const surface = proximity * expressionOpacity;
         if (surface < 0.015) return;
         const article = this.articleFor(node.id),
-          depth = 1 - surface,
+          depth = 1 - (page ? proximity : surface),
           presentation = morph > 0.5 ? "line" : "circle";
         const document = this.catalog.document(node.id, presentation);
         const expressionChanged = node.id === selectedNode.id && this.lastExpression?.id === node.id && this.lastExpression.presentation !== presentation;
@@ -265,6 +270,7 @@ export class ReadingLayer {
         if (article.getAttribute("aria-hidden") !== ariaHidden)
           article.setAttribute("aria-hidden", ariaHidden);
         const position = nodeS(hub, i, nodes.length, s.camera, s.viewport);
+        const hinge = hubToScreen(hub, material(hub, position), s.camera, s.viewport);
         // Typography stays upright while its reading window follows the outward normal.
         const anchorPt = hubToScreen(
           hub,
@@ -298,7 +304,7 @@ export class ReadingLayer {
           article.style.width = `${s.viewport.width}px`;
           article.style.height = `${s.viewport.height}px`;
           article.style.transform = `rotateY(${page?.angle ?? 0}deg)`;
-          article.style.transformOrigin = "50% 50%";
+          article.style.transformOrigin = page ? `${hinge.x}px ${hinge.y}px` : "50% 50%";
           article.style.filter = "none";
           article.style.opacity = String(surface ** 1.2);
           article.style.pointerEvents = "none";
@@ -313,8 +319,9 @@ export class ReadingLayer {
             this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: geometric.textOffset });
           frames.push({ id: `reading:${node.id}`, chapterId: node.id, hubId: hub.id,
             presentation, visible: true, inert, left: 0, top: 0, width: s.viewport.width,
-            height: s.viewport.height, scale: s.camera.z, opacity: surface ** 1.2,
-            blur: 0, rotationY: page?.angle ?? 0, transformOrigin: { x: s.viewport.width / 2, y: s.viewport.height / 2 },
+            // Geometric rows are already projected into screen coordinates.
+            height: s.viewport.height, scale: 1, opacity: surface ** 1.2,
+            blur: 0, rotationY: page?.angle ?? 0, transformOrigin: page ? hinge : { x: s.viewport.width / 2, y: s.viewport.height / 2 },
             anchorY: 0, side: "right", clipEdge: "none", maskImage: "none",
             textOffset: hub.textOffset, maxFloat: geometric.maxFloat, pointerEvents: "none" });
           return;
@@ -389,13 +396,17 @@ export class ReadingLayer {
         const anchorVarStr = `${placement.originY.toFixed(1)}px`;
         if (article.style.getPropertyValue("--anchor-y") !== anchorVarStr)
           article.style.setProperty("--anchor-y", anchorVarStr);
-        const originStr = `${placement.originX.toFixed(3)}px ${placement.originY.toFixed(3)}px`;
+        // The reading margin is not a second hinge. During a hierarchy turn the
+        // article and current label rotate about the same material point.
+        const origin = page ? { x: (hinge.x - placement.left) / s.camera.z,
+          y: (hinge.y - placement.top) / s.camera.z } : { x: placement.originX, y: placement.originY };
+        const originStr = `${origin.x.toFixed(3)}px ${origin.y.toFixed(3)}px`;
         if (article.style.transformOrigin !== originStr)
           article.style.transformOrigin = originStr;
         const targetLeft = placement.left + 18 * depth * s.camera.z;
         const targetTop = placement.top + 32 * depth * s.camera.z;
         const turnY = page?.angle ?? 0;
-        const transformStr = `translate3d(${(targetLeft + (s.camera.z - 1) * placement.originX).toFixed(2)}px,${(targetTop + (s.camera.z - 1) * placement.originY).toFixed(2)}px,0) scale(${s.camera.z}) rotateY(${turnY.toFixed(2)}deg)`;
+        const transformStr = `translate3d(${(targetLeft + (s.camera.z - 1) * origin.x).toFixed(2)}px,${(targetTop + (s.camera.z - 1) * origin.y).toFixed(2)}px,0) scale(${s.camera.z}) rotateY(${turnY.toFixed(2)}deg)`;
         if (article.style.transform !== transformStr)
           article.style.transform = transformStr;
         if (node.id === selectedNode.id)
@@ -416,16 +427,26 @@ export class ReadingLayer {
         const pointerStr = inert ? "none" : "auto";
         if (article.style.pointerEvents !== pointerStr)
           article.style.pointerEvents = pointerStr;
-        if (!inert && node.id === selectedNode.id) {
+        const prepareIncomingAnchor = !!page?.incoming && this.readingPositions.isSettling(node.id, presentation);
+        if ((!inert || prepareIncomingAnchor) && node.id === selectedNode.id) {
+          // Measure the incoming source anchor in its final upright geometry,
+          // before presenting this frame. Perspective must not distort the seek.
+          // The temporary measurement transform never reaches a painted frame.
+          if (prepareIncomingAnchor)
+            article.style.transform = transformStr.replace(/rotateY\([^)]*\)/, "rotateY(0deg)");
           profile?.mark("reading.place");
-          const corrected = this.readingPositions.restore(article, node.id, presentation, s.camera.z, activeFloat, maxFloat);
-          profile?.mark("reading.anchor");
-          if (Math.abs(corrected - activeFloat) > 0.01) {
-            activeFloat = corrected;
-            content.style.transform = `translateY(${-activeFloat.toFixed(2)}px)`;
-            clip = resolveReadingClip(normal, height, panelHeight, activeFloat, clearancePx);
-            applyReadingClip(article, clip);
+          for (let pass = 0; pass < (prepareIncomingAnchor ? 4 : 1); pass++) {
+            const corrected = this.readingPositions.restore(article, node.id, presentation, s.camera.z, activeFloat, maxFloat);
+            if (Math.abs(corrected - activeFloat) > 0.01) {
+              activeFloat = corrected;
+              content.style.transform = `translateY(${-activeFloat.toFixed(2)}px)`;
+              clip = resolveReadingClip(normal, height, panelHeight, activeFloat, clearancePx);
+              applyReadingClip(article, clip);
+            }
+            if (!this.readingPositions.isSettling(node.id, presentation)) break;
           }
+          if (prepareIncomingAnchor) article.style.transform = transformStr;
+          profile?.mark("reading.anchor");
           if (
             Math.abs(activeFloat - hub.textOffset) > 0.01 &&
             Math.abs(hub.textOffset - hub.textOffsetTarget) < 0.05
@@ -433,7 +454,7 @@ export class ReadingLayer {
             this.readingCorrections.push({ chapterId: node.id, presentation, textOffset: activeFloat });
           this.readingSettling = this.readingPositions.isSettling(node.id, presentation);
           profile?.mark("reading.place");
-          if (!s.morphTurn) this.readingPositions.capture(article, node.id, presentation, s.camera.z,
+          if (!inert && !s.morphTurn) this.readingPositions.capture(article, node.id, presentation, s.camera.z,
             JSON.stringify([widthStr, panelHeight, activeFloat, this.articleRenderer.fontVersion, document.source.length]), document);
           profile?.mark("reading.anchor");
         }
@@ -453,8 +474,8 @@ export class ReadingLayer {
           blur: s.settings.reducedMotion ? 0 : blur,
           rotationY: turnY,
           transformOrigin: {
-            x: placement.originX,
-            y: placement.originY,
+            x: origin.x,
+            y: origin.y,
           },
           anchorY: placement.originY,
           side: placement.side,

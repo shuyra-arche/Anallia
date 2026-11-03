@@ -24,7 +24,7 @@ async function setup(page: import('@playwright/test').Page) {
     };
     (window as any).ownedListenerCount = () => records.filter(r => r.active).length;
   });
-  await page.goto('/?renderer=svg');
+  await page.goto('/dev/legacy.html?renderer=svg');
   await page.waitForFunction(() => !!(window as any).__shuyra?.handle);
   await page.evaluate(async () => {
     (window as any).__shuyra.handle.destroy();

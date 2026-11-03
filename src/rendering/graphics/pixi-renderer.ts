@@ -514,8 +514,10 @@ export class PixiGraphicsRenderer {
     const root = this.container("labels", this.stage);
     root.zIndex = frame.layers.find(layer => layer.id === "labels")?.order ?? 50;
     this.stage.addChild(root);
-    const colors = palette(frame.visualTheme);
+    const baseColors = palette(frame.visualTheme);
     for (const label of frame.labels) {
+      const colors = label.color ? { ...baseColors, accent: label.color.ink, amber: label.color.ink,
+        quiet: label.color.ink, stem: label.color.ink, stemNav: label.color.ink } : baseColors;
       if (label.opacity <= 0.001) continue;
       const group = this.container(`label:${label.id}`, root);
       root.addChild(group);

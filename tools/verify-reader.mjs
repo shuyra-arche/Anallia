@@ -152,10 +152,10 @@ reader.destroy(); second.destroy();
   const page = await context.newPage();
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(base);
-  let left = page.frameLocator("#geometry iframe"),
-    right = page.frameLocator("#notebook iframe");
-  await left.locator("#text-a0").waitFor({ state: "visible" });
-  await right.locator("#text-obs-start").waitFor({ state: "visible" });
+  let left = page.frameLocator("#shore iframe"),
+    right = page.frameLocator("#tower iframe");
+  await left.locator("#text-shore-entry").waitFor({ state: "visible" });
+  await right.locator("#text-light-entry").waitFor({ state: "visible" });
   const exports = await page.evaluate(async () => ({
     embedded: Object.keys(await import("./vendor/anallia/embedded.js")).sort(),
     document: Object.keys(await import("./vendor/anallia/document.js")).sort(),
@@ -165,7 +165,7 @@ reader.destroy(); second.destroy();
   assert.deepEqual(exports, {
     embedded: ["mountEmbeddedReader"],
     document: ["mountReader"],
-    examples: ["createFieldNotebook", "createGeometryReader", "createStaticFieldNotebook"],
+    examples: ["createFieldNotebook", "createGeometryReader", "createStaticFieldNotebook", "createTideAtlas"],
     content: ["ContentBuildError", "buildStaticReader"],
   });
   assert.equal(
@@ -173,36 +173,36 @@ reader.destroy(); second.destroy();
     "rgb(250, 244, 233)",
   );
   await left.locator('[data-command="hud:enter"]').click();
-  await left.locator("#text-a1").waitFor({ state: "visible" });
+  await left.locator("#text-shore-tide").waitFor({ state: "visible" });
   await right.locator('[data-command="hud:enter"]').click();
-  await right.locator("#text-obs-walk").waitFor({ state: "visible" });
-  await page.locator("#toggle-geometry").click();
+  await right.locator("#text-light-keeper").waitFor({ state: "visible" });
+  await page.locator("#toggle-shore").click();
   await right.locator('[data-command="hud:morph"]').click();
   await right
-    .locator('#text-obs-walk[data-presentation="line"]')
+    .locator('#text-light-keeper[data-presentation="circle"]')
     .waitFor({ state: "visible" });
-  await page.locator("#toggle-geometry").click();
-  await left.locator("#text-a0").waitFor({ state: "visible" });
+  await page.locator("#toggle-shore").click();
+  await left.locator("#text-shore-entry").waitFor({ state: "visible" });
   await right
-    .locator('#text-obs-walk[data-presentation="line"]')
+    .locator('#text-light-keeper[data-presentation="circle"]')
     .waitFor({ state: "visible" });
   if (evidence)
     await page.screenshot({ path: join(evidence, "consumer-desktop.png") });
   checks.push(
-    "Both existing contents mount independently from copied ESM under a nested URL; single-side remount preserves the other",
+    "Two atlas viewpoints mount independently from copied ESM under a nested URL; single-side remount preserves the other",
   );
   await page.goto(base + "document.html?renderer=webgl");
   await page
-    .locator('#scene[data-renderer="webgl"] #text-a0')
+    .locator('#scene[data-renderer="webgl"] #text-shore-entry')
     .waitFor({ state: "visible" });
   await page.locator('[data-command="hud:enter"]').click();
-  await page.locator("#text-a1").waitFor({ state: "visible" });
-  await page.goto(base + "document.html?example=notebook");
-  await page.locator("#text-obs-start").waitFor({ state: "visible" });
+  await page.locator("#text-shore-tide").waitFor({ state: "visible" });
+  await page.goto(base + "document.html?example=tower");
+  await page.locator("#text-light-entry").waitFor({ state: "visible" });
   await page.locator('[data-command="hud:enter"]').click();
-  await page.locator("#text-obs-walk").waitFor({ state: "visible" });
+  await page.locator("#text-light-keeper").waitFor({ state: "visible" });
   checks.push(
-    "Document entry, explicit stylesheet, default WebGL and notebook SVG work without app shell",
+    "Document entry, explicit stylesheet, default WebGL and tower SVG work without app shell",
   );
   const before = requests.length;
   await page.goto(base + "document.html?example=custom");
@@ -276,11 +276,11 @@ reader.destroy(); second.destroy();
   const phone = await phoneContext.newPage();
   phone.on("pageerror", (error) => errors.push(error.message));
   await phone.goto(base);
-  right = phone.frameLocator("#notebook iframe");
-  await right.locator("#text-obs-start").waitFor({ state: "visible" });
-  await phone.locator('a[href="#notebook-region"]').tap();
+  right = phone.frameLocator("#tower iframe");
+  await right.locator("#text-light-entry").waitFor({ state: "visible" });
+  await phone.locator('a[href="#tower-region"]').tap();
   await right.locator('[data-command="hud:enter"]').tap();
-  await right.locator("#text-obs-walk").waitFor({ state: "visible" });
+  await right.locator("#text-light-keeper").waitFor({ state: "visible" });
   assert.equal(
     await phone.evaluate(() => document.documentElement.scrollWidth),
     390,
