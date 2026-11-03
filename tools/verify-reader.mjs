@@ -36,6 +36,22 @@ const reader = mountReader(host, definition, options);
 const second = mountEmbeddedReader(host, createFieldNotebook(), embedded);
 reader.dispatch({ type: 'overview' });
 second.ready.then(result => { if (result.status === 'ready') second.dispatch({ type: 'morph' }); });
+const stop = reader.subscribe(state => {
+  if (state.status === 'active') {
+    const chapter: string = state.location.chapter;
+    void chapter;
+    // @ts-expect-error Public state is deeply readonly.
+    state.location.chapter = 'mutated';
+  }
+});
+stop();
+const saved = reader.snapshot();
+if (saved) {
+  const resumed: ReaderOptions = { restore: saved };
+  void resumed;
+  // @ts-expect-error Portable snapshot locations are readonly too.
+  saved.location.hub = 'mutated';
+}
 // @ts-expect-error Mutable application state is not a public handle member.
 reader.field;
 reader.destroy(); second.destroy();
@@ -200,6 +216,30 @@ reader.destroy(); second.destroy();
   checks.push(
     "The complete custom-content quickstart works without loading either bundled example",
   );
+  await writeFile(join(consumer, "session.html"), '<!doctype html><link rel="stylesheet" href="./vendor/anallia/styles.css"><div id="scene"></div>');
+  await page.goto(base + "session.html");
+  await page.evaluate(async () => {
+    const { mountReader } = await import("./vendor/anallia/document.js");
+    const { createFieldNotebook } = await import("./vendor/anallia/examples.js");
+    window.sessionProbe = { mountReader, createFieldNotebook, host: document.getElementById("scene") };
+    const t = window.sessionProbe;
+    t.reader = mountReader(t.host, createFieldNotebook(), { renderer: "svg", chapter: "log-day", settings: { sound: false } });
+    t.events = []; t.reader.subscribe(state => t.events.push(state));
+    await t.reader.ready;
+  });
+  await page.waitForFunction(() => window.sessionProbe.reader.snapshot() !== null);
+  await page.evaluate(() => {
+    const t = window.sessionProbe;
+    t.saved = JSON.parse(JSON.stringify(t.reader.snapshot())); t.reader.destroy();
+    t.reader = t.mountReader(t.host, t.createFieldNotebook(), { renderer: "svg", restore: t.saved, settings: { sound: false } });
+  });
+  await page.waitForFunction(() => window.sessionProbe.reader.getState().restoration === "matched");
+  assert.deepEqual(await page.evaluate(() => {
+    const t = window.sessionProbe;
+    return { sameLocation: JSON.stringify(t.saved.location) === JSON.stringify(t.reader.getState().location),
+      terminal: t.events.at(-1).status, frozen: Object.isFrozen(t.reader.getState().location) };
+  }), { sameLocation: true, terminal: "destroyed", frozen: true });
+  checks.push("Compiled public session API subscribes, serializes and restores after destruction without source access");
   const phoneContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,

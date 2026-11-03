@@ -16,6 +16,8 @@ import { startClock } from "../platform/clock.ts";
 
 import type { Command } from "../core/types.ts";
 import type { ReaderOptions } from "../core/reader.ts";
+import { initialReaderSnapshot } from "../core/reader-snapshot.ts";
+import { ReaderSessionAccess } from "./reader-session-access.ts";
 
 /** Internal runtime. The consumer-facing entry deliberately does not expose Field. */
 export function createReaderRuntime(
@@ -23,6 +25,7 @@ export function createReaderRuntime(
   definition: ReaderDefinition,
   options: ReaderOptions,
 ) {
+  const restored = initialReaderSnapshot(definition, options);
   const viewport = () => ({
     width: window.innerWidth,
     height: window.innerHeight,
@@ -44,7 +47,7 @@ export function createReaderRuntime(
     cleanup.push(() => catalog.destroy());
     const field = new Field(catalog, viewport(), motion.matches);
     Object.assign(field.state.settings, options.settings);
-    const chapterId = options.chapter ?? definition.entry;
+    const chapterId = restored?.location.chapter ?? options.chapter ?? definition.entry;
     if (chapterId && catalog.chapters.has(chapterId)) {
       const chapter = catalog.get(chapterId);
       const hub = field.state.hubs[chapter.hub];
@@ -57,7 +60,7 @@ export function createReaderRuntime(
       );
       field.state.theme = hub.theme;
     }
-    const morph = options.morph;
+    const morph = restored ? (restored.location.presentation === "line" ? 1 : 0) : options.morph;
     if (morph !== undefined && Number.isFinite(Number(morph)))
       field.hub.morph = field.hub.targetMorph = Math.max(
         0,
@@ -82,11 +85,25 @@ export function createReaderRuntime(
       () => performance.now(),
     );
     cleanup.push(() => reading.destroy());
+    const session = new ReaderSessionAccess(field, reading, scene, definition, restored);
+    cleanup.push(session.destroy);
+    const dispatch = (command: Command) => {
+      if (!(command.type === "navigate" && command.target === "act:retry_content")) session.interrupt();
+      field.dispatch(command);
+    };
     const tasks = new TaskGeometry();
     const soundscape = new GeometricSoundscape();
     cleanup.push(() => soundscape.destroy());
     const lifecycle = new AbortController();
     cleanup.push(() => lifecycle.abort());
+    // Any new reading gesture wins over a delayed mount-time restore.
+    const retryIntent = (event: Event) => event.target instanceof Element && event.target.closest("[data-reader-retry]");
+    host.addEventListener("pointerdown", event => { if (!retryIntent(event)) session.interrupt(); },
+      { signal: lifecycle.signal, capture: true, passive: true });
+    host.addEventListener("wheel", session.interrupt, { signal: lifecycle.signal, capture: true, passive: true });
+    window.addEventListener("keydown", event => {
+      if (!retryIntent(event) && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Escape", "Enter", " ", "PageUp", "PageDown", "Home", "End"].includes(event.key)) session.interrupt();
+    }, { signal: lifecycle.signal, capture: true });
 
     const updateVisibility = () =>
       reading.setVisible(!document.hidden, performance.now());
@@ -103,6 +120,7 @@ export function createReaderRuntime(
     const statusText = document.createElement("span");
     const retry = document.createElement("button");
     retry.type = "button";
+    retry.dataset.readerRetry = "";
     retry.textContent = "重试";
     retry.hidden = true;
     retry.addEventListener(
@@ -125,7 +143,7 @@ export function createReaderRuntime(
     let hoveredTarget: string | null = null;
     host.dataset.sharedInput = "true";
     const disposeInput = bindInput(host, {
-      dispatch: (command) => field.dispatch(command),
+      dispatch,
       pan: (delta, start) => reading.view(() => field.pan(delta, start)),
       zoom: (factor, point) => reading.view(() => field.zoom(factor, point)),
       rotate: (delta, point) => reading.view(() => field.rotate(delta, point)),
@@ -210,6 +228,7 @@ export function createReaderRuntime(
         const task = reading.activeTask;
         scene.setLoadingGeometry(tasks.update(task, field.state, catalog, dt));
         observer?.();
+        session.beforeRender();
         scene.render(field.state);
         if (autoOverview) field.fitOverview(scene.overviewRegion);
         for (const correction of scene.takeReadingCorrections()) {
@@ -251,6 +270,8 @@ export function createReaderRuntime(
         if (retry.hidden !== !reading.error) retry.hidden = !reading.error;
         cancel.hidden = !task?.cancellable || Boolean(task.outcome);
         status.hidden = !message;
+        // Publish last: consumer callbacks may synchronously destroy this runtime.
+        session.afterRender();
       },
       () =>
         frameRateLimit(
@@ -283,7 +304,8 @@ export function createReaderRuntime(
       store,
       ready: reading.ready,
       useContentSource,
-      dispatch: (command: Command) => field.dispatch(command),
+      dispatch,
+      session,
       observeFrame: (
         callback: (() => void) | undefined,
         fitOverview = true,

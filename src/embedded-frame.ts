@@ -20,7 +20,7 @@ const onPageHide = (event: PageTransitionEvent) => {
   if (!event.persisted) destroy();
 };
 const bridge: ReaderFrameBridge = Object.freeze({
-  version: 1,
+  version: 2,
   mount(definition: ReaderDefinition, options: ReaderOptions) {
     if (current) throw new Error("Reader frame already mounted");
     const reader = mountReader(host, definition, options);
@@ -29,6 +29,9 @@ const bridge: ReaderFrameBridge = Object.freeze({
     return Object.freeze({
       ready: reader.ready,
       dispatch: (command: ReaderCommand) => reader.dispatch(command),
+      getState: reader.getState,
+      subscribe: reader.subscribe,
+      snapshot: reader.snapshot,
       destroy: () => {
         if (current === reader) destroy();
         else reader.destroy();

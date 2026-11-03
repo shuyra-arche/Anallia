@@ -123,7 +123,7 @@ test('custom utility capabilities have reachable mobile search results without d
     definition.manifest.definitions.find((h:any)=>h.id==='FIND').glyph='找';
     t.reader=t.mountReader(t.host,definition,{renderer:'svg'});await t.reader.ready;
     return Object.keys(t.reader);
-  })).toEqual(['ready','dispatch','destroy']);
+  })).toEqual(['ready','dispatch','getState','subscribe','snapshot','destroy']);
   await page.locator('[data-command="hud:settings"]').click();await expect(page.locator('#text-log-start')).toBeVisible();
   await page.locator('[data-command="hud:search"]').click();await expect(page.locator('#text-find-start')).toBeVisible();
   const input=page.getByPlaceholder('搜索标题或正文…');
