@@ -6,5 +6,5 @@
     "emitDeclarationOnly": true,
     "rootDir": "src"
   },
-  "include": ["src/reader.ts", "src/embedded-reader.ts", "src/examples/readers.ts", "src/vite-env.d.ts"]
+  "include": ["src/reader.ts", "src/content-builder.ts", "src/embedded-reader.ts", "src/examples/readers.ts", "src/vite-env.d.ts"]
 }
